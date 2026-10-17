@@ -872,7 +872,7 @@
 
   /* ---------- výber viacerých klipov ---------- */
   const PICK = '<svg viewBox="0 0 16 16"><path d="M4 8.4 6.8 11 12 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  const openEditor = list => Player.open(list.map(c => ({ ...c })), { library: () => S.clips });
+  const openEditor = list => Player.open(list.map(c => ({ ...c })), { library: () => S.clips, autoWin: !!S.settings.autoWinCrop });
   const pickedClips = () => S.clips.filter(c => picked.has(c.path));
   function updPicked() {
     $$('#view-clips .clip').forEach(el => el.classList.toggle('picked', picked.has(el.dataset.path)));
@@ -1232,6 +1232,7 @@
         ${row('Uložiť clip', S.hotkeyErrors.includes('clip') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Funguje aj v hre na celú obrazovku.', `<button class="hk${S.hotkeyErrors.includes('clip') ? ' bad' : ''}" data-hk="clip">${esc(s.hotkeys.clip || 'Nastaviť')}</button>`)}
         ${row('Krátky clip', S.hotkeyErrors.includes('short') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Druhá skratka, ktorá uloží len posledných pár sekúnd. Backspace ju zruší.', `${seg('shortSeconds', [10, 15, 20, 30].map(v => ({ v, l: v + ' s' })), s.shortSeconds || 15)}<button class="hk${S.hotkeyErrors.includes('short') ? ' bad' : ''}" data-hk="short">${esc(s.hotkeys.short || 'Nastaviť')}</button>`)}
         ${row('Spustiť / zastaviť nahrávanie', S.hotkeyErrors.includes('record') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : '', `<button class="hk${S.hotkeyErrors.includes('record') ? ' bad' : ''}" data-hk="record">${esc(s.hotkeys.record || 'Nastaviť')}</button>`)}
+        ${row('Značka', S.hotkeyErrors.includes('mark') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Označí zaujímavý moment počas hrania alebo nahrávania. V editore naň skočíš klávesou M.', `<button class="hk${S.hotkeyErrors.includes('mark') ? ' bad' : ''}" data-hk="mark">${esc(s.hotkeys.mark || 'Nastaviť')}</button>`)}
         ${row('Skratky v hrách s anti-cheatom', 'LoL, Valorant a podobné hry bežia ako správca a Windows bežným appkám ich klávesy nepustí. Zapni, ak ti skratka v hre nejde. Pri štarte appky sa Windows raz opýta na povolenie.', toggle('hotkeysAdmin', !!s.hotkeysAdmin))}
       </div>
 
@@ -1244,6 +1245,7 @@
         ${row('Enkodér', `<span class="enc-tags">${['h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'h264_amf', 'h264_qsv', 'libx264'].map(k => `<span class="${av[k] ? 'ok' : ''}">${k}</span>`).join('')}</span>`, pb(encName[s.encoder] || encName.auto, encItems, it => save({ encoder: it.v })))}
         ${row('Kodek', 'H.264 otvorí všetko. HEVC a AV1 sú menšie súbory, ale nie každý strihový program ich zvládne.', seg('codec', [{ v: 'h264', l: 'H.264' }, { v: 'hevc', l: 'HEVC', disabled: S.encoders && !codecOk.hevc }, { v: 'av1', l: 'AV1', disabled: S.encoders && !codecOk.av1 }], s.codec))}
         ${row('Kurzor myši', '', toggle('cursor', s.cursor !== false))}
+        ${row('Vyrezať okno hry v editore', 'Keď hráš v okne, editor sa otvorí rovno s výrezom len okna hry (napr. 16:9 zo širokého monitora). Vrátiš to cez Formát → Celá obrazovka.', toggle('autoWinCrop', !!s.autoWinCrop))}
         ${row('Úsporný režim', perfDesc(s), seg('powerSave', [{ v: 'auto', l: 'Automaticky' }, { v: 'on', l: 'Zapnutý' }, { v: 'off', l: 'Vypnutý' }], s.powerSave || 'auto'))}
       </div>
 

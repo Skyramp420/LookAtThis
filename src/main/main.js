@@ -131,7 +131,7 @@ function scanClips() {
     const name = f.replace(VIDEO, '');
     // hru a typ vieme odvodiť aj z názvu súboru (klipy zo starších verzií alebo bez záznamu)
     const kind = m.kind || (/\(\d+ MB\)/.test(name) ? 'small' : /\(strih/.test(name) ? 'cut' : /\(upraven/.test(name) ? 'edit' : /\(orez/.test(name) ? 'trim' : /^nahrávka /i.test(name) ? 'rec' : '');
-    return { path: p, folder, name, ext: path.extname(f).slice(1), size: st.size, mtime: st.mtimeMs, thumb: hasThumb ? th : null, duration: m.duration || 0, game: m.game === '-' ? '' : m.game ? m.game : Games.fromFileName(name), kind, fav: !!m.fav, win: m.win || null };
+    return { path: p, folder, name, ext: path.extname(f).slice(1), size: st.size, mtime: st.mtimeMs, thumb: hasThumb ? th : null, duration: m.duration || 0, game: m.game === '-' ? '' : m.game ? m.game : Games.fromFileName(name), kind, fav: !!m.fav, win: m.win || null, marks: m.marks || null };
   }).filter(Boolean).sort((a, b) => b.mtime - a.mtime);
 }
 async function pumpThumbs() {
@@ -271,7 +271,8 @@ async function saveClip(seconds) {
     const winP = windowRegion();
     const r = await engine.saveClip(store.get().clipsDir, seconds);
     const region = await winP;
-    store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip', ...(region ? { win: region } : {}) });
+    const end = Date.now(), mk = marksIn(end - r.seconds * 1000, end);
+    store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip', ...(region ? { win: region } : {}), ...(mk.length ? { marks: mk } : {}) });
     announce(r, 'Clip uložený');
   } catch (e) {
     log.warn('clip', e.message);
@@ -284,8 +285,9 @@ async function saveClip(seconds) {
 async function toggleRecord() {
   try {
     if (engine.recording) {
+      const since = engine.recording.since;
       const r = await engine.stopRecording(store.get().clipsDir);
-      if (r) { store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'rec' }); announce(r, 'Nahrávka uložená'); }
+      if (r) { const mk = marksIn(since, since + r.seconds * 1000); store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'rec', ...(mk.length ? { marks: mk } : {}) }); announce(r, 'Nahrávka uložená'); }
       if (!store.get().bufferEnabled) await engine.stop();
     } else {
       await engine.startRecording();
@@ -665,6 +667,17 @@ function accelToVk(acc) {
 /* skratky: hlavne si ich sleduje fxkeys.exe (funguje aj nad hrou bežiacou ako správca),
    globalShortcut ostáva ako záloha; spoločný zámok zabráni dvojitému spusteniu */
 let keysProc = null, lastFire = {};
+/* značky: časy (ms), keď si stlačil skratku značky; pri uložení klipu/nahrávky sa prepočítajú na čas vo videu */
+let marks = [];
+function addMark() {
+  const now = Date.now();
+  marks = marks.filter(t => now - t < 3 * 3600e3 || (engine.recording && t >= engine.recording.since));
+  marks.push(now);
+  playSound('tick');
+  showOverlay({ kind: 'mark', title: 'Značka', sub: engine.recording ? 'v nahrávke ' + fmtSecs((now - engine.recording.since) / 1000) : 'nájdeš ju v editore', ms: 1100 });
+}
+function fmtSecs(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function marksIn(from, to) { return marks.filter(t => t >= from && t <= to).map(t => +((t - from) / 1000).toFixed(2)); }
 function fireHotkey(id) {
   const now = Date.now();
   if (now - (lastFire[id] || 0) < 700) return;
@@ -673,6 +686,7 @@ function fireHotkey(id) {
   if (id === 'clip') saveClip();
   else if (id === 'record') toggleRecord();
   else if (id === 'short') saveClip(store.get().shortSeconds || 15);
+  else if (id === 'mark') addMark();
 }
 /* skratky so zvýšenými právami: hry s anti-cheatom (LoL/Vanguard, Valorant…) bežia ako správca a Windows
    bežnej appke ich klávesy nepustí. fxkeys sa vtedy spustí ako správca (raz sa opýta UAC) a hlási cez rúru. */
@@ -730,7 +744,7 @@ function registerHotkeys() {
   hotkeyErrors = [];
   const hk = store.get().hotkeys;
   const args = [];
-  for (const id of ['clip', 'record', 'short']) {
+  for (const id of ['clip', 'record', 'short', 'mark']) {
     const key = hk[id];
     if (!key) continue;
     try { if (!globalShortcut.register(key, () => fireHotkey(id))) hotkeyErrors.push(id); } catch (e) { hotkeyErrors.push(id); }
@@ -821,7 +835,14 @@ function createWindow(show) {
     e.preventDefault(); win.hide();
     // skryté okno o minútu úplne zavri: na pozadí ostane len malý hlavný proces (ušetrí ~100 MB RAM)
     clearTimeout(winKill);
-    winKill = setTimeout(() => { if (win && !win.isDestroyed() && !win.isVisible()) { win.destroy(); win = null; } }, 60000);
+    const kill = () => {
+      if (!win || win.isDestroyed() || win.isVisible()) return;
+      // otvorený editor (neuložený strih) nezahadzuj, skús neskôr
+      win.webContents.executeJavaScript("typeof Player !== 'undefined' && Player.busy ? Player.busy() : false")
+        .then(busy => { if (busy) winKill = setTimeout(kill, 60000); else if (win && !win.isDestroyed() && !win.isVisible()) { win.destroy(); win = null; } })
+        .catch(() => { });
+    };
+    winKill = setTimeout(kill, 60000);
   });
   win.on('closed', () => { win = null; });
 }

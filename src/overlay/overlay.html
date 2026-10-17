@@ -163,6 +163,7 @@
         case 'beep': case 'saved': tone(880, t, 0.22, 0.25 * v); tone(1318.5, t + 0.09, 0.22, 0.25 * v); break;
         case 'trash': [[523, 0.62], [392, 0.7], [196, 0.78]].forEach(([f, d]) => tone(f, t + d, 0.22, 0.25 * v)); break;
         case 'rec': tone(660, t, 0.18, 0.25 * v); tone(660, t + 0.12, 0.18, 0.25 * v); break;
+        case 'tick': tone(1568, t, 0.07, 0.2 * v); break;
         case 'stop': tone(880, t, 0.2, 0.25 * v); tone(587, t + 0.1, 0.2, 0.25 * v); break;
         default: tone(220, t, 0.22, 0.25 * v, 'triangle'); tone(196, t + 0.12, 0.22, 0.25 * v, 'triangle');
       }

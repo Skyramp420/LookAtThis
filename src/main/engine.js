@@ -9,7 +9,8 @@ const path = require('path');
 const Games = require('../shared/games');
 const SEG = 2; // dĺžka segmentu v sekundách = aj interval kľúčových snímok
 
-const QUALITY = { high: 19, medium: 23, low: 27 };
+// vysoká = cq 21: vizuálne takmer rovnaké ako 19, ale zhruba polovičný zápis na disk
+const QUALITY = { high: 21, medium: 24, low: 28 };
 const ENCODERS = {
   nvenc: { h264: 'h264_nvenc', hevc: 'hevc_nvenc', av1: 'av1_nvenc', zeroCopy: true },
   amf: { h264: 'h264_amf', hevc: 'hevc_amf', zeroCopy: true },
@@ -109,7 +110,7 @@ class Engine extends EventEmitter {
     const out = [];
     if (filters.length) out.push('-vf', filters.join(','));
     out.push('-c:v', enc.name);
-    if (enc.fam === 'nvenc') out.push('-preset', save ? 'p2' : 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', String(q), '-b:v', '0', '-maxrate', save ? '40M' : '90M', '-bufsize', save ? '80M' : '180M', '-forced-idr', '1');
+    if (enc.fam === 'nvenc') out.push('-preset', save ? 'p2' : 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', String(q), '-b:v', '0', '-maxrate', save ? '40M' : '60M', '-bufsize', save ? '80M' : '120M', '-forced-idr', '1');
     else if (enc.fam === 'amf') out.push('-quality', save ? 'speed' : 'balanced', '-rc', 'cqp', '-qp_i', String(q), '-qp_p', String(q + 2));
     else if (enc.fam === 'qsv') out.push('-preset', save ? 'veryfast' : 'faster', '-global_quality', String(q));
     else out.push('-preset', save ? 'ultrafast' : 'superfast', '-tune', 'zerolatency', '-crf', String(q + 3), '-threads', '0');

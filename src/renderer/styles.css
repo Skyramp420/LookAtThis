@@ -1114,3 +1114,4 @@ body.flying, body.flying * { cursor: grabbing !important; }
 .rg-h.nw { top: -7px; left: -7px; cursor: nwse-resize; } .rg-h.se { bottom: -7px; right: -7px; cursor: nwse-resize; }
 .rg-bar { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; border-radius: 12px; background: var(--material); backdrop-filter: saturate(1.8) blur(24px); box-shadow: var(--pop-shadow); color: var(--text); white-space: nowrap; animation: popin .26s var(--spring) both; }
 .rg-bar span { font-size: 12.5px; color: var(--muted); margin-right: 6px; }
+.tlx-ruler .mk { position: absolute; top: 2px; width: 0; height: 0; margin-left: -6px; border: 6px solid transparent; border-top: 9px solid var(--accent); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .35)); pointer-events: none; }

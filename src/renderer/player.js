@@ -97,14 +97,16 @@ window.Player = (function () {
     set(k, v) { try { localStorage.setItem('clipit.' + k, JSON.stringify(v)); } catch (e) { } }
   };
   const KEYS = [
-    ['Prehrávanie', [['Medzerník', 'Prehrať / pozastaviť'], ['← →', 'Posun o 10 snímok (Shift = 1 s, Alt = 1 snímka)'], ['Home / End', 'Na začiatok / koniec']]],
+    ['Prehrávanie', [['Medzerník', 'Prehrať / pozastaviť'], ['← →', 'Posun o 10 snímok (Shift = 1 s, Alt = 1 snímka)'], ['Home / End', 'Na začiatok / koniec'], ['M / Shift+M', 'Na ďalšiu / predošlú značku']]],
     ['Strih', [['S', 'Rozdeliť na pozícii prehrávania'], ['Q', 'Odstrihnúť všetko pred prehrávaním'], ['W', 'Odstrihnúť všetko za prehrávaním'], ['Ctrl+D', 'Duplikovať úsek'], ['Delete', 'Odstrániť vybraný úsek alebo objekt']]],
     ['Text a šípky', [['T', 'Text (klikni do videa)'], ['A', 'Šípka (ťahaj vo videu)'], ['Koliesko', 'Nad objektom mení veľkosť'], ['Dvojklik', 'Na text = upraviť ho']]],
     ['Ostatné', [['Ctrl+Z / Ctrl+Y', 'Späť / znova'], ['Ctrl + koliesko', 'Priblížiť časovú os'], ['N', 'Prichytávanie zap. / vyp. (Alt pri ťahaní ho dočasne vypne)'], ['Esc', 'Zrušiť výber']]]
   ];
 
   /* clips: jeden klip alebo pole klipov (poradie = poradie na osi); opts.library() vráti klipy z knižnice */
+  let openEd = 0; // počet otvorených editorov (okno appky sa vtedy na pozadí nezatvára)
   function open(clips, opts = {}) {
+    openEd++;
     clips = (Array.isArray(clips) ? clips : [clips]).map(c => ({ ...c }));
     const sources = new Map();
     let segs = [], overlays = [], mixer = [], T = 0, titles = [];
@@ -248,6 +250,8 @@ window.Player = (function () {
       }
       const first = sources.get(segs[0].src);
       SW = (first.width || 1920); SH = (first.height || 1080); FPS = first.fps || 60;
+      // automatický výrez okna hry (nastavenie); vráti sa cez Formát → Celá obrazovka
+      if (opts.autoWin) { const wr = winRegion(); if (wr) RG = { x: wr.x, y: wr.y, w: wr.w, h: wr.h }; }
       dims(); layoutFrame(); renderFormat();
       rebuildTracks();
       $('#loading', m).classList.add('gone');
@@ -674,7 +678,23 @@ window.Player = (function () {
       const lab = x => step >= 1 ? dur(x) : `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}.${Math.round((x % 1) * 10)}`;
       for (let x = 0; x <= D + 1e-6; x += step) html += `<span style="left:${x * pps}px">${lab(x)}</span>`;
       for (let x = step / 2; x <= D + 1e-6; x += step) html += `<i style="left:${x * pps}px"></i>`;
+      for (const mk of markTimes()) html += `<b class="mk" style="left:${mk * pps}px" title="Značka · ${durMs(mk)} (M = ďalšia)"></b>`;
       $('#ruler', m).innerHTML = html;
+    }
+    /* značky zo skratky počas hrania: čas na výslednej osi (cez všetky úseky, s rýchlosťou) */
+    function markTimes() {
+      const out = []; let a = 0;
+      for (const s of segs) {
+        const src = sources.get(s.src);
+        for (const k of (src && src.marks) || []) if (k >= s.in && k <= s.out) out.push(a + (k - s.in) / sp(s));
+        a += sd(s);
+      }
+      return out.sort((x, y) => x - y);
+    }
+    function jumpMark(dir) {
+      const ms = markTimes(); if (!ms.length) { showHint('V klipe nie sú žiadne značky. Pridáš ich skratkou Značka počas hrania.', 2600); return; }
+      const nx = dir > 0 ? ms.find(x => x > t + 0.05) : [...ms].reverse().find(x => x < t - 0.05);
+      seek(nx != null ? nx : (dir > 0 ? ms[0] : ms[ms.length - 1]), false);
     }
     function renderSegs() {
       $('#laneV', m).innerHTML = segs.map((s, n) => {
@@ -770,6 +790,7 @@ window.Player = (function () {
       for (const s of segs) { a += sd(s); pts.push(a); }
       if (withHead) pts.push(t);
       for (const o of overlays) if (o !== skipOv) pts.push(o.start, o.end);
+      pts.push(...markTimes());
       return pts;
     }
     function snapTo(time, pts) {
@@ -1622,6 +1643,7 @@ window.Player = (function () {
 
     /* ================= klávesy a upratanie ================= */
     function cleanup() {
+      if (!closed) openEd = Math.max(0, openEd - 1);
       closed = true;
       playing = false; cancelAnimationFrame(raf); cancelAnimationFrame(mraf); cancelAnimationFrame(prevRaf);
       for (const s of sources.values()) {
@@ -1654,6 +1676,7 @@ window.Player = (function () {
       else if (k === 'q') trimTo('l');
       else if (k === 'w') trimTo('r');
       else if (k === 'n') setSnap(!snapOn);
+      else if (k === 'm') jumpMark(e.shiftKey ? -1 : 1);
       else if (k === 't') { if (playing) pause(); setTool('text'); }
       else if (k === 'a') { if (playing) pause(); setTool('arrow'); }
       else if (e.key === '?') showHelp();
@@ -1673,5 +1696,5 @@ window.Player = (function () {
     init().catch(e => { toast('error', 'Editor sa nepodarilo otvoriť', e.message); closeModal(true); });
   }
 
-  return { open, _onEvent: null };
+  return { open, busy: () => openEd > 0, _onEvent: null };
 })();
