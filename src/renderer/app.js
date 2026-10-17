@@ -346,8 +346,9 @@
       : `<i class="gav ${cls}" style="--h:${hue(key)}">${esc((key[0] || '?').toUpperCase())}</i>`;
   }
 
-  function renderClips() {
+  function renderClips(keep) {
     const root = $('#view-clips');
+    root.classList.toggle('quiet', !!keep);
     for (const p of [...picked]) if (!S.clips.some(c => c.path === p)) picked.delete(p);
     if (folderF && !(S.folders || []).includes(folderF)) { folderF = ''; LS.set('folder', ''); }
     if (folderF && !here().length && !query) {
@@ -405,7 +406,7 @@
     $('#qx', root).onclick = () => { query = ''; qi.value = ''; $('#qx', root).hidden = true; renderResults(); qi.focus(); };
     $('#openDir', root).onclick = () => api.action('openFolder', { folder: folderF });
     if (qFocus) { qi.focus(); qi.setSelectionRange(qFocus[0], qFocus[1]); }
-    renderResults();
+    renderResults(!!keep);
   }
 
   /* nápoveda pod vyhľadávaním: klik pridá výraz */
@@ -432,9 +433,13 @@
     const byPath = new Map(S.clips.map(c => [c.path, c]));
     $$('#view-clips .clip').forEach(el => {
       const c = byPath.get(el.dataset.path), ph = el.querySelector('.thumb .ph');
-      if (!c || !c.thumb || !ph) return;
-      const img = document.createElement('img'); img.src = fileUrl(c.thumb); img.alt = ''; img.loading = 'lazy'; img.draggable = false; img.className = 'fadein';
-      ph.replaceWith(img);
+      if (!c) return;
+      if (c.thumb && ph) {
+        const img = document.createElement('img'); img.src = fileUrl(c.thumb); img.alt = ''; img.loading = 'lazy'; img.draggable = false; img.className = 'fadein';
+        ph.replaceWith(img);
+      }
+      // dĺžka sa zistí spolu s náhľadom → len dopíš štítok
+      if (c.duration && !el.querySelector('.thumb .dur')) el.querySelector('.thumb').insertAdjacentHTML('beforeend', `<span class="dur">${dur(c.duration)}</span>`);
     });
   }
   /* veľká knižnica: vykresli najprv 150 kariet, ďalšie pri dorolovaní */
@@ -1338,8 +1343,14 @@
     if (busy() || document.querySelector('.pop-menu')) return;
     // klipy prekresli len keď sa naozaj zmenili (inak by karty pri každej zmene stavu znova naskakovali)
     // náhľady pribúdajú po dávkach: vtedy len doplň obrázky, celú knižnicu neprekresľuj
-    const sig = (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + c.duration + c.game + (c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
-    if (view === 'clips') { if (sig !== lastSig) { lastSig = sig; renderClips(); } else patchThumbs(); } else if (view === 'audio') renderAudio(); else renderSettings();
+    const sig = (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + c.game + (c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
+    if (view === 'clips') {
+      if (sig !== lastSig) {
+        // zmena na pozadí (nový clip, presun…): prekresli potichu, bez nábehovej animácie a so zachovaným posunom
+        const sc = $('#view-clips'), top = sc.scrollTop, quiet = !!lastSig;
+        lastSig = sig; renderClips(quiet); sc.scrollTop = top;
+      } else patchThumbs();
+    } else if (view === 'audio') renderAudio(); else renderSettings();
   });
   api.on('levels', d => {
     lastLevels = d.levels;
