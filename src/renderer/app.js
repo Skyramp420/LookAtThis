@@ -229,6 +229,7 @@
   };
   let folderF = LS.get('folder', ''), dragPaths = null, dragAt = 0;
   const here = () => S.clips.filter(c => (c.folder || '') === folderF);
+  let dateR = null; // rozsah dátumov z kalendára
   let gameF = LS.get('gameF', ''), sortBy = LS.get('sort', 'new'), groupBy = LS.get('group', 'day');
   filter = LS.get('kind', 'all');
   const KIND_WORDS = { small: 'zmensene zmenseny discord mensie upravene',  rec: 'nahravka nahravky recording rec', trim: 'orez trim upravene', edit: 'upravene uprava edit', cut: 'strih strihy spojene cut upravene', clip: 'clip clipy klip klipy' };
@@ -314,6 +315,7 @@
       if (filter === 'cut') filter = 'edited';
       const edited = ['cut', 'edit', 'trim', 'small'].includes(c.kind || '');
       if (filter !== 'all' && (filter === 'clip' ? (edited || c.kind === 'rec') : filter === 'edited' ? !edited : c.kind !== filter)) return false;
+      if (dateR && !Cal.inRange(c.mtime, dateR)) return false;
       if (gameF === '__fav' && !c.fav) return false;
       if (gameF === '__none' && c.game) return false;
       if (gameF && gameF[0] !== '_' && gname(c.game) !== gameF) return false;
@@ -389,6 +391,7 @@
       <div class="tools">
         <label class="search qbox">${I.search}<input id="q" placeholder="Hľadať názov, hru, dátum…  (Ctrl+F)" value="${esc(query)}" spellcheck="false" autocomplete="off"><button class="qx" id="qx" aria-label="Vymazať"${query ? '' : ' hidden'}>${I.x}</button></label>
         ${seg('filter', [{ v: 'all', l: 'Všetko' }, { v: 'clip', l: 'Clipy' }, { v: 'rec', l: 'Nahrávky' }, { v: 'edited', l: 'Upravené' }], filter === 'cut' ? 'edited' : filter)}
+        <button class="btn date-chip${dateR ? ' on' : ''}" id="dateBtn" title="Vybrať dátum alebo rozsah dátumov">${I.cal}<span>${dateR ? esc(Cal.label(dateR)) : 'Dátum'}</span>${dateR ? `<i class="dx" id="dateX" title="Zrušiť">${I.x}</i>` : ''}</button>
         <span class="grow"></span>
         ${pb(SORTS[sortBy], () => Object.entries(SORTS).map(([v, l]) => ({ label: l, v, checked: v === sortBy })), it => { sortBy = it.v; LS.set('sort', sortBy); renderClips(); }, 'title="Zoradiť"')}
         ${pb(GROUPS[groupBy], () => Object.entries(GROUPS).map(([v, l]) => ({ label: l, v, checked: v === groupBy })), it => { groupBy = it.v; LS.set('group', groupBy); renderClips(); }, 'title="Zoskupiť"')}
@@ -404,6 +407,10 @@
     qi.addEventListener('blur', () => setTimeout(() => { const h = $('#qhint'); if (h) h.hidden = true; }, 150));
     qi.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); if (query) { query = ''; qi.value = ''; $('#qx', root).hidden = true; renderResults(); } else qi.blur(); } });
     $('#qx', root).onclick = () => { query = ''; qi.value = ''; $('#qx', root).hidden = true; renderResults(); qi.focus(); };
+    $('#dateBtn', root).onclick = e => {
+      if (e.target.closest('#dateX')) { dateR = null; renderClips(); return; }
+      Cal.open(e.currentTarget, { range: dateR, counts: () => Cal.countsOf(S.clips) }, r => { dateR = r; renderClips(); });
+    };
     $('#openDir', root).onclick = () => api.action('openFolder', { folder: folderF });
     if (qFocus) { qi.focus(); qi.setSelectionRange(qFocus[0], qFocus[1]); }
     renderResults(!!keep);

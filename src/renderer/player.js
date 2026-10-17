@@ -438,7 +438,7 @@ window.Player = (function () {
       if ((d.aspect || 'orig') !== aspect) { aspect = d.aspect || 'orig'; OW = outW(); layoutFrame(); renderFormat(); }
       selSeg = selSeg && segs.find(s => s.id === selSeg.id) || null;
       sel = sel && overlays.find(o => o.id === sel.id) || null;
-      fitZoom(true); renderAll(); seek(Math.min(t, total()), false);
+      refit(300); renderAll(); seek(Math.min(t, total()), false);
     }
     function undo() { if (!undoStack.length) return; redoStack.push(snap()); restore(undoStack.pop()); updUndo(); }
     function redo() { if (!redoStack.length) return; undoStack.push(snap()); restore(redoStack.pop()); updUndo(); }
@@ -469,7 +469,7 @@ window.Player = (function () {
       const at = segStart(seg);
       if (side === 'l') seg.in = local; else seg.out = local;
       selSeg = seg; clampOverlays();
-      fitZoom(true); renderAll();
+      refit(300); renderAll();
       seek(side === 'l' ? at : at + sd(seg) - 0.01, false);
       flash(seg.id);
     }
@@ -481,20 +481,20 @@ window.Player = (function () {
       segs.splice(segs.indexOf(seg), 1);
       selSeg = null;
       clampOverlays();
-      fitZoom(true); renderAll(); seek(Math.min(at, total()), false);
+      refit(300); renderAll(); seek(Math.min(at, total()), false);
     }
     function duplicate(seg) {
       if (!seg) return;
       remember();
       const c = { ...seg, id: 's' + (++seq) };
       segs.splice(segs.indexOf(seg) + 1, 0, c);
-      selSeg = c; fitZoom(true); renderAll(); seek(segStart(c), false); flash(c.id);
+      selSeg = c; refit(300); renderAll(); seek(segStart(c), false); flash(c.id);
     }
     function resetSeg(seg) {
       const src = sources.get(seg.src);
       if (seg.in === 0 && seg.out >= src.duration - 0.01) return;
       remember(); seg.in = 0; seg.out = src.duration;
-      fitZoom(true); renderAll(); seek(segStart(seg), false); flash(seg.id);
+      refit(300); renderAll(); seek(segStart(seg), false); flash(seg.id);
     }
     function clampOverlays() { const D = total(); overlays.forEach(o => { o.end = Math.min(o.end, D); o.start = Math.min(o.start, Math.max(0, o.end - 0.2)); }); }
     $('#bSplit', m).onclick = split;
@@ -504,7 +504,46 @@ window.Player = (function () {
     function flash(id) { const el = $(`.sg[data-id="${id}"]`, m); if (el) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } }
 
     /* ================= časová os ================= */
+    /* po úprave sa mierka osi neprepne hneď: chvíľu ostane stáť (nič ti neutečie spod kurzora)
+       a po krátkej pauze sa plynulo dopasuje na novú dĺžku */
+    let fitTimer = 0, fitAnim = 0, fitRatio = 1, fitPend = false, fitTarget = 0;
+    function stopFit() { clearTimeout(fitTimer); fitTimer = 0; cancelAnimationFrame(fitAnim); fitAnim = 0; fitPend = false; }
+    /* používateľ siahol na os: nič sa už nehýbe (rozbehnuté dopasovanie sa dokončí hneď, čakajúce počká na ďalšiu úpravu) */
+    function holdFit() {
+      if (fitAnim) { cancelAnimationFrame(fitAnim); fitAnim = 0; pps = fitTarget; syncZoom(); layoutAll(); fitPend = false; }
+      else if (fitTimer) {
+        clearTimeout(fitTimer); fitTimer = 0;
+        const resume = () => { removeEventListener('pointerup', resume, true); if (fitPend && !fitTimer && !fitAnim) fitTimer = setTimeout(animateFit, 500); };
+        addEventListener('pointerup', resume, true);
+      }
+    }
+    tlx.addEventListener('pointerdown', holdFit, true);
+    function refit(delay = 650) {
+      if (!fitPend) { fitRatio = fitPps && pps ? pps / fitPps : 1; fitPend = true; }
+      cancelAnimationFrame(fitAnim); fitAnim = 0; clearTimeout(fitTimer);
+      fitTimer = setTimeout(animateFit, delay);
+    }
+    function animateFit() {
+      fitTimer = 0;
+      const w = scroller.clientWidth - 2, D = Math.max(0.5, total());
+      const nf = w / D, target = fitRatio > 1.02 ? nf * fitRatio : nf;
+      fitPps = nf; fitTarget = target;
+      const from = pps, t0 = performance.now(), dur0 = 380;
+      if (Math.abs(target - from) < 0.01) { pps = target; syncZoom(); layoutAll(); fitPend = false; return; }
+      const left0 = scroller.scrollLeft / from;
+      const step = now => {
+        const k = Math.min(1, (now - t0) / dur0), e = 1 - Math.pow(1 - k, 3);
+        pps = from + (target - from) * e;
+        syncZoom(); layoutAll();
+        scroller.scrollLeft = k < 1 ? left0 * pps : (fitRatio > 1.02 ? Math.min(left0 * pps, Math.max(0, scroller.scrollWidth - scroller.clientWidth)) : 0);
+        fitAnim = k < 1 ? requestAnimationFrame(step) : 0;
+        if (k >= 1) fitPend = false;
+      };
+      fitAnim = requestAnimationFrame(step);
+    }
+    function syncZoom() { const z = $('#zoom', m); z.value = Math.round(Math.log(Math.max(1, pps / fitPps)) / Math.log(40) * 100); z.style.setProperty('--p', z.value + '%'); }
     function fitZoom(keep) {
+      stopFit();
       const w = scroller.clientWidth - 2;
       const D = Math.max(0.5, total());
       const ratio = fitPps && pps ? pps / fitPps : 1;
@@ -514,6 +553,7 @@ window.Player = (function () {
       const z = $('#zoom', m); z.value = Math.round(Math.log(pps / fitPps) / Math.log(40) * 100); z.style.setProperty('--p', z.value + '%');
     }
     function setZoom(np, anchorX) {
+      if (fitPend) { stopFit(); fitPps = (scroller.clientWidth - 2) / Math.max(0.5, total()); if (anchorX == null) anchorX = 0; }
       const at = (scroller.scrollLeft + anchorX) / pps;
       pps = Math.max(fitPps, Math.min(fitPps * 40, np));
       const z = $('#zoom', m); z.value = Math.round(Math.log(pps / fitPps) / Math.log(40) * 100); z.style.setProperty('--p', z.value + '%');
@@ -700,7 +740,7 @@ window.Player = (function () {
           const diff = sd(seg) - len0;
           showTip((edge === 'l' ? segStart(seg) : segStart(seg) + sd(seg)) * pps, `${dur(sd(seg))} <i>${diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(1).replace('.', ',')} s</i>`);
         };
-        up = () => { sgEl.classList.remove('trimming'); clampOverlays(); fitZoom(true); layoutAll(); if (tab === 'seg') renderSegPane(); };
+        up = () => { sgEl.classList.remove('trimming'); clampOverlays(); refit(); layoutAll(); if (tab === 'seg') renderSegPane(); };
       } else if (sgEl) { // výber + presun poradia
         const seg = segs.find(s => s.id === sgEl.dataset.id);
         const x0 = e.clientX;
@@ -757,21 +797,66 @@ window.Player = (function () {
     /* ================= pridanie klipu ================= */
     $('#bAdd', m).onclick = () => {
       const lib = (opts.library ? opts.library() : []).filter(c => !/\.mkv$/i.test(c.path));
+      const SORT = { new: 'Najnovšie', old: 'Najstaršie', long: 'Najdlhšie', name: 'Podľa názvu' };
+      const cmp = { new: (x, y) => y.mtime - x.mtime, old: (x, y) => x.mtime - y.mtime, long: (x, y) => (y.duration || 0) - (x.duration || 0), name: (x, y) => x.name.localeCompare(y.name, 'sk', { numeric: true }) };
+      const nz = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      let q = '', sortK = 'new', range = null;
+      const order = [];
+      const inSeq = new Set(segs.map(x => x.src));
       const pk = showLayer(`<div class="pk">
         <div class="pk-h"><h3>Pridať klip na koniec</h3><span class="ed-sub">Vyber jeden alebo viac, pridajú sa v poradí, ako klikáš</span></div>
-        <div class="pk-grid">${lib.map(c => `<button class="pk-c" data-p="${esc(c.path)}">
-          <div class="pk-t">${c.thumb ? `<img src="${esc(fileUrl(c.thumb))}" alt="">` : I.film}<i class="pk-n"></i>${c.duration ? `<span class="dur">${dur(c.duration)}</span>` : ''}</div>
-          <b>${esc(c.name)}</b><small>${esc(dayLabel(c.mtime))} ${esc(time(c.mtime))}</small></button>`).join('') || '<div class="ed-empty">Knižnica je prázdna.</div>'}</div>
-        <div class="acts"><button class="btn" data-a="no">Zrušiť</button><button class="btn primary" data-a="yes" disabled>Pridať</button></div></div>`);
-      const order = [];
-      pk.querySelectorAll('.pk-c').forEach(b => b.onclick = () => {
+        <div class="pk-bar">
+          <label class="search pk-q">${I.search}<input id="pkQ" placeholder="Hľadať názov, hru, dátum…" spellcheck="false" autocomplete="off"><button class="qx" id="pkQx" aria-label="Vymazať" hidden>${I.x}</button></label>
+          <button class="btn date-chip" id="pkDate" title="Vybrať dátum alebo rozsah dátumov">${I.cal}<span>Dátum</span></button>
+          <button class="pb" id="pkSort" type="button"><span>${SORT[sortK]}</span>${I.chev}</button>
+        </div>
+        <div class="pk-grid" id="pkGrid"></div>
+        <div class="pk-foot"><span class="pk-sum" id="pkSum"></span><div class="acts"><button class="btn" data-a="no">Zrušiť</button><button class="btn primary" data-a="yes" disabled>Pridať</button></div></div></div>`, 'pk-layer');
+      const grid = pk.querySelector('#pkGrid');
+      const view = () => lib.filter(c => {
+        if (range && !Cal.inRange(c.mtime, range)) return false;
+        if (!q) return true;
+        const d = new Date(c.mtime), h = nz([c.name, c.game, dayLabel(c.mtime), `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`, `${d.getDate()}. ${d.getMonth() + 1}.`].join(' '));
+        return q.split(/\s+/).every(w => h.includes(w));
+      }).sort(cmp[sortK]);
+      function paintSel() {
+        grid.querySelectorAll('.pk-c').forEach(x => { const k = order.indexOf(x.dataset.p); x.classList.toggle('on', k >= 0); x.querySelector('.pk-n').textContent = k >= 0 ? k + 1 : ''; });
+        const y = pk.querySelector('[data-a=yes]'); y.disabled = !order.length; y.textContent = order.length > 1 ? `Pridať ${order.length}` : 'Pridať';
+        const secs = order.reduce((t, p) => t + ((lib.find(x => x.path === p) || {}).duration || 0), 0);
+        pk.querySelector('#pkSum').textContent = order.length ? `Vybrané: ${order.length}${secs ? ' · ' + dur(secs) : ''}` : `${shown} z ${lib.length} klipov`;
+      }
+      let shown = 0;
+      function paintGrid() {
+        const list = view(); shown = list.length;
+        grid.innerHTML = list.map(c => `<button class="pk-c" data-p="${esc(c.path)}">
+          <div class="pk-t">${c.thumb ? `<img src="${esc(fileUrl(c.thumb))}" alt="" loading="lazy" decoding="async">` : I.film}<i class="pk-n"></i>${c.duration ? `<span class="dur">${dur(c.duration)}</span>` : ''}${inSeq.has(c.path) ? '<em class="pk-in">Už je na osi</em>' : ''}</div>
+          <b>${esc(c.name)}</b><small>${esc(dayLabel(c.mtime))} ${esc(time(c.mtime))}</small></button>`).join('') ||
+          `<div class="ed-empty">${lib.length ? 'Nič sa nenašlo. Skús iné slovo alebo rozsah dátumov.' : 'Knižnica je prázdna.'}</div>`;
+        paintSel();
+      }
+      grid.addEventListener('click', e => {
+        const b = e.target.closest('.pk-c'); if (!b) return;
         const p = b.dataset.p, i = order.indexOf(p);
         if (i >= 0) order.splice(i, 1); else order.push(p);
-        pk.querySelectorAll('.pk-c').forEach(x => { const k = order.indexOf(x.dataset.p); x.classList.toggle('on', k >= 0); x.querySelector('.pk-n').textContent = k >= 0 ? k + 1 : ''; });
-        const y = pk.querySelector('[data-a=yes]'); y.disabled = !order.length; y.textContent = order.length > 1 ? `Pridať ${order.length}` : 'Pridať';
+        paintSel();
       });
+      const qi = pk.querySelector('#pkQ'), qx = pk.querySelector('#pkQx');
+      qi.addEventListener('input', () => { q = nz(qi.value).trim(); qx.hidden = !qi.value; paintGrid(); });
+      qx.onclick = () => { qi.value = ''; q = ''; qx.hidden = true; paintGrid(); qi.focus(); };
+      qi.addEventListener('keydown', e => { if (e.key === 'Escape' && qi.value) { e.stopPropagation(); qx.click(); } });
+      pk.querySelector('#pkSort').onclick = e => UI.menu(e.currentTarget, Object.entries(SORT).map(([v, l]) => ({ label: l, v, checked: v === sortK })), it => { sortK = it.v; pk.querySelector('#pkSort span').textContent = SORT[sortK]; paintGrid(); });
+      const dBtn = pk.querySelector('#pkDate');
+      dBtn.onclick = e => {
+        if (e.target.closest('.dx')) { range = null; paintDate(); paintGrid(); return; }
+        Cal.open(dBtn, { range, counts: () => Cal.countsOf(lib) }, r => { range = r; paintDate(); paintGrid(); });
+      };
+      function paintDate() {
+        dBtn.classList.toggle('on', !!range);
+        dBtn.innerHTML = `${I.cal}<span>${range ? esc(Cal.label(range)) : 'Dátum'}</span>${range ? `<i class="dx" title="Zrušiť">${I.x}</i>` : ''}`;
+      }
       pk.querySelector('[data-a=no]').onclick = hideLayer;
       pk.querySelector('[data-a=yes]').onclick = async () => {
+        Cal.close(); UI.closeMenu(true);
         hideLayer();
         if (playing) pause();
         remember();
@@ -786,6 +871,8 @@ window.Player = (function () {
         seek(segStart(segs[segs.length - order.length] || segs[0]), false);
         scroller.scrollLeft = scroller.scrollWidth;
       };
+      paintGrid();
+      setTimeout(() => qi.focus(), 60);
     };
     /* vrstva nad editorom (výber klipu, skratky, ukladanie, neuložené zmeny) */
     let layerClose = null;
@@ -793,7 +880,7 @@ window.Player = (function () {
       layer.className = 'ed-layer ' + cls; layer.innerHTML = html; layer.hidden = false; layerClose = onClose || null;
       return layer;
     }
-    function hideLayer() { if (layer.hidden) return; layer.hidden = true; layer.innerHTML = ''; const f = layerClose; layerClose = null; f && f(); }
+    function hideLayer() { if (layer.hidden) return; Cal.close(); layer.hidden = true; layer.innerHTML = ''; const f = layerClose; layerClose = null; f && f(); }
     layer.addEventListener('mousedown', e => { if (e.target === layer && !layer.classList.contains('locked')) hideLayer(); });
 
     /* ================= postranný panel ================= */
@@ -859,7 +946,7 @@ window.Player = (function () {
       if (sb) {
         remember(); s.speed = Number(sb.dataset.v);
         if (s.speed === 1) delete s.speed;
-        selSeg = s; clampOverlays(); fitZoom(true); layoutAll(); updSel(); seek(segStart(s), false);
+        selSeg = s; clampOverlays(); refit(300); layoutAll(); updSel(); seek(segStart(s), false);
       } else if (ab) {
         const a = ab.dataset.a;
         if (a === 'trimL' || a === 'trimR') trimTo(a === 'trimL' ? 'l' : 'r');
