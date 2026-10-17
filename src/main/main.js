@@ -21,6 +21,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const unpacked = p => p.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep);
 const FFMPEG = unpacked(require('ffmpeg-static'));
 const FXAUDIO = unpacked(path.join(ROOT, 'native', 'fxaudio.exe'));
+const FXKEYS = unpacked(path.join(ROOT, 'native', 'fxkeys.exe'));
 // novšia verzia pomocníka, ktorá sa nedala prepísať, kým appka bežala → vymeň ju pri štarte
 try { const nw = FXAUDIO.replace(/fxaudio\.exe$/, 'fxaudio.new.exe'); if (fs.existsSync(nw)) fs.renameSync(nw, FXAUDIO); } catch (e) { }
 const ICON = unpacked(path.join(ROOT, 'assets', 'icon.png'));
@@ -611,17 +612,66 @@ function copyFileToClipboard(file) {
 }
 
 /* ---------- skratky ---------- */
+const VK_NAMES = { space: 32, enter: 13, return: 13, tab: 9, escape: 27, esc: 27, backspace: 8, delete: 46, insert: 45, home: 36, end: 35, pageup: 33, pagedown: 34, up: 38, down: 40, left: 37, right: 39, plus: 187, ';': 186, '=': 187, ',': 188, '-': 189, '.': 190, '/': 191, '`': 192, '[': 219, '\\': 220, ']': 221, "'": 222, numadd: 107, numsub: 109, nummult: 106, numdiv: 111, numdec: 110 };
+function accelToVk(acc) {
+  let mask = 0, vk = 0;
+  for (const raw of String(acc).split('+')) {
+    const k = raw.trim().toLowerCase();
+    if (!k) continue;
+    if (['ctrl', 'control', 'commandorcontrol', 'cmdorctrl', 'command', 'cmd'].includes(k)) mask |= 1;
+    else if (['alt', 'option', 'altgr'].includes(k)) mask |= 2;
+    else if (k === 'shift') mask |= 4;
+    else if (['super', 'meta', 'win'].includes(k)) mask |= 8;
+    else if (/^f([1-9]|1\d|2[0-4])$/.test(k)) vk = 111 + Number(k.slice(1));
+    else if (/^[a-z]$/.test(k)) vk = k.toUpperCase().charCodeAt(0);
+    else if (/^[0-9]$/.test(k)) vk = k.charCodeAt(0);
+    else if (/^num[0-9]$/.test(k)) vk = 96 + Number(k[3]);
+    else if (VK_NAMES[k]) vk = VK_NAMES[k];
+  }
+  return vk ? { mask, vk } : null;
+}
+
+/* skratky: hlavne si ich sleduje fxkeys.exe (funguje aj nad hrou bežiacou ako správca),
+   globalShortcut ostáva ako záloha; spoločný zámok zabráni dvojitému spusteniu */
+let keysProc = null, lastFire = {};
+function fireHotkey(id) {
+  const now = Date.now();
+  if (now - (lastFire[id] || 0) < 700) return;
+  lastFire[id] = now;
+  log.info('skratka ' + id);
+  if (id === 'clip') saveClip();
+  else if (id === 'record') toggleRecord();
+  else if (id === 'short') saveClip(store.get().shortSeconds || 15);
+}
+function stopKeys() { if (keysProc) { try { keysProc.stdin.end(); keysProc.kill(); } catch (e) { } keysProc = null; } }
 function registerHotkeys() {
   globalShortcut.unregisterAll();
+  stopKeys();
   hotkeyErrors = [];
   const hk = store.get().hotkeys;
-  const reg = (key, fn, id) => {
-    if (!key) return;
-    try { if (!globalShortcut.register(key, fn)) hotkeyErrors.push(id); } catch (e) { hotkeyErrors.push(id); }
-  };
-  reg(hk.clip, () => saveClip(), 'clip');
-  reg(hk.record, () => toggleRecord(), 'record');
-  reg(hk.short, () => saveClip(store.get().shortSeconds || 15), 'short');
+  const args = [];
+  for (const id of ['clip', 'record', 'short']) {
+    const key = hk[id];
+    if (!key) continue;
+    try { if (!globalShortcut.register(key, () => fireHotkey(id))) hotkeyErrors.push(id); } catch (e) { hotkeyErrors.push(id); }
+    const v = accelToVk(key);
+    if (v) args.push(`${id}:${v.mask}:${v.vk}`);
+  }
+  if (process.platform === 'win32' && args.length && fs.existsSync(FXKEYS)) {
+    try {
+      const p = spawn(FXKEYS, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+      keysProc = p;
+      let buf = '';
+      p.stdout.on('data', d => {
+        buf += d; let i;
+        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (l && !l.startsWith('ready')) fireHotkey(l); }
+      });
+      p.on('error', e => log.warn('fxkeys', e.message));
+      p.on('exit', () => { if (keysProc === p) keysProc = null; });
+    } catch (e) { log.warn('fxkeys', e.message); }
+  }
+  // ak sa skratku nepodarilo zaregistrovať cez Windows, ale sleduje ju fxkeys, nie je to chyba
+  if (keysProc) hotkeyErrors = [];
   if (hotkeyErrors.length) log.warn('skratky obsadené', hotkeyErrors);
 }
 
@@ -823,4 +873,4 @@ app.on('before-quit', async e => {
     app.exit(0);
   } else if (store) store.flush();
 });
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => { globalShortcut.unregisterAll(); stopKeys(); });
