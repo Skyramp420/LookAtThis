@@ -226,7 +226,10 @@ function monitors() {
   // poradie v ddagrab = poradie výstupov DXGI; Electron dáva displeje, primárny býva prvý
   const prim = screen.getPrimaryDisplay().id;
   return screen.getAllDisplays().sort((a, b) => (b.id === prim) - (a.id === prim) || a.bounds.x - b.bounds.x)
-    .map((d, i) => ({ idx: i, label: `${i + 1}: ${Math.round(d.size.width * d.scaleFactor)}×${Math.round(d.size.height * d.scaleFactor)}${d.id === prim ? ' (hlavný)' : ''}` }));
+    .map((d, i) => {
+      const w = Math.round(d.size.width * d.scaleFactor), h = Math.round(d.size.height * d.scaleFactor);
+      return { idx: i, w, h, label: `${i + 1}: ${w}×${h}${d.id === prim ? ' (hlavný)' : ''}` };
+    });
 }
 function send(ch, data) { if (win && !win.isDestroyed()) win.webContents.send(ch, data); }
 let pushT = null;
@@ -789,6 +792,8 @@ app.whenReady().then(async () => {
   const s = store.get();
   nativeTheme.themeSource = s.appearance === 'auto' ? 'system' : s.appearance;
   engine = new Engine({ ffmpeg: FFMPEG, fxaudio: FXAUDIO, tmpRoot: TMP, log });
+  // skutočné rozlíšenie monitora v pixeloch (enkodéry majú strop šírky, napr. H.264 do 4096 px)
+  engine.monitorPx = idx => { try { return monitors().find(m => m.idx === (Number(idx) || 0)) || null; } catch (e) { return null; } };
   applyInstalled();
   wrapDetect();
   loadEncCache();

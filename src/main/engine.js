@@ -88,6 +88,9 @@ class Engine extends EventEmitter {
     let q = QUALITY[s.quality] || QUALITY.high;
     let res = s.resolution && s.resolution !== 'native' ? Number(s.resolution) : 0;
     // šetrenie: menej snímok, menšie rozlíšenie, nižšia kvalita (procesor bez HW enkodéra šetríme vždy)
+    // veľmi široké monitory (napr. 5120×1440): H.264 na grafike zvládne najviac 4096 px na šírku, tak obraz zmenšíme na 3840 px
+    const px = this.monitorPx ? this.monitorPx(s.monitor) : null, codecN = s.codec || 'h264';
+    if (px && px.w > 4096 && codecN !== 'hevc' && codecN !== 'av1') res = Math.min(res || 9999, Math.max(2, Math.floor(3840 * px.h / px.w / 2) * 2));
     if (save || cpu) { fps = Math.min(fps, 30); res = Math.min(res || 9999, cpu && save ? 720 : 1080); }
     if (save) q = Math.max(q, QUALITY.medium);
     const g = fps * SEG;

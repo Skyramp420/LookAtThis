@@ -1304,13 +1304,20 @@
   function captureHotkey(btn) {
     const id = btn.dataset.hk;
     btn.classList.add('listening'); btn.textContent = 'Stlač kombináciu…';
+    // názov klávesy: najprv podľa znaku (rešpektuje rozloženie), ak ten nie je písmeno/číslica (napr. slovenský číselný rad s Alt),
+    // tak podľa fyzickej klávesy
+    const CODE = { Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Backquote: '`', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Quote: "'", Semicolon: ';', Space: 'Space', Enter: 'Return', Tab: 'Tab' };
     const keyName = e => {
-      const k = e.key;
+      const k = e.key, c = e.code || '';
       if (/^F\d{1,2}$/.test(k)) return k;
       if (/^[a-z0-9]$/i.test(k)) return k.toUpperCase();
       const map = { ' ': 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', PrintScreen: 'PrintScreen', Pause: 'Pause', ScrollLock: 'Scrolllock' };
       if (map[k]) return map[k];
-      if (e.code.startsWith('Numpad')) return 'num' + e.code.slice(6).toLowerCase().replace('add', 'add').replace('subtract', 'sub').replace('multiply', 'mult').replace('divide', 'div').replace('decimal', 'dec');
+      if (c.startsWith('Numpad')) return 'num' + c.slice(6).toLowerCase().replace('add', 'add').replace('subtract', 'sub').replace('multiply', 'mult').replace('divide', 'div').replace('decimal', 'dec');
+      let m;
+      if ((m = /^Key([A-Z])$/.exec(c))) return m[1];
+      if ((m = /^Digit(\d)$/.exec(c))) return m[1];
+      if (CODE[c]) return CODE[c];
       return null;
     };
     const done = () => { document.removeEventListener('keydown', onKey, true); btn.classList.remove('listening'); setTimeout(renderSettings, 10); };
@@ -1319,7 +1326,7 @@
       if (e.key === 'Escape') return done();
       if (e.key === 'Backspace' && !e.ctrlKey && !e.altKey && !e.shiftKey) { save({ hotkeys: { ...S.settings.hotkeys, [id]: '' } }).then(done); return; }
       if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
-      const k = keyName(e); if (!k) return;
+      const k = keyName(e); if (!k) { btn.textContent = 'Túto klávesu nepoznám, skús inú'; return; }
       const parts = [];
       if (e.ctrlKey) parts.push('Ctrl'); if (e.altKey) parts.push('Alt'); if (e.shiftKey) parts.push('Shift');
       if (!parts.length && !/^F\d+$|^num|^PrintScreen$|^Pause$|^Scrolllock$|^Insert$/.test(k)) { btn.textContent = 'Pridaj Ctrl, Alt alebo Shift'; return; }
