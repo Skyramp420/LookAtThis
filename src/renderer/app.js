@@ -427,8 +427,22 @@
     qi.focus(); qi.setSelectionRange(query.length, query.length);
   });
 
-  function renderResults() {
+  /* doplní náhľady do už vykreslených kariet */
+  function patchThumbs() {
+    const byPath = new Map(S.clips.map(c => [c.path, c]));
+    $$('#view-clips .clip').forEach(el => {
+      const c = byPath.get(el.dataset.path), ph = el.querySelector('.thumb .ph');
+      if (!c || !c.thumb || !ph) return;
+      const img = document.createElement('img'); img.src = fileUrl(c.thumb); img.alt = ''; img.loading = 'lazy'; img.draggable = false; img.className = 'fadein';
+      ph.replaceWith(img);
+    });
+  }
+  /* veľká knižnica: vykresli najprv 150 kariet, ďalšie pri dorolovaní */
+  const PAGE = 150;
+  let renderLimit = PAGE, moreObs = null;
+  function renderResults(more) {
     const box = $('#results'); if (!box) return;
+    if (!more) renderLimit = PAGE;
     const { list, pq } = filtered();
     visible = list.map(c => c.path);
     const filteredOn = !isEmptyQ(pq) || gameF || filter !== 'all';
@@ -436,15 +450,28 @@
     if (!list.length) {
       box.innerHTML = `<div class="empty small"><h2>Nič sa nenašlo</h2><p>${!isEmptyQ(pq) ? 'Skús iné slovo. Hľadá sa v názve, hre, type aj dátume („dnes“, „pondelok“, „16.10.“).' : 'V tomto filtri nie sú žiadne klipy.'}</p><button class="btn" id="clearF">Zrušiť filtre</button></div>`;
     } else {
-      let i = 0;
+      let i = 0, shown = 0;
       const gs = groupsOf(list);
       const st = gameStats();
       box.innerHTML = head + gs.map(g => {
+        if (shown >= renderLimit) return '';
+        const items = g.items.slice(0, renderLimit - shown); shown += items.length;
         const secs = g.items.reduce((a, c) => a + (c.duration || 0), 0);
         const gst = g.game && st.find(x => x.key === g.label);
         const label = g.label ? `<h3>${gst ? avatar(g.label, gst.thumb, 'sm') : ''}${esc(g.label)} <small>${g.items.length} · ${dur(secs)}</small></h3>` : '';
-        return `<section class="day">${label}<div class="grid">${g.items.map(c => card(c, i++, pq.words)).join('')}</div></section>`;
-      }).join('');
+        return `<section class="day">${label}<div class="grid">${items.map(c => card(c, i++, pq.words)).join('')}</div></section>`;
+      }).join('') + (list.length > shown ? `<div class="more-sent" id="moreSent"><div class="mx-load"><i></i><i></i><i></i></div><span>${shown} z ${list.length}</span></div>` : '');
+      if (moreObs) moreObs.disconnect();
+      const sent = $('#moreSent', box);
+      if (sent) {
+        moreObs = new IntersectionObserver(en => {
+          if (!en.some(x => x.isIntersecting)) return;
+          moreObs.disconnect();
+          const sc = $('#view-clips'), top = sc.scrollTop;
+          renderLimit += PAGE; renderResults(true); sc.scrollTop = top;
+        }, { root: $('#view-clips'), rootMargin: '600px' });
+        moreObs.observe(sent);
+      }
     }
     const cf = $('#clearF', box);
     if (cf) cf.onclick = () => { query = ''; gameF = ''; filter = 'all'; LS.set('gameF', ''); LS.set('kind', 'all'); renderClips(); };
@@ -1303,14 +1330,16 @@
   const busy = () => { const a = document.activeElement; return a && (a.matches('input:not([type=checkbox])') || a.classList.contains('listening')) && !a.closest('.tools'); };
 
   api.on('state', st => {
-    const firstClips = !S;
+    const firstClips = !S || S.settings.clipsDir !== st.settings.clipsDir;
     S = st; applyLook();
+    // pri prvom načítaní (aj po zmene priečinka) nie sú všetky klipy „nové“ a nemajú blikať
     if (firstClips) S.clips.forEach(c => seenClips.add(c.path));
     renderChrome();
     if (busy() || document.querySelector('.pop-menu')) return;
     // klipy prekresli len keď sa naozaj zmenili (inak by karty pri každej zmene stavu znova naskakovali)
-    const sig = (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + (c.thumb || '') + c.duration + c.game + (c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
-    if (view === 'clips') { if (sig !== lastSig) { lastSig = sig; renderClips(); } } else if (view === 'audio') renderAudio(); else renderSettings();
+    // náhľady pribúdajú po dávkach: vtedy len doplň obrázky, celú knižnicu neprekresľuj
+    const sig = (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + c.duration + c.game + (c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
+    if (view === 'clips') { if (sig !== lastSig) { lastSig = sig; renderClips(); } else patchThumbs(); } else if (view === 'audio') renderAudio(); else renderSettings();
   });
   api.on('levels', d => {
     lastLevels = d.levels;

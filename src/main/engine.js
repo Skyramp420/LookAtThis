@@ -30,6 +30,8 @@ function run(bin, args, opts = {}) {
   return new Promise(resolve => {
     let err = '';
     const p = spawn(bin, args, { windowsHide: true, ...opts });
+    // náhľady a sondy na pozadí nesmú brať výkon hre
+    if (opts.low) { try { require('os').setPriority(p.pid, require('os').constants.priority.PRIORITY_LOW); } catch (e) { } }
     p.stderr.on('data', d => { err = (err + d).slice(-4000); });
     p.on('error', e => resolve({ code: -1, err: e.message }));
     p.on('close', code => resolve({ code, err }));
@@ -454,9 +456,9 @@ function lastLine(s) {
 
 /* ---------- jednorazové veci pre knižnicu ---------- */
 async function thumbnail(ffmpeg, file, out) {
-  const r = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', '1', '-i', file, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '5', out]);
+  const r = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-threads', '1', '-ss', '1', '-i', file, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '5', out], { low: true });
   if (r.code !== 0) {
-    const r2 = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '5', out]);
+    const r2 = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-threads', '1', '-i', file, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '5', out], { low: true });
     return r2.code === 0;
   }
   return true;

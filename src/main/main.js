@@ -98,7 +98,18 @@ function moveClipFile(from, toDir) {
   try { const a = thumbFile(from, st.mtimeMs), b = thumbFile(to, fs.statSync(to).mtimeMs); if (fs.existsSync(a)) fs.renameSync(a, b); } catch (e) { }
   return to;
 }
+/* zoznam klipov je v pamäti: pri tisíckach súborov by čítanie disku pri každej zmene stavu brzdilo appku.
+   Obnoví sa, keď sa niečo zmení (akcia, uložený clip, nový náhľad, zmena v priečinku na disku). */
+let clipCache = null, clipRev = 0, queued = new Set();
+const invalidateClips = () => { clipCache = null; };
 function listClips() {
+  if (clipCache && clipCache.dir === store.get().clipsDir) return clipCache.list;
+  const list = scanClips();
+  clipCache = { dir: store.get().clipsDir, list }; clipRev++;
+  watchClips();
+  return list;
+}
+function scanClips() {
   const dir = store.get().clipsDir;
   let files = [];
   try { files = fs.readdirSync(dir).filter(f => VIDEO.test(f)).map(f => ['', f]); } catch (e) { return []; }
@@ -109,7 +120,7 @@ function listClips() {
     let st; try { st = fs.statSync(p); } catch (e) { return null; }
     const th = thumbFile(p, st.mtimeMs);
     const hasThumb = fs.existsSync(th);
-    if (!hasThumb && !thumbQueue.includes(p)) thumbQueue.push(p);
+    if (!hasThumb && !queued.has(p)) { queued.add(p); thumbQueue.push(p); }
     const m = meta[p] || {};
     const name = f.replace(VIDEO, '');
     // hru a typ vieme odvodiť aj z názvu súboru (klipy zo starších verzií alebo bez záznamu)
@@ -120,7 +131,10 @@ function listClips() {
 async function pumpThumbs() {
   if (thumbBusy) return;
   thumbBusy = true;
-  let did = false;
+  let did = 0, lastPush = Date.now();
+  // najnovšie klipy prvé (tie uvidíš hore), náhľady priebežne po dávkach
+  const mt = new Map(thumbQueue.map(f => { try { return [f, fs.statSync(f).mtimeMs]; } catch (e) { return [f, 0]; } }));
+  thumbQueue.sort((a, b) => mt.get(b) - mt.get(a));
   while (thumbQueue.length) {
     const p = thumbQueue.shift();
     try {
@@ -128,11 +142,13 @@ async function pumpThumbs() {
       fs.mkdirSync(THUMBS, { recursive: true });
       await thumbnail(FFMPEG, p, thumbFile(p, st.mtimeMs));
       if (!store.meta()[p] || !store.meta()[p].duration) { const pr = await probe(FFMPEG, p); store.setMeta(p, { duration: pr.duration }); }
-      did = true;
+      did++;
     } catch (e) { }
+    queued.delete(p);
+    if (did && Date.now() - lastPush > 2500) { lastPush = Date.now(); invalidateClips(); send('state', fullState()); }
   }
   thumbBusy = false;
-  if (did) pushState();
+  if (did) { invalidateClips(); pushState(); }
 }
 
 /* ---------- stav pre okno ---------- */
@@ -201,7 +217,7 @@ function fullState() {
   return {
     system,
     installed: installed.games || [], scanningGames: scanning, folders: listFolders(), update: U.status(),
-    settings: store.get(), engine: engine.status(), clips: listClips(), devices, sessions,
+    settings: store.get(), engine: engine.status(), clips: listClips(), clipsRev: clipRev, devices, sessions,
     encoders: engine.available, hotkeyErrors, monitors: monitors(), version: app.getVersion(), userData: USER
   };
 }
@@ -326,6 +342,22 @@ async function runCleanup() {
     }
   } finally { cleaning = false; }
 }
+/* zmeny v priečinku s klipmi (kopírovanie v Prieskumníkovi, mazanie…) */
+let watcher = null, watchDir = '', watchT = null;
+function watchClips() {
+  const dir = store.get().clipsDir;
+  if (dir === watchDir && watcher) return;
+  try { watcher && watcher.close(); } catch (e) { }
+  watcher = null; watchDir = dir;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    watcher = fs.watch(dir, { recursive: true }, (ev, f) => {
+      if (f && !/\.(mp4|mkv|mov)$/i.test(f) && path.extname(f)) return;
+      clearTimeout(watchT); watchT = setTimeout(() => { invalidateClips(); pushState(); }, 1200);
+    });
+    watcher.on('error', () => { });
+  } catch (e) { log.warn('sledovanie priečinka', e.message); }
+}
 function announce(r, title) {
   scheduleCleanup();
   const body = `${path.basename(r.path)}`;
@@ -363,6 +395,8 @@ function applySettings(before, now) {
 }
 
 async function runAction(type, p = {}) {
+  // akcie menia súbory alebo metadáta → zoznam klipov načítaj nanovo (lacné, deje sa len na klik)
+  if (!['extractTracks', 'calibrateMic', 'updateCheck', 'libraryInfo', 'refreshDevices', 'testOverlay'].includes(type)) invalidateClips();
   const s = store.get();
   switch (type) {
     case 'saveClip': saveClip(); return true;
@@ -697,6 +731,7 @@ app.on('second-instance', () => showWindow());
 app.whenReady().then(async () => {
   const migrated = migrateFromClipIt();
   store = Store.create(USER, app.getPath('videos'));
+  { const sm = store.setMeta.bind(store); store.setMeta = (a, b) => { invalidateClips(); return sm(a, b); }; }
   if (migrated || !store.get().oldLoginRemoved) { removeOldLogin(); store.set({ oldLoginRemoved: true }); }
   // nový predvolený zvuk klipnutia: kto mal pôvodnú klapku, dostane raz pípnutie (v Nastaveniach si ho vie zmeniť späť)
   if (!store.get().beepDefault) store.set({ beepDefault: true, ...(store.get().clipSound === 'clap' ? { clipSound: 'beep' } : {}) });

@@ -1055,3 +1055,5 @@ body.flying, body.flying * { cursor: grabbing !important; }
 .su-clap .cal-acts { justify-content: center; }
 #suNext.pulse { animation: nextpulse 1.4s ease-in-out 2; }
 @keyframes nextpulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent); } }
+.more-sent { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 24px 0 40px; color: var(--faint); font-size: 12px; }
+.thumb img.fadein { animation: fade .3s both; }
