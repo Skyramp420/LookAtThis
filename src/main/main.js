@@ -308,12 +308,14 @@ function regionFrom(r) {
   return { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), h: +h.toFixed(4) };
 }
 /* história okna v popredí (prepnutia hier, alt-tab na plochu); hlási ju fxkeys pri každej zmene */
-let fgLog = [];
+let fgLog = [], lastBlockedExe = '';
 function onForeground(r) {
   const exe = String(r.exe || '').toLowerCase();
   if (!exe || exe === 'lookatthis.exe') return;
   const now = Date.now();
   fgLog.push({ t: now, exe, r });
+  // hra sa schováva pred snímaním obrazovky (vo videu by bolo vidieť len to, čo je za ňou)
+  if (r.aff === 0x11 && exe !== lastBlockedExe) { lastBlockedExe = exe; log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE)`); toast('warn', `${exeName(exe)} sa skrýva pred nahrávaním`, 'Táto hra zakázala snímanie obrazovky, v klipe bude vidieť len to, čo je za ňou. Skús v hre iný režim zobrazenia (okno / celá obrazovka v okne).'); }
   if (fgLog.length > 3000 || now - fgLog[0].t > 4 * 3600e3) fgLog = fgLog.filter(e => now - e.t < 3 * 3600e3).slice(-2000);
 }
 function isGameExe(exe) {
@@ -376,7 +378,8 @@ async function saveClip(seconds) {
     const region = await winP;
     const end = Date.now(), mk = marksIn(end - r.seconds * 1000, end), fg = fgDuring(end - r.seconds * 1000, end);
     const win = fg.win || region;
-    log.info(`clip: okno hry ${win ? JSON.stringify(win) : 'žiadne (celá obrazovka)'}, prepnutia ${fg.list.map(x => x.name).join(' → ') || '—'}`);
+    const lastFg = fgLog[fgLog.length - 1];
+    log.info(`clip: okno hry ${win ? JSON.stringify(win) : 'žiadne (celá obrazovka)'}, prepnutia ${fg.list.map(x => x.name).join(' → ') || '—'}, popredie ${lastFg ? lastFg.exe + ' aff=' + lastFg.r.aff : '?'}`);
     store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip', ...(win ? { win } : {}), ...(mk.length ? { marks: mk } : {}), ...(fg.list.length ? { fg: fg.list } : {}) });
     announce(r, 'Clip uložený');
   } catch (e) {
@@ -517,7 +520,7 @@ function notify(title, body, onClick) {
 }
 
 function applySettings(before, now) {
-  if (JSON.stringify(before.hotkeys) !== JSON.stringify(now.hotkeys) || before.hotkeysAdmin !== now.hotkeysAdmin) { adminAsked = false; registerHotkeys(); }
+  if (JSON.stringify(before.hotkeys) !== JSON.stringify(now.hotkeys) || before.hotkeysAdmin !== now.hotkeysAdmin || before.rawInput !== now.rawInput) { adminAsked = false; registerHotkeys(); }
   if (before.launchAtLogin !== now.launchAtLogin) setLogin(now.launchAtLogin);
   if (before.cleanupGB !== now.cleanupGB) scheduleCleanup(1500);
   engine.settings = now;
@@ -875,7 +878,7 @@ function registerHotkeys() {
   if (process.platform === 'win32' && !fs.existsSync(FXKEYS)) log.warn('chýba fxkeys.exe: ' + FXKEYS);
   if (process.platform === 'win32' && fs.existsSync(FXKEYS)) {
     try {
-      const p = spawn(FXKEYS, ['--fg', ...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+      const p = spawn(FXKEYS, ['--fg', ...(store.get().rawInput === false ? ['--noraw'] : []), ...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
       keysProc = p;
       let buf = '';
       p.stdout.on('data', d => {

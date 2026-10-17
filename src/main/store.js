@@ -33,6 +33,7 @@ function defaults(videosDir) {
     autoWinCrop: false,
     ignoreRecorders: [],
     hotkeysAdmin: false,
+    rawInput: true,
     shortSeconds: 15,
     cleanupGB: 0,
     updateChannel: 'stable',

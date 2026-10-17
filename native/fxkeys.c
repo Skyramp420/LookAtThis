@@ -121,9 +121,10 @@ static int fgJson(char *buf, size_t cap) {
   if (pr) { QueryFullProcessImageNameW(pr, 0, path, &sz); CloseHandle(pr); }
   for (wchar_t *q = path; *q; q++) if (*q == L'\\') base = q + 1;
   char exe[600]; jsonStr(exe, sizeof exe, base);
-  snprintf(buf, cap, "{\"x\":%ld,\"y\":%ld,\"w\":%ld,\"h\":%ld,\"mx\":%ld,\"my\":%ld,\"mw\":%ld,\"mh\":%ld,\"exe\":\"%s\",\"zoomed\":%d}",
+  DWORD aff = 0; GetWindowDisplayAffinity(h, &aff); /* 0x11 = WDA_EXCLUDEFROMCAPTURE: okno sa nedá nahrať snímaním obrazovky */
+  snprintf(buf, cap, "{\"x\":%ld,\"y\":%ld,\"w\":%ld,\"h\":%ld,\"mx\":%ld,\"my\":%ld,\"mw\":%ld,\"mh\":%ld,\"exe\":\"%s\",\"zoomed\":%d,\"aff\":%lu}",
          p.x, p.y, c.right - c.left, c.bottom - c.top, mi.rcMonitor.left, mi.rcMonitor.top,
-         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, exe, IsZoomed(h) ? 1 : 0);
+         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, exe, IsZoomed(h) ? 1 : 0, aff);
   return 1;
 }
 static int rectMode(void) {
@@ -135,8 +136,8 @@ static int rectMode(void) {
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "--rect")) return rectMode();
   InitializeCriticalSection(&cs);
-  int fgOn = 0;
-  for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--fg")) fgOn = 1;
+  int fgOn = 0, noRaw = 0;
+  for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--fg")) fgOn = 1; if (!strcmp(argv[i], "--noraw")) noRaw = 1; }
   if (fgOn) dpiAware();
   if (argc > 2 && !strcmp(argv[1], "--pipe")) {
     for (int i = 0; i < 100 && pipeH == INVALID_HANDLE_VALUE; i++) {
@@ -157,7 +158,7 @@ int main(int argc, char **argv) {
   RegisterClassW(&wc);
   HWND hw = CreateWindowExW(0, L"fxkeys", L"fxkeys", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, wc.hInstance, NULL);
   RAWINPUTDEVICE rid; rid.usUsagePage = 1; rid.usUsage = 6; rid.dwFlags = RIDEV_INPUTSINK; rid.hwndTarget = hw;
-  int raw = hw && RegisterRawInputDevices(&rid, 1, sizeof rid);
+  int raw = !noRaw && hw && RegisterRawInputDevices(&rid, 1, sizeof rid);
   { char b[48]; snprintf(b, sizeof b, "ready %d raw=%d\n", n, raw); out(b); }
 
   DWORD beat = GetTickCount(), fgT = 0;

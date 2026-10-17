@@ -1,6 +1,10 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.15', items: [
+      'Appka spozná, keď sa hra schováva pred snímaním obrazovky (vo videu by bola vidieť len plocha), a upozorní ťa.',
+      'Nový prepínač „Rozšírené zachytávanie kláves“ v Nastaveniach → Skratky.'
+    ] },
     { v: '1.0.14', items: [
       'Opravené: pomocník na skratky a sledovanie okien sa vôbec nedostal do inštalačky. Až teraz naozaj fungujú skratky v hrách s anti-cheatom, prepnutia hier na časovej osi aj výrez okna hry.'
     ] },
