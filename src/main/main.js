@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
-const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip } = require('./engine');
+const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars } = require('./engine');
 const Compress = require('../shared/compress');
 const GameScan = require('./games-scan');
 const Store = require('./store');
@@ -492,7 +492,7 @@ async function runAction(type, p = {}) {
       const r = RECORDERS.find(x => x.id === p.id); if (!r || r.soft) return false;
       // bez /F: program dostane normálnu žiadosť o zatvorenie (napr. OBS sa môže opýtať, či naozaj)
       await new Promise(res => execFile('taskkill.exe', r.exes.flatMap(e => ['/IM', e]), { windowsHide: true, timeout: 8000 }, () => res()));
-      setTimeout(detectRecorders, 3000);
+      setTimeout(detectRecorders, 2500); setTimeout(detectRecorders, 7000);
       return true;
     }
     case 'ignoreRecorder': {
@@ -501,6 +501,7 @@ async function runAction(type, p = {}) {
       otherRecorders = otherRecorders.filter(r => r.id !== p.id); pushState();
       return true;
     }
+    case 'detectBars': { if (!p || !p.path || !fs.existsSync(p.path)) return null; return detectBars(FFMPEG, p.path); }
     case 'gameBarSettings': shell.openExternal('ms-settings:gaming-gamedvr'); setTimeout(detectRecorders, 20000); return true;
     case 'saveSettings': { const before = JSON.parse(JSON.stringify(s)); const now = store.set(p); applySettings(before, now); pushState(); return now; }
     case 'resetExclude': { const before = JSON.parse(JSON.stringify(s)); const now = store.set({ exclude: store.DEFAULT_EXCLUDE.slice() }); applySettings(before, now); pushState(); return now; }
@@ -894,6 +895,7 @@ function createWindow(show) {
   const maxState = () => send('event', { type: 'maximized', value: win.isMaximized() });
   win.on('maximize', maxState); win.on('unmaximize', maxState);
   win.on('show', () => { pushState(); refreshDevices().then(pushState); });
+  win.on('focus', () => { if (otherRecorders.length) detectRecorders(); });
   win.on('close', e => {
     if (quitting) return;
     if (!store.get().closeToTray) { quitting = true; return; }
@@ -998,7 +1000,9 @@ app.whenReady().then(async () => {
     }
   });
   scheduleCleanup(90e3); setInterval(() => scheduleCleanup(0), 3600e3);
-  setTimeout(detectRecorders, HIDDEN ? 45000 : 6000); setInterval(detectRecorders, 5 * 60e3);
+  setTimeout(detectRecorders, HIDDEN ? 45000 : 6000);
+  // bez upozornenia stačí raz za 5 min; keď svieti, kontroluj každých 10 s, nech zmizne hneď po zatvorení programu
+  let recTick = 0; setInterval(() => { recTick++; if (otherRecorders.length || recTick % 30 === 0) detectRecorders(); }, 10000);
   setLogin(s.launchAtLogin);
   if (s.bufferEnabled) engine.start(s);
   refreshDevices().then(pushState);

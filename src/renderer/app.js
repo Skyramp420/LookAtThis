@@ -69,9 +69,11 @@
     $('#rec').className = 'rec ' + st;
     $('#buf').className = 'buf ' + st;
     $('#bufToggle').checked = s.bufferEnabled;
-    $('#hkClip').textContent = s.hotkeys.clip || '—';
-    $('#hkRec').textContent = s.hotkeys.record || '—';
-    $('#hkShortRow').hidden = !s.hotkeys.short; $('#hkShort').textContent = s.hotkeys.short || '';
+    const chip = (id, v) => { const el = $(id); if (!el.classList.contains('listening')) el.textContent = v; };
+    chip('#hkClip', s.hotkeys.clip || 'Nastaviť');
+    chip('#hkRec', s.hotkeys.record || 'Nastaviť');
+    $('#hkShortRow').hidden = !s.hotkeys.short; chip('#hkShort', s.hotkeys.short || '');
+    $('#hkMarkRow').hidden = !s.hotkeys.mark; chip('#hkMark', s.hotkeys.mark || '');
     $('#hkShortRow span').textContent = `${s.shortSeconds || 15} s clip`;
     $('#bufEnc').textContent = e.encoder || '';
     $('#bufState').textContent = rec ? 'Nahrávam' : { on: 'Buffer beží', starting: 'Rozbieham…', error: 'Buffer spadol', off: 'Buffer vypnutý' }[e.state] || 'Buffer';
@@ -1302,6 +1304,7 @@
         ${row('LookAtThis ' + esc(S.version), updDesc(), updBtn())}
         ${(S.update || {}).supported ? row('Beta verzie', 'Nové funkcie skôr, ale môžu mať chyby.', seg('updateChannel', [{ v: 'stable', l: 'Nie' }, { v: 'beta', l: 'Áno' }], s.updateChannel || 'stable')) : ''}
         ${row('Enkodér', `Práve: ${esc(S.engine.encoder || '—')}`, `<button class="btn" id="redetect">${I.refresh}<span>Zistiť enkodéry</span></button>`)}
+        ${row('Čo je nové', 'Čo sa zmenilo v posledných verziách.', `<button class="btn" id="whatsNew">Ukázať</button>`)}
         ${row('Sprievodca nastavením', 'Skratky, zvuk, výkon a ukladanie znova krok za krokom.', `<button class="btn" id="runSetup">Spustiť znova</button>`)}
         ${row('Log', 'Keď niečo nejde, tu je napísané prečo.', `<button class="btn" id="openLog">Otvoriť log</button>`)}
         ${row('Ukončiť LookAtThis', 'Vypne buffer aj ikonku v lište.', `<button class="btn danger" id="quit">Ukončiť</button>`)}
@@ -1314,6 +1317,7 @@
     $('#resetEx', root).onclick = () => api.action('resetExclude');
     $('#ovTest', root).onclick = () => api.action('testOverlay');
     $('#runSetup', root).onclick = () => Setup.open();
+    $('#whatsNew', root).onclick = () => whatsNew(null);
     $$('[data-snd]', root).forEach(b => b.onclick = () => { sound(b.dataset.snd, S.settings.soundVolume ?? 0.6); $$('[data-snd]', root).forEach(x => x.classList.toggle('on', x === b)); save({ clipSound: b.dataset.snd }); });
     const sv = $('#sndVol', root);
     if (sv) { sv.oninput = () => sv.style.setProperty('--p', sv.value + '%'); sv.onchange = () => { save({ soundVolume: sv.value / 100 }); sound(S.settings.clipSound || 'beep', sv.value / 100); }; }
@@ -1341,27 +1345,28 @@
     save({ [name]: num ? Number(v) : v }).then(() => { if (name === 'appearance') applyLook(); });
   });
 
+  // názov klávesy: najprv podľa znaku (rešpektuje rozloženie), ak ten nie je písmeno/číslica (napr. slovenský číselný rad s Alt),
+  // tak podľa fyzickej klávesy
+  const CODE = { Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Backquote: '`', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Quote: "'", Semicolon: ';', Space: 'Space', Enter: 'Return', Tab: 'Tab' };
+  const keyName = e => {
+    const k = e.key, c = e.code || '';
+    if (/^F\d{1,2}$/.test(k)) return k;
+    if (/^[a-z0-9]$/i.test(k)) return k.toUpperCase();
+    const map = { ' ': 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', PrintScreen: 'PrintScreen', Pause: 'Pause', ScrollLock: 'Scrolllock' };
+    if (map[k]) return map[k];
+    if (c.startsWith('Numpad')) return 'num' + c.slice(6).toLowerCase().replace('add', 'add').replace('subtract', 'sub').replace('multiply', 'mult').replace('divide', 'div').replace('decimal', 'dec');
+    let m;
+    if ((m = /^Key([A-Z])$/.exec(c))) return m[1];
+    if ((m = /^Digit(\d)$/.exec(c))) return m[1];
+    if (CODE[c]) return CODE[c];
+    return null;
+  };
+  window.App = Object.assign(window.App || {}, { keyName });
   /* nahrávanie skratky: stlač kombináciu, Esc zruší, Backspace vymaže */
   function captureHotkey(btn) {
     const id = btn.dataset.hk;
     btn.classList.add('listening'); btn.textContent = 'Stlač kombináciu…';
-    // názov klávesy: najprv podľa znaku (rešpektuje rozloženie), ak ten nie je písmeno/číslica (napr. slovenský číselný rad s Alt),
-    // tak podľa fyzickej klávesy
-    const CODE = { Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Backquote: '`', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Quote: "'", Semicolon: ';', Space: 'Space', Enter: 'Return', Tab: 'Tab' };
-    const keyName = e => {
-      const k = e.key, c = e.code || '';
-      if (/^F\d{1,2}$/.test(k)) return k;
-      if (/^[a-z0-9]$/i.test(k)) return k.toUpperCase();
-      const map = { ' ': 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', PrintScreen: 'PrintScreen', Pause: 'Pause', ScrollLock: 'Scrolllock' };
-      if (map[k]) return map[k];
-      if (c.startsWith('Numpad')) return 'num' + c.slice(6).toLowerCase().replace('add', 'add').replace('subtract', 'sub').replace('multiply', 'mult').replace('divide', 'div').replace('decimal', 'dec');
-      let m;
-      if ((m = /^Key([A-Z])$/.exec(c))) return m[1];
-      if ((m = /^Digit(\d)$/.exec(c))) return m[1];
-      if (CODE[c]) return CODE[c];
-      return null;
-    };
-    const done = () => { document.removeEventListener('keydown', onKey, true); btn.classList.remove('listening'); setTimeout(renderSettings, 10); };
+    const done = () => { document.removeEventListener('keydown', onKey, true); btn.classList.remove('listening'); setTimeout(() => { renderChrome(); if (view === 'settings') renderSettings(); }, 10); };
     const onKey = e => {
       e.preventDefault(); e.stopPropagation();
       if (e.key === 'Escape') return done();
@@ -1411,6 +1416,31 @@
   const setIdle = () => document.body.classList.toggle('idle', document.hidden || !document.hasFocus());
   addEventListener('blur', setIdle); addEventListener('focus', setIdle); document.addEventListener('visibilitychange', setIdle);
   setIdle();
+  // skratky v karte buffra: klik = nahrať novú
+  $$('.buf-keys [data-hk]').forEach(b => b.addEventListener('click', () => { if (!b.classList.contains('listening')) captureHotkey(b); }));
+
+  /* ---------- Čo je nové ---------- */
+  const verCmp = (a, b) => { const x = String(a).split(/[.-]/).map(Number), y = String(b).split(/[.-]/).map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; };
+  function whatsNew(since) {
+    const log = (window.CHANGELOG || []).filter(e => verCmp(e.v, S.version) <= 0 && (!since || verCmp(e.v, since) > 0)).slice(0, since ? 6 : 8);
+    if (!log.length) return false;
+    const md = UI.modal(`<div class="wn">
+      <div class="wn-h"><h2>Čo je nové</h2><span>LookAtThis ${esc(S.version)}</span></div>
+      <div class="wn-list">${log.map(e => `<section><h4>${esc(e.v)}</h4><ul>${e.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>`).join('')}</div>
+      <div class="acts"><button class="btn primary" data-a="ok">Super</button></div></div>`, 'small wn-modal');
+    const b = (md && md.querySelector ? md : document).querySelector('.wn [data-a=ok]'); if (b) b.onclick = () => UI.closeModal();
+    return true;
+  }
+  window.App = Object.assign(window.App || {}, { whatsNew });
+  function checkWhatsNew() {
+    const last = S.settings.lastVersion;
+    if (last === S.version) return;
+    // nový používateľ (sprievodca) nič nevidí; po aktualizácii ukáž len zmeny od jeho verzie
+    if (S.settings.onboarded && last) setTimeout(() => whatsNew(last), 900);
+    else if (S.settings.onboarded && !last) setTimeout(() => whatsNew('1.0.11'), 900);
+    save({ lastVersion: S.version });
+  }
+
   api.on('levels', d => {
     lastLevels = d.levels;
     if (S) { S.engine.buffered = d.buffered; updateLive(d); }
@@ -1449,6 +1479,7 @@
     S.clips.forEach(c => seenClips.add(c.path));
     render(); moveInd();
     if (!S.settings.onboarded) setTimeout(() => Setup.open(), 350);
+    else checkWhatsNew();
     requestAnimationFrame(() => { $('#navInd').style.transition = 'none'; moveInd(); requestAnimationFrame(() => { $('#navInd').style.transition = ''; }); });
   });
 })();

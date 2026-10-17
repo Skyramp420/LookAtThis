@@ -48,9 +48,10 @@
       <div class="buf-bar"><i id="bufFill"></i></div>
       <div class="buf-sub"><span class="buf-t"><span id="bufText">—</span><button type="button" class="buf-len" id="bufLen" title="Koľko sekúnd sa uloží"></button></span><span id="bufEnc"></span></div>
       <div class="buf-keys">
-        <div><kbd id="hkClip">Alt+F10</kbd><span>clip</span></div>
-        <div><kbd id="hkRec">Alt+F9</kbd><span>nahrávanie</span></div>
-        <div id="hkShortRow" hidden><kbd id="hkShort"></kbd><span>krátky clip</span></div>
+        <div><button type="button" class="kbd hkq" id="hkClip" data-hk="clip" title="Klikni a stlač novú skratku">Alt+F10</button><span>clip</span></div>
+        <div><button type="button" class="kbd hkq" id="hkRec" data-hk="record" title="Klikni a stlač novú skratku">Alt+F9</button><span>nahrávanie</span></div>
+        <div id="hkShortRow" hidden><button type="button" class="kbd hkq" id="hkShort" data-hk="short" title="Klikni a stlač novú skratku"></button><span>krátky clip</span></div>
+        <div id="hkMarkRow" hidden><button type="button" class="kbd hkq" id="hkMark" data-hk="mark" title="Klikni a stlač novú skratku"></button><span>značka</span></div>
       </div>
     </div>
   </aside>
@@ -81,6 +82,7 @@
 
   <script src="../shared/games.js"></script>
   <script src="../shared/compress.js"></script>
+  <script src="../shared/changelog.js"></script>
   <script src="ui.js"></script>
   <script src="cal.js"></script>
   <script src="player.js"></script>

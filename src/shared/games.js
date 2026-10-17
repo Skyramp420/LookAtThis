@@ -3,7 +3,7 @@
 (function (root) {
   const KNOWN = {
     'valorant-win64-shipping': 'VALORANT', 'valorant': 'VALORANT',
-    'javaw': 'Minecraft', 'minecraft': 'Minecraft', 'minecraft.windows': 'Minecraft', 'lunar client': 'Minecraft',
+    'javaw': 'Minecraft', 'java': 'Minecraft', 'minecraft': 'Minecraft', 'minecraft.windows': 'Minecraft', 'lunar client': 'Minecraft',
     'cs2': 'Counter-Strike 2', 'csgo': 'CS:GO',
     'fortniteclient-win64-shipping': 'Fortnite', 'fortniteclient-win64-shipping_eac_eos': 'Fortnite',
     'r5apex': 'Apex Legends', 'r5apex_dx12': 'Apex Legends',

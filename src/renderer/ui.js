@@ -147,7 +147,7 @@ window.UI = (function () {
   }
   $('#modalWrap').addEventListener('mousedown', e => { if (e.target.id === 'modalWrap') closeModal(); });
   // Esc zavrie dialóg; v malých dialógoch aj keď je kurzor v poli (v editore nie, tam Esc ruší výber)
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !openMenu && !$('#modalWrap').hidden && (!e.target.closest('input') || e.target.closest('.modal.small'))) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !openMenu && !document.fullscreenElement && !$('#modalWrap').hidden && (!e.target.closest('input') || e.target.closest('.modal.small'))) closeModal(); });
   function confirm(title, text, okLabel = 'OK', danger = false) {
     return new Promise(res => {
       const m = modal(`<h2>${esc(title)}</h2><p>${esc(text)}</p><div class="acts"><button class="btn" data-a="no">Zrušiť</button><button class="btn ${danger ? 'danger' : 'primary'}" data-a="yes">${esc(okLabel)}</button></div>`, 'small', () => res(false));

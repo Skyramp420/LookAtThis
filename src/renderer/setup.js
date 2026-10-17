@@ -56,7 +56,10 @@ window.Setup = (function () {
         <div class="su-cards">
           <div class="su-card"><b>Uložiť clip</b><span>posledných ${dur(st.bufferSeconds)} z buffra</span><button class="hk" data-hk="clip">${esc(st.hotkeys.clip || 'Nastaviť')}</button></div>
           <div class="su-card"><b>Nahrávanie</b><span>spustí a zastaví dlhé nahrávanie</span><button class="hk" data-hk="record">${esc(st.hotkeys.record || 'Nastaviť')}</button></div>
+          <div class="su-card"><b>Značka</b><span>označí moment, v editore naň skočíš klávesou M</span><button class="hk" data-hk="mark">${esc(st.hotkeys.mark || 'Nastaviť')}</button></div>
         </div>
+        <div class="su-row"><span>Hráš LoL, Valorant alebo inú hru s anti-cheatom?<small class="su-muted">Tieto hry bežia ako správca a skratky by v nich bez toho nefungovali. Windows sa pri štarte raz opýta na povolenie.</small></span><label class="toggle"><input type="checkbox" data-set="hotkeysAdmin" ${st.hotkeysAdmin ? 'checked' : ''}></label></div>
+        <p class="su-muted small">Skratky zmeníš aj neskôr: stačí na ne kliknúť v karte buffra vľavo dole.</p>
         <div class="su-row"><span>Koľko sa uloží</span>${seg('bufferSeconds', [30, 60, 120, 180, 300].map(v => ({ v, l: v < 60 ? v + ' s' : v / 60 + ' min' })), st.bufferSeconds)}</div>`;
     }
     function trackRow(t, label, hint) {
@@ -112,6 +115,10 @@ window.Setup = (function () {
       const st = s();
       return `<h2>Ukladanie a štart</h2>
         <div class="su-row"><span>Priečinok</span><div class="su-path"><code>${esc(st.clipsDir)}</code><button class="btn small" id="suDir">${I.folder}<span>Zmeniť</span></button></div></div>
+        <div class="su-row col"><span>Upratovanie</span>${seg('cleanupGB', [{ v: 0, l: 'Vypnuté' }, { v: 20, l: '20 GB' }, { v: 50, l: '50 GB' }, { v: 100, l: '100 GB' }, { v: 200, l: '200 GB' }], st.cleanupGB || 0)}
+          <small class="su-muted">Keď klipy zaberú viac, najstaršie pôjdu do <b>Koša</b> (dajú sa ešte obnoviť). Obľúbené a klipy v priečinkoch sa nikdy nemažú.</small>
+          <div class="su-warn"${(st.cleanupGB || 0) ? '' : ' hidden'} id="suCleanWarn">Pozor: ak si vybral priečinok, kde už máš staršie klipy, aj tie sa počítajú do limitu a najstaršie z nich môžu ísť do Koša. Dôležité si daj do priečinka alebo medzi obľúbené.</div></div>
+        <div class="su-row"><span>Vyrezať okno hry v editore<small class="su-muted">Keď hráš v okne, editor otvorí klip rovno s výrezom len hry.</small></span><label class="toggle"><input type="checkbox" data-set="autoWinCrop" ${st.autoWinCrop ? 'checked' : ''}></label></div>
         <div class="su-row"><span>Spúšťať s Windowsom</span><label class="toggle"><input type="checkbox" data-set="launchAtLogin" ${st.launchAtLogin ? 'checked' : ''}></label></div>
         <div class="su-row"><span>Overlay po uložení</span><div class="su-inline">${seg('overlayStyle', [{ v: 'eye', l: 'Oko' }, { v: 'clap', l: 'Klapka' }], st.overlayStyle || 'eye')}<button class="btn small ghost" id="suOv">Ukážka</button><label class="toggle"><input type="checkbox" data-set="overlay" ${st.overlay !== false ? 'checked' : ''}></label></div></div>
         <div class="su-row col"><span>Zvuk po uložení</span><div class="snd-grid">${SOUNDS.map(x => `<button class="snd${(st.clipSound || 'beep') === x.id ? ' on' : ''}" data-snd="${x.id}">${x.id === 'none' ? '' : '<i>▶</i>'}${esc(x.label)}</button>`).join('')}</div></div>`;
@@ -130,6 +137,7 @@ window.Setup = (function () {
     const bind = {
       1: body => {
         body.querySelectorAll('[data-hk]').forEach(b => b.onclick = () => captureKey(b));
+        body.querySelectorAll('[data-set]').forEach(cb => cb.onchange = () => save({ [cb.dataset.set]: cb.checked }));
         segHandler(body);
       },
       2: body => {
@@ -155,7 +163,8 @@ window.Setup = (function () {
         const b = e.target.closest('button'); if (!b) return;
         sg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); placeThumbs(body, true);
         const k = sg.dataset.seg, v = b.dataset.v;
-        save({ [k]: k === 'bufferSeconds' ? Number(v) : v });
+        save({ [k]: ['bufferSeconds', 'cleanupGB'].includes(k) ? Number(v) : v });
+        if (k === 'cleanupGB') { const w = $('#suCleanWarn', body); if (w) w.hidden = !Number(v); }
         if (k === 'overlayStyle') setTimeout(() => api.action('testOverlay'), 150);
       }));
     }
@@ -166,10 +175,10 @@ window.Setup = (function () {
         e.preventDefault(); e.stopPropagation();
         if (e.key === 'Escape') { finish(); return; }
         if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
-        let k = /^F\d{1,2}$/.test(e.key) ? e.key : /^[a-z0-9]$/i.test(e.key) ? e.key.toUpperCase() : { ' ': 'Space', Insert: 'Insert', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', PrintScreen: 'PrintScreen', Pause: 'Pause' }[e.key];
-        if (!k) return;
+        const k = App.keyName ? App.keyName(e) : null;
+        if (!k) { btn.textContent = 'Túto klávesu nepoznám, skús inú'; return; }
         const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift'].filter(Boolean);
-        if (!mods.length && !/^F\d+$|^PrintScreen$|^Pause$|^Insert$/.test(k)) { btn.textContent = 'Pridaj Ctrl, Alt alebo Shift'; return; }
+        if (!mods.length && !/^F\d+$|^num|^PrintScreen$|^Pause$|^Scrolllock$|^Insert$/.test(k)) { btn.textContent = 'Pridaj Ctrl, Alt alebo Shift'; return; }
         save({ hotkeys: { ...s().hotkeys, [id]: [...mods, k].join('+') } }).then(finish);
       };
       const finish = () => { document.removeEventListener('keydown', onKey, true); btn.classList.remove('listening'); render(); };

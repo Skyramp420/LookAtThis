@@ -97,7 +97,7 @@ window.Player = (function () {
     set(k, v) { try { localStorage.setItem('clipit.' + k, JSON.stringify(v)); } catch (e) { } }
   };
   const KEYS = [
-    ['Prehrávanie', [['Medzerník', 'Prehrať / pozastaviť'], ['← →', 'Posun o 10 snímok (Shift = 1 s, Alt = 1 snímka)'], ['Home / End', 'Na začiatok / koniec'], ['M / Shift+M', 'Na ďalšiu / predošlú značku']]],
+    ['Prehrávanie', [['Medzerník', 'Prehrať / pozastaviť'], ['← →', 'Posun o 10 snímok (Shift = 1 s, Alt = 1 snímka)'], ['Home / End', 'Na začiatok / koniec'], ['M / Shift+M', 'Na ďalšiu / predošlú značku'], ['F', 'Celá obrazovka']]],
     ['Strih', [['S', 'Rozdeliť na pozícii prehrávania'], ['Q', 'Odstrihnúť všetko pred prehrávaním'], ['W', 'Odstrihnúť všetko za prehrávaním'], ['Ctrl+D', 'Duplikovať úsek'], ['Delete', 'Odstrániť vybraný úsek alebo objekt']]],
     ['Text a šípky', [['T', 'Text (klikni do videa)'], ['A', 'Šípka (ťahaj vo videu)'], ['Koliesko', 'Nad objektom mení veľkosť'], ['Dvojklik', 'Na text = upraviť ho']]],
     ['Ostatné', [['Ctrl+Z / Ctrl+Y', 'Späť / znova'], ['Ctrl + koliesko', 'Priblížiť časovú os'], ['N', 'Prichytávanie zap. / vyp. (Alt pri ťahaní ho dočasne vypne)'], ['Esc', 'Zrušiť výber']]]
@@ -144,6 +144,8 @@ window.Player = (function () {
             </div>
             <div class="ed-hint" id="hint" hidden></div>
             <div class="ed-flash" id="flash"></div>
+            <button class="ed-fsb" id="fsBtn" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <div class="ed-fs" id="fsBar"><button class="fs-play" id="fsPlay">${I.play}</button><span class="fs-time" id="fsTime"></span><div class="fs-prog" id="fsProg"><i id="fsFill"></i></div><button class="fs-exit" id="fsExit" title="Zavrieť celú obrazovku (Esc)"><svg viewBox="0 0 16 16"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
             <div class="ed-loading" id="loading"><div class="mx-load"><i></i><i></i><i></i></div><span>Pripravujem klip…</span></div>
           </div>
           <aside class="ed-side">
@@ -253,6 +255,8 @@ window.Player = (function () {
       // automatický výrez okna hry (nastavenie); vráti sa cez Formát → Celá obrazovka
       if (opts.autoWin) { const wr = winRegion(); if (wr) RG = { x: wr.x, y: wr.y, w: wr.w, h: wr.h }; }
       dims(); layoutFrame(); renderFormat();
+      // čierne okraje v zázname (hra na inom pomere strán): ponúkne sa „Orezať čierne okraje“
+      api.action('detectBars', { path: first.path }).then(b => { if (b && !closed) { first.bars = b; renderFormat(); } }).catch(() => { });
       rebuildTracks();
       $('#loading', m).classList.add('gone');
       fitZoom(); renderAll(); seek(0);
@@ -360,9 +364,13 @@ window.Player = (function () {
         const items = Object.entries(ASPECTS).map(([k, x]) => ({ label: x.l, v: k, checked: k === aspect, sub: (k === 'orig' ? `${W}×${H}` : `${outW(k)}×${H}`) + (x.sub ? ' · ' + x.sub : ''), disabled: k !== 'orig' && outW(k) >= W }));
         items.push({ sep: true }, { head: 'Oblasť záznamu' });
         if (wr) items.push({ label: 'Len okno hry', v: '@win', checked: same(RG, wr), sub: `${Math.round(SW * wr.w)}×${Math.round(SH * wr.h)}` });
+        else items.push({ label: 'Len okno hry', disabled: true, sub: 'len pri hre v okne, klipy od verzie 1.0.8' });
+        const bars = barsRegion();
+        if (bars) items.push({ label: 'Orezať čierne okraje', v: '@bars', checked: same(RG, bars), sub: `${Math.round(SW * bars.w / 2) * 2}×${Math.round(SH * bars.h / 2) * 2}` });
         items.push({ label: 'Celá obrazovka', v: '@full', checked: !RG, sub: `${SW}×${SH}` }, { label: 'Vlastný výrez…', v: '@edit', checked: !!RG && !same(RG, wr) });
         UI.menu(e.currentTarget, items, it => {
           if (it.v === '@win') setRegion({ x: wr.x, y: wr.y, w: wr.w, h: wr.h });
+          else if (it.v === '@bars') setRegion({ ...bars });
           else if (it.v === '@full') setRegion(null);
           else if (it.v === '@edit') editRegion();
           else setAspect(it.v);
@@ -374,6 +382,7 @@ window.Player = (function () {
       for (const sg of segs) { const src = sources.get(sg.src); if (src && src.win && src.win.w) return src.win; }
       return null;
     }
+    function barsRegion() { const src = segs[0] && sources.get(segs[0].src); return src && src.bars ? src.bars : null; }
     function setRegion(rg, noUndo) {
       if (JSON.stringify(rg) === JSON.stringify(RG)) return;
       if (!noUndo) remember();
@@ -481,13 +490,13 @@ window.Player = (function () {
       playing = true;
       const L = locate(t);
       activate(L.seg, L.local, true);
-      $('#plPlay', m).innerHTML = I.pause;
+      $('#plPlay', m).innerHTML = I.pause; $('#fsPlay', m).innerHTML = I.pause;
       loop(); wakeMeters();
     }
     function pause() {
       playing = false;
       if (active) { active.src.video.pause(); active.src.audios.forEach(a => a.pause()); }
-      $('#plPlay', m).innerHTML = I.play;
+      $('#plPlay', m).innerHTML = I.play; $('#fsPlay', m).innerHTML = I.play;
       layoutHead(); drawOverlays();
     }
     const toggle = () => (playing ? pause() : play());
@@ -774,6 +783,7 @@ window.Player = (function () {
       $('#head', m).style.transform = `translateX(${t * pps}px)`;
       $('#fadeV', m).style.opacity = fadeAt(t);
       $('#plTime', m).innerHTML = `${durMs(t)} <i>/ ${dur(total())}</i>`;
+      if (document.fullscreenElement === stage) { $('#fsTime', m).textContent = `${dur(t)} / ${dur(total())}`; $('#fsFill', m).style.width = (total() ? t / total() * 100 : 0) + '%'; }
       // počas prehrávania drž hlavu v zábere
       if (playing) { const x = t * pps; if (x > scroller.scrollLeft + scroller.clientWidth - 40) scroller.scrollLeft = x - 40; else if (x < scroller.scrollLeft) scroller.scrollLeft = x - 20; }
     }
@@ -1298,7 +1308,34 @@ window.Player = (function () {
       hint.innerHTML = x === 'text' ? 'Klikni do videa, kam chceš text <kbd>Esc</kbd>' : x === 'arrow' ? 'Ťahaj od začiatku po hrot šípky <kbd>Esc</kbd>' : '';
     }
 
+    /* ---------- prehrávanie na celú obrazovku ---------- */
+    function toggleFs() {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
+      else { selectOv(null); setTool('select'); stage.requestFullscreen().catch(() => { }); }
+    }
+    $('#fsBtn', m).onclick = e => { e.stopPropagation(); toggleFs(); };
+    $('#fsExit', m).onclick = e => { e.stopPropagation(); toggleFs(); };
+    $('#fsPlay', m).onclick = e => { e.stopPropagation(); toggle(); };
+    $('#fsProg', m).addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      const bar = e.currentTarget, r = bar.getBoundingClientRect();
+      const go = ev => seek(Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * total(), playing);
+      go(e); bar.setPointerCapture(e.pointerId);
+      const up = () => { bar.removeEventListener('pointermove', go); bar.removeEventListener('pointerup', up); };
+      bar.addEventListener('pointermove', go); bar.addEventListener('pointerup', up);
+    });
+    let fsIdle = 0;
+    const fsWake = () => { stage.classList.remove('fs-idle'); clearTimeout(fsIdle); fsIdle = setTimeout(() => { if (playing) stage.classList.add('fs-idle'); }, 2200); };
+    stage.addEventListener('pointermove', () => { if (document.fullscreenElement === stage) fsWake(); });
+    const onFs = () => {
+      const on = document.fullscreenElement === stage;
+      stage.classList.toggle('fs', on); stage.classList.remove('fs-idle');
+      if (on) fsWake();
+      requestAnimationFrame(() => { layoutFrame(); layoutHead(); });
+    };
+    document.addEventListener('fullscreenchange', onFs);
     stage.addEventListener('pointerdown', e => {
+      if (document.fullscreenElement === stage) { if (e.button === 0 && !e.target.closest('.ed-fs')) toggle(); return; }
       if (!segs.length || e.button !== 0 || rgEdit) return;
       const p = svgP(e);
       const hitHandle = e.target.closest('.hd'), hitItem = e.target.closest('.ov-item');
@@ -1644,6 +1681,8 @@ window.Player = (function () {
     /* ================= klávesy a upratanie ================= */
     function cleanup() {
       if (!closed) openEd = Math.max(0, openEd - 1);
+      document.removeEventListener('fullscreenchange', onFs);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
       closed = true;
       playing = false; cancelAnimationFrame(raf); cancelAnimationFrame(mraf); cancelAnimationFrame(prevRaf);
       for (const s of sources.values()) {
@@ -1677,6 +1716,7 @@ window.Player = (function () {
       else if (k === 'w') trimTo('r');
       else if (k === 'n') setSnap(!snapOn);
       else if (k === 'm') jumpMark(e.shiftKey ? -1 : 1);
+      else if (k === 'f') toggleFs();
       else if (k === 't') { if (playing) pause(); setTool('text'); }
       else if (k === 'a') { if (playing) pause(); setTool('arrow'); }
       else if (e.key === '?') showHelp();

@@ -178,7 +178,7 @@ async function minecraft() {
   if (!has) return [];
   const cands = [path.join(local, 'Programs', 'lunarclient', 'Lunar Client.exe'), 'C:\\XboxGames\\Minecraft Launcher\\Content\\Minecraft.exe', 'C:\\Program Files (x86)\\Minecraft Launcher\\MinecraftLauncher.exe', path.join(local, 'Programs', 'Badlion Client', 'Badlion Client.exe')];
   let main = null; for (const c of cands) if (await exists(c)) { main = c; break; }
-  return [{ id: 'minecraft', name: 'Minecraft', source: 'Minecraft', dir: path.join(appdata, '.minecraft'), exes: ['javaw', 'minecraft.windows', 'minecraftlauncher', 'lunar client'], mainExe: main }];
+  return [{ id: 'minecraft', name: 'Minecraft', source: 'Minecraft', dir: path.join(appdata, '.minecraft'), exes: ['javaw', 'java', 'minecraft.windows', 'minecraftlauncher', 'lunar client'], mainExe: main }];
 }
 
 /* ---------- všetko spolu + ikonky ---------- */

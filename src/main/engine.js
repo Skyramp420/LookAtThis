@@ -479,6 +479,20 @@ async function probe(ffmpeg, file) {
   const fm = /Stream #0:\d+[^\n]*Video:[^\n]*?(\d+(?:\.\d+)?) fps/.exec(r.err);
   return { duration: m ? (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]) : 0, audio, titles, width: vm ? +vm[1] : 0, height: vm ? +vm[2] : 0, fps: fm ? Math.round(parseFloat(fm[1])) : 0 };
 }
+/* čierne okraje v zázname (hra na inom pomere strán, napr. 16:9 na širokom monitore): vráti výrez 0–1 alebo null */
+async function detectBars(ffmpeg, file) {
+  const info = await probe(ffmpeg, file);
+  if (!info.width || !info.height) return null;
+  const st = Math.max(0, Math.min(2, (info.duration || 0) / 3));
+  const r = await run(ffmpeg, ['-hide_banner', '-ss', st.toFixed(2), '-i', file, '-t', '4', '-an', '-vf', 'fps=2,cropdetect=limit=24:round=2:reset=0', '-f', 'null', '-'], { low: true });
+  const all = [...String(r.err).matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
+  if (!all.length) return null;
+  const [, w, h, x, y] = all[all.length - 1].map(Number);
+  if (w < info.width * 0.2 || h < info.height * 0.2) return null;          // skoro čierny obraz: nič neorezávaj
+  if (w > info.width * 0.97 && h > info.height * 0.97) return null;        // žiadne okraje
+  const f = v => +v.toFixed(4);
+  return { x: f(x / info.width), y: f(y / info.height), w: f(w / info.width), h: f(h / info.height) };
+}
 /* presný orez: video sa prekóduje (kľúčové snímky sú len každé 2 s), zvuk sa skopíruje */
 async function trim(ffmpeg, file, a, b, out, enc) {
   const base = ['-hide_banner', '-loglevel', 'error', '-y', '-ss', a.toFixed(3), '-i', file, '-t', Math.max(0.1, b - a).toFixed(3), '-map', '0', '-map_metadata', '0'];
@@ -743,4 +757,4 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
   return { out: job.out, size: size(), encoder: 'libx264', over: true };
 }
 
-module.exports = { compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, SEG, stamp };
+module.exports = { compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, detectBars, SEG, stamp };
