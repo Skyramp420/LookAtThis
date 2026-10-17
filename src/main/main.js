@@ -219,9 +219,60 @@ function wrapDetect() {
   };
 }
 
+/* ---------- iné nahrávacie programy na pozadí (dva naraz zbytočne zaťažujú grafiku a disk) ---------- */
+const RECORDERS = [
+  { id: 'obs', name: 'OBS Studio', exes: ['obs64.exe', 'obs32.exe', 'obs.exe'], how: 'Ak v ňom beží replay buffer alebo nahrávanie, zastav ho, alebo OBS zavri.' },
+  { id: 'slobs', name: 'Streamlabs Desktop', exes: ['streamlabs obs.exe', 'streamlabs desktop.exe'], how: 'Zastav v ňom replay buffer, alebo ho zavri.' },
+  { id: 'medal', name: 'Medal', exes: ['medal.exe', 'medalencoder.exe'], how: 'Medal nahráva na pozadí stále. Zavri ho, alebo v ňom vypni nahrávanie.' },
+  { id: 'outplayed', name: 'Outplayed', exes: ['outplayed.exe'], how: 'Outplayed nahráva hry automaticky. Zavri ho, alebo v ňom vypni nahrávanie.' },
+  { id: 'xsplit', name: 'XSplit', exes: ['xsplit.core.exe', 'xsplit.broadcaster.exe'], how: 'Zavri ho, ak práve nestreamuješ.' },
+  { id: 'bandicam', name: 'Bandicam', exes: ['bdcam.exe'], how: 'Zavri ho, ak ho práve nepoužívaš.' },
+  { id: 'nvidia', name: 'NVIDIA Okamžitý záznam', exes: ['nvsphelper64.exe'], soft: true, how: 'Ak máš v NVIDIA overlayi (Alt+Z) zapnutý Okamžitý záznam / Instant Replay, vypni ho. Ak ho nemáš zapnutý, toto upozornenie skry.' }
+];
+let otherRecorders = [];
+function listProcesses() {
+  return new Promise(resolve => {
+    if (process.platform !== 'win32') return resolve(new Set());
+    execFile('tasklist.exe', ['/fo', 'csv', '/nh'], { windowsHide: true, timeout: 8000, maxBuffer: 8e6 }, (err, out) => {
+      if (err) return resolve(new Set());
+      const set = new Set();
+      for (const line of String(out).split(/\r?\n/)) { const m = /^"([^"]+)"/.exec(line); if (m) set.add(m[1].toLowerCase()); }
+      resolve(set);
+    });
+  });
+}
+function gameBarRecording() {
+  // Xbox Game Bar: „Nahrávať, čo sa stalo“ (nahrávanie na pozadí) = HistoricalCaptureEnabled
+  return new Promise(resolve => {
+    if (process.platform !== 'win32') return resolve(false);
+    execFile('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR', '/v', 'HistoricalCaptureEnabled'], { windowsHide: true, timeout: 5000 }, (err, out) => {
+      resolve(!err && /HistoricalCaptureEnabled\s+REG_DWORD\s+0x1\b/i.test(String(out)));
+    });
+  });
+}
+async function detectRecorders() {
+  try {
+    const [procs, bar] = await Promise.all([listProcesses(), gameBarRecording()]);
+    const ign = store.get().ignoreRecorders || [];
+    const found = RECORDERS.filter(r => r.exes.some(e => procs.has(e))).map(r => ({ id: r.id, name: r.name, how: r.how, soft: !!r.soft, canClose: !r.soft }));
+    if (bar) found.push({ id: 'gamebar', name: 'Xbox Game Bar (nahrávanie na pozadí)', how: 'Vo Windows nastaveniach vypni „Nahrávať, čo sa stalo“. Nahráva to isté čo LookAtThis.', settings: true });
+    const list = found.filter(r => !ign.includes(r.id));
+    const before = otherRecorders.map(r => r.id).join(','), now = list.map(r => r.id).join(',');
+    const fresh = list.filter(r => !otherRecorders.some(o => o.id === r.id));
+    otherRecorders = list;
+    if (before !== now) {
+      pushState();
+      if (fresh.length) {
+        log.info('iný nahrávací program: ' + fresh.map(r => r.name).join(', '));
+        toast('warn', `Beží aj ${fresh.map(r => r.name).join(', ')}`, 'Dva nahrávacie programy naraz zbytočne zaťažujú grafiku a disk. Detaily nájdeš hore v okne.');
+      }
+    }
+  } catch (e) { log.warn('detekcia nahrávačov', e.message); }
+}
+
 function fullState() {
   return {
-    system,
+    system, otherRecorders,
     installed: installed.games || [], scanningGames: scanning, folders: listFolders(), update: U.status(),
     settings: store.get(), engine: engine.status(), clips: listClips(), clipsRev: clipRev, devices, sessions,
     encoders: engine.available, hotkeyErrors, monitors: monitors(), version: app.getVersion(), userData: USER
@@ -437,6 +488,20 @@ async function runAction(type, p = {}) {
     case 'toggleRecord': await toggleRecord(); return true;
     case 'setBuffer': { const before = { ...s }; const now = store.set({ bufferEnabled: !!p.on }); applySettings(before, now); pushState(); return true; }
     case 'restartEngine': engine.retry = 0; engine.error = ''; await engine.restart(store.get()); if (!engine.wanted) engine.start(store.get()); return true;
+    case 'closeRecorder': {
+      const r = RECORDERS.find(x => x.id === p.id); if (!r || r.soft) return false;
+      // bez /F: program dostane normálnu žiadosť o zatvorenie (napr. OBS sa môže opýtať, či naozaj)
+      await new Promise(res => execFile('taskkill.exe', r.exes.flatMap(e => ['/IM', e]), { windowsHide: true, timeout: 8000 }, () => res()));
+      setTimeout(detectRecorders, 3000);
+      return true;
+    }
+    case 'ignoreRecorder': {
+      const ign = new Set(store.get().ignoreRecorders || []); ign.add(String(p.id));
+      store.set({ ignoreRecorders: [...ign] });
+      otherRecorders = otherRecorders.filter(r => r.id !== p.id); pushState();
+      return true;
+    }
+    case 'gameBarSettings': shell.openExternal('ms-settings:gaming-gamedvr'); setTimeout(detectRecorders, 20000); return true;
     case 'saveSettings': { const before = JSON.parse(JSON.stringify(s)); const now = store.set(p); applySettings(before, now); pushState(); return now; }
     case 'resetExclude': { const before = JSON.parse(JSON.stringify(s)); const now = store.set({ exclude: store.DEFAULT_EXCLUDE.slice() }); applySettings(before, now); pushState(); return now; }
     case 'refreshDevices': { const r = await refreshDevices(); pushState(); return r; }
@@ -933,6 +998,7 @@ app.whenReady().then(async () => {
     }
   });
   scheduleCleanup(90e3); setInterval(() => scheduleCleanup(0), 3600e3);
+  setTimeout(detectRecorders, HIDDEN ? 45000 : 6000); setInterval(detectRecorders, 5 * 60e3);
   setLogin(s.launchAtLogin);
   if (s.bufferEnabled) engine.start(s);
   refreshDevices().then(pushState);

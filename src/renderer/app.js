@@ -86,7 +86,7 @@
     const missing = S.settings.tracks.some(t => t.on && e.tracks[t.id] && ['missing', 'error'].includes(e.tracks[t.id].status) && t.kind === 'device');
     $('#audioWarn').hidden = !missing;
     $('#clipCount').textContent = S.clips.filter(c => !c.folder).length || '';
-    renderFolders(); renderUpdPill();
+    renderFolders(); renderUpdPill(); renderRecWarn();
     updateLive({ buffered: e.buffered, recording: e.recording ? Date.now() - e.recording.since : 0 });
     const [title, sub] = VIEWS[view];
     $('#viewTitle').textContent = view === 'clips' && folderF ? folderF : title;
@@ -1196,6 +1196,27 @@
     if (u.status === 'ready') return `<button class="btn primary" id="updBtn" data-a="updateInstall">${I.refresh}<span>Reštartovať a aktualizovať</span></button>`;
     return `<button class="btn" id="updBtn" data-a="updateCheck"${['checking', 'downloading'].includes(u.status) ? ' disabled' : ''}>${I.refresh}<span>Skontrolovať</span></button>`;
   }
+  /* upozornenie: beží aj iný nahrávací program */
+  let recWarnSig = '';
+  function renderRecWarn() {
+    const el = $('#recWarn'); if (!el) return;
+    const list = S.otherRecorders || [];
+    const sig = JSON.stringify(list);
+    if (sig === recWarnSig) return; recWarnSig = sig;
+    el.hidden = !list.length;
+    el.innerHTML = list.map(r => `<div class="rw-i" data-id="${esc(r.id)}">
+        <i class="rw-ic"><svg viewBox="0 0 20 20"><path d="M10 3.2 18 17H2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 8.3v4M10 14.6v.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg></i>
+        <div class="grow"><b>Beží aj ${esc(r.name)}</b><span>${esc(r.how)}</span></div>
+        ${r.canClose ? '<button class="btn" data-a="close">Zavrieť ho</button>' : ''}${r.settings ? '<button class="btn" data-a="settings">Otvoriť nastavenia</button>' : ''}
+        <button class="btn ghost" data-a="ignore" title="Toto upozornenie už nezobrazovať">Nezobrazovať</button></div>`).join('');
+  }
+  $('#recWarn').addEventListener('click', async e => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    const id = b.closest('.rw-i').dataset.id;
+    if (b.dataset.a === 'close') { b.disabled = true; b.textContent = 'Zatváram…'; try { await api.action('closeRecorder', { id }); } catch (er) { toast('error', 'Nepodarilo sa zavrieť', er.message); } }
+    if (b.dataset.a === 'settings') api.action('gameBarSettings');
+    if (b.dataset.a === 'ignore') api.action('ignoreRecorder', { id });
+  });
   function renderUpdPill() {
     const u = S && S.update, b = $('#updPill'); if (!b) return;
     b.hidden = !(u && u.status === 'ready');

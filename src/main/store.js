@@ -31,6 +31,7 @@ function defaults(videosDir) {
     gameNames: {},
     hotkeys: { clip: 'Alt+F10', record: 'Alt+F9', short: '', mark: '' },
     autoWinCrop: false,
+    ignoreRecorders: [],
     hotkeysAdmin: false,
     shortSeconds: 15,
     cleanupGB: 0,
