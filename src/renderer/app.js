@@ -536,22 +536,37 @@
   }, true);
   /* ťahanie klipu: karta letí s kurzorom; pustená na priečinok doň „spadne“, mimo okna sa z nej stane
      skutočný súbor (Discord, Prieskumník, Premiere…) */
-  let fly = null, justDragged = 0;
+  let fly = null, justDragged = 0, flyCleanup = null;
   $('#view-clips').addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     const card = e.target.closest('.clip'); if (!card || e.target.closest('.pick, .fav, .g, button')) return;
+    if (flyCleanup) flyCleanup();
     const x0 = e.clientX, y0 = e.clientY, path = card.dataset.path;
+    let over = false; // po odovzdaní súboru systému už karta nevzniká znova
     const move = ev => {
+      if (over) return;
+      // tlačidlo už nie je stlačené (pointerup sa stratil, napr. po natívnom ťahaní): ukonči
+      if (!(ev.buttons & 1)) { cleanup(); if (fly) flyBack(); return; }
       if (!fly) {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 7) return;
         startFly(card, path, ev, x0, y0);
       }
       flyMove(ev);
     };
-    const up = ev => { cleanup(); if (fly) flyDrop(ev); };
+    const up = ev => { const f = fly; cleanup(); if (f) flyDrop(ev); };
     const key = ev => { if (ev.key === 'Escape' && fly) { ev.stopPropagation(); cleanup(); flyBack(); } };
-    const cleanup = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); removeEventListener('keydown', key, true); };
+    // myš opustila okno (aj rýchlo, bez udalosti na okraji): odovzdaj súbor systému
+    const leave = ev => { if (fly && (ev.buttons & 1)) handoff(); };
+    const lost = () => { cleanup(); if (fly) flyBack(); };
+    const cleanup = () => {
+      over = true;
+      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); removeEventListener('keydown', key, true);
+      removeEventListener('blur', lost); document.documentElement.removeEventListener('mouseleave', leave);
+      if (flyCleanup === cleanup) flyCleanup = null;
+    };
+    flyCleanup = cleanup;
     addEventListener('pointermove', move, true); addEventListener('pointerup', up, true); addEventListener('keydown', key, true);
+    addEventListener('blur', lost); document.documentElement.addEventListener('mouseleave', leave);
   });
   // po ťahaní nespúšťaj klik (otvorenie editora)
   $('#view-clips').addEventListener('click', e => { if (Date.now() - justDragged < 350) { e.stopPropagation(); e.preventDefault(); } }, true);
@@ -581,20 +596,22 @@
   function flyMove(ev) {
     fly.vx += ev.clientX - fly.x; fly.x = ev.clientX; fly.y = ev.clientY;
     // mimo okna: odovzdaj skutočný súbor systému (Discord, Prieskumník…)
-    if (ev.clientX <= 0 || ev.clientY <= 0 || ev.clientX >= innerWidth - 1 || ev.clientY >= innerHeight - 1) {
-      const p = fly.path, paths = fly.paths, el = endFly(); justDragged = Date.now();
-      if (el) el.remove();
-      // vlastný súbor ťahaný späť nad appku nie je import; pustený na priečinok sa doň presunie
-      dragPaths = paths; dragAt = Date.now();
-      if (api.drag) api.drag(p);
-      return;
-    }
+    if (ev.clientX <= 0 || ev.clientY <= 0 || ev.clientX >= innerWidth - 1 || ev.clientY >= innerHeight - 1) { handoff(); return; }
     const under = document.elementFromPoint(ev.clientX, ev.clientY);
     const t = under && (under.closest('.fold[data-folder]') || under.closest('#nav button[data-view=clips]'));
     if (t !== fly.target) { if (fly.target) fly.target.classList.remove('drop-on'); fly.target = t; if (t) t.classList.add('drop-on'); fly.el.classList.toggle('over', !!t); }
   }
+  function handoff() {
+    if (!fly) return;
+    const p = fly.path, paths = fly.paths, el = endFly(); justDragged = Date.now();
+    if (el) el.remove();
+    // vlastný súbor ťahaný späť nad appku nie je import; pustený na priečinok sa doň presunie
+    dragPaths = paths; dragAt = Date.now();
+    if (api.drag) api.drag(p);
+  }
   function endFly() {
     if (!fly) return;
+    if (flyCleanup) flyCleanup();
     cancelAnimationFrame(fly.raf);
     if (fly.target) fly.target.classList.remove('drop-on');
     $$('.clip.lifted').forEach(c => c.classList.remove('lifted'));

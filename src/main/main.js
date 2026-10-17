@@ -47,6 +47,10 @@ function logw(level, args) {
 const log = { info: (...a) => logw('info', a), warn: (...a) => logw('warn', a), error: (...a) => logw('error', a) };
 try { if (fs.statSync(LOGF).size > 2e6) fs.renameSync(LOGF, LOGF + '.old'); } catch (e) { }
 
+process.on('uncaughtException', err => { log.error('uncaught', err); });
+process.on('unhandledRejection', err => { log.error('unhandledRejection', err instanceof Error ? err : new Error(String(err))); });
+app.on('render-process-gone', (e, wc, d) => log.error('render-process-gone', d));
+app.on('child-process-gone', (e, d) => log.error('child-process-gone', d));
 let store, engine, win, tray, quitting = false;
 let devices = { render: [], capture: [] }, sessions = [], hotkeyErrors = [];
 
@@ -854,15 +858,22 @@ ipcMain.handle('action', async (e, { type, payload }) => {
   catch (err) { log.warn('akcia ' + type, err.message); return { ok: false, error: err.message }; }
 });
 // ťahanie klipu z knižnice von (do Discordu, Prieskumníka, strihového programu)
+let dragBusy = 0;
 ipcMain.on('drag', (e, file) => {
+  // natívne ťahanie súboru: nikdy nie dvakrát naraz (druhé spustenie počas prvého appku zhodí)
+  if (Date.now() - dragBusy < 1500) return;
   try {
     const dir = path.resolve(store.get().clipsDir);
     if (!path.resolve(file).startsWith(dir) || !fs.existsSync(file)) return;
+    dragBusy = Date.now();
     const st = fs.statSync(file), th = thumbFile(file, st.mtimeMs);
     let icon = fs.existsSync(th) ? nativeImage.createFromPath(th) : nativeImage.createFromPath(ICON);
-    icon = icon.resize({ width: 120 });
+    if (icon.isEmpty()) icon = nativeImage.createFromPath(ICON);
+    if (!icon.isEmpty()) icon = icon.resize({ width: 120 });
+    if (icon.isEmpty()) { log.warn('drag: chýba ikonka'); return; }
     e.sender.startDrag({ file, icon });
   } catch (err) { log.warn('drag', err.message); }
+  finally { dragBusy = Date.now(); }
 });
 ipcMain.on('log', (e, { level, msg }) => log[level] ? log[level]('[okno] ' + msg) : null);
 
