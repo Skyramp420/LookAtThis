@@ -702,7 +702,8 @@ function showWindow(after) {
   if (fresh) createWindow(true);
   if (win.isMinimized()) win.restore();
   win.show(); win.focus();
-  if (after) { if (fresh) win.webContents.once('did-finish-load', () => setTimeout(after, 250)); else after(); }
+  // z lišty/menu príde ako argument udalosť, nie funkcia → tú ignoruj
+  if (typeof after === 'function') { if (fresh) win.webContents.once('did-finish-load', () => setTimeout(after, 250)); else after(); }
 }
 function refreshTray() {
   if (!tray) return;
@@ -712,7 +713,7 @@ function refreshTray() {
   const what = rec ? 'nahrávam' : st.state === 'on' ? `buffer ${s.bufferSeconds} s` : st.state === 'starting' ? 'štartujem' : st.state === 'error' ? 'chyba' : 'vypnuté';
   tray.setToolTip(`LookAtThis · ${what}`);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Otvoriť LookAtThis', click: showWindow },
+    { label: 'Otvoriť LookAtThis', click: () => showWindow() },
     { type: 'separator' },
     { label: `Uložiť clip (${s.hotkeys.clip})`, enabled: st.state === 'on', click: () => saveClip() },
     { label: rec ? `Zastaviť nahrávanie (${s.hotkeys.record})` : `Nahrávať (${s.hotkeys.record})`, click: toggleRecord },
@@ -766,7 +767,7 @@ app.whenReady().then(async () => {
 
   if (!HIDDEN || !s.onboarded) createWindow(true);
   tray = new Tray(nativeImage.createFromPath(TRAY));
-  tray.on('click', showWindow);
+  tray.on('click', () => showWindow());
   refreshTray();
   registerHotkeys();
   U.init({
