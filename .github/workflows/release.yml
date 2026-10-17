@@ -45,6 +45,18 @@ jobs:
           V="v$(node -p "require('./package.json').version")"
           if git ls-remote --exit-code --tags origin "refs/tags/$V" >/dev/null; then echo "Značka $V už existuje"; else git tag "$V" && git push origin "refs/tags/$V"; fi
 
+      - name: Vytvor vydanie vopred
+        # electron-builder nahráva súbory paralelne a bez hotového vydania ich vytvorí viac (duplicitné vydania, updater nenájde latest.yml)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="v$(node -p "require('./package.json').version")"
+          if gh release view "$V" >/dev/null 2>&1; then echo "Vydanie $V už existuje"; else
+            if [ "$EP_PRE_RELEASE" = "true" ]; then P="--prerelease"; else P=""; fi
+            gh release create "$V" --title "$V" --notes "LookAtThis $V" $P
+          fi
+
       - name: Inštalačka a vydanie
         run: npx electron-builder --win nsis --publish always
         env:
