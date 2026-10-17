@@ -885,7 +885,7 @@ function createWindow(show) {
   win = new BrowserWindow({
     width: 1180, height: 760, minWidth: 900, minHeight: 600,
     backgroundColor: bg(), title: 'LookAtThis', icon: ICON, show, frame: false,
-    webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
+    webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: true }
   });
   win.removeMenu();
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
@@ -1006,8 +1006,11 @@ app.whenReady().then(async () => {
   setTimeout(() => { if (!installed.at || Date.now() - installed.at > 864e5) scanGames(); }, HIDDEN ? 90000 : 8000);
 
   // úrovne zvuku do okna 10× za sekundu, keď je vidieť
+  // keď okno nie je v popredí (hráš), stačí 2× za sekundu (časovač a stav buffra); merače naplno len pri pohľade na appku
+  let lvTick = 0;
   setInterval(() => {
-    if (!win || win.isDestroyed() || !win.isVisible()) return;
+    if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return;
+    if (!win.isFocused() && (++lvTick % 5)) return;
     const lv = {}; for (const [id, t] of Object.entries(engine.tracks)) lv[id] = t.level || 0;
     send('levels', { levels: lv, buffered: engine.bufferedSeconds(), recording: engine.recording ? Date.now() - engine.recording.since : 0 });
   }, 100);

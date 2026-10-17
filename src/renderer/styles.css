@@ -136,7 +136,7 @@ kbd { font: 560 11px var(--body); background: var(--fill2); color: var(--muted);
 
 /* REC lišta – srdce appky, ako vo WorkingOnIt */
 .rec { display: flex; align-items: center; gap: 12px; background: var(--panel); box-shadow: var(--card-shadow); border-radius: 12px; padding: 6px 6px 6px 14px; min-width: 330px; position: relative; overflow: hidden; }
-.rec::after { content: ''; position: absolute; inset: auto 0 0 0; height: 3px; background: repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 12px); opacity: .6; }
+.rec::after { content: ''; position: absolute; inset: auto 0 0 -12px; will-change: transform; height: 3px; background: repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 12px); opacity: .6; }
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); flex: none; }
 .rec-tc { font: 500 17px/1 var(--tc); letter-spacing: .02em; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 52px; }
 .rec-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
@@ -158,7 +158,10 @@ kbd { font: 560 11px var(--body); background: var(--fill2); color: var(--muted);
 .rec.starting .rec-dot { background: var(--amber); animation: blink 1s ease-in-out infinite; }
 .rec.error .rec-dot { background: var(--rec); }
 @keyframes recpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 60%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
-@keyframes scrub { to { background-position: 12px 0; } }
+/* posun cez transform: kreslí sa raz, grafika ho len posúva (background-position by sa prekresľoval 60× za sekundu) */
+@keyframes scrub { to { transform: translateX(12px); } }
+/* okno nie je v popredí (napr. hráš): nekonečné animácie stoja, nech appka nežerie procesor ani grafiku */
+body.idle *, body.idle *::before, body.idle *::after { animation-play-state: paused !important; }
 @keyframes blink { 50% { opacity: .35; } }
 .flash { animation: flash .7s var(--ease); }
 @keyframes flash { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent), var(--card-shadow); } 100% { box-shadow: 0 0 0 14px transparent, var(--card-shadow); } }

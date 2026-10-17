@@ -1407,6 +1407,10 @@
       } else patchThumbs();
     } else if (view === 'audio') renderAudio(); else renderSettings();
   });
+  // okno v pozadí: zastav nekonečné animácie (pulzujúce bodky, pásik buffra)
+  const setIdle = () => document.body.classList.toggle('idle', document.hidden || !document.hasFocus());
+  addEventListener('blur', setIdle); addEventListener('focus', setIdle); document.addEventListener('visibilitychange', setIdle);
+  setIdle();
   api.on('levels', d => {
     lastLevels = d.levels;
     if (S) { S.engine.buffered = d.buffered; updateLive(d); }
