@@ -492,8 +492,15 @@ mark { background: color-mix(in srgb, var(--accent) 38%, transparent); color: in
 .clip:hover .fav { opacity: 1; transform: scale(1); }
 .clip.is-fav .fav { opacity: 1; transform: scale(1); color: #ffd60a; }
 .clip.is-fav .fav svg path { fill: #ffd60a; }
-.thumb .fav.pop { animation: starpop .45s var(--spring); }
-@keyframes starpop { 0% { transform: scale(.6) rotate(-30deg); } 60% { transform: scale(1.3) rotate(8deg); } 100% { transform: scale(1); } }
+/* hviezdička: animuje sa len samotná ikonka + zlatý krúžok, tlačidlo stojí */
+.thumb .fav svg { transition: transform .25s var(--spring); }
+.thumb .fav:active svg { transform: scale(.82); }
+.thumb .fav.pop svg { animation: starpop .55s cubic-bezier(.2, 1.4, .35, 1); }
+.thumb .fav.pop::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2px #ffd60a; animation: starring .55s ease-out forwards; pointer-events: none; }
+.thumb .fav.unpop svg { animation: starunpop .3s ease-out; }
+@keyframes starpop { 0% { transform: scale(.4) rotate(-40deg); } 55% { transform: scale(1.22) rotate(10deg); } 100% { transform: scale(1) rotate(0); } }
+@keyframes starring { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.7); opacity: 0; } }
+@keyframes starunpop { 0% { transform: scale(1); } 40% { transform: scale(.7); } 100% { transform: scale(1); } }
 .ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .chip-btn { border: 0; background: var(--fill2); color: var(--text); font-size: 12.5px; font-weight: 520; padding: 4px 10px; border-radius: 7px; }
 .chip-btn:hover { background: var(--fill); }
@@ -1132,11 +1139,8 @@ body.flying, body.flying * { cursor: grabbing !important; }
 .rw-i .grow { flex: 1; min-width: 0; }
 
 /* ---------- editor: celá obrazovka ---------- */
-.ed-fsb { position: absolute; right: 10px; top: 10px; z-index: 8; width: 32px; height: 32px; border: 0; border-radius: 9px; display: grid; place-items: center; background: rgba(0, 0, 0, .45); color: #fff; opacity: 0; transition: opacity .18s, background .15s; backdrop-filter: blur(6px); }
-.ed-fsb svg { width: 16px; }
-.ed-stage:hover .ed-fsb { opacity: 1; }
-.ed-fsb:hover { background: rgba(0, 0, 0, .7); }
-.ed-stage.fs .ed-fsb, .ed-stage.rgmode .ed-fsb { display: none; }
+.ed-fsb2 span { display: none; }
+@media (min-width: 1400px) { .ed-fsb2 span { display: inline; } }
 .ed-fs { display: none; }
 .ed-stage.fs { border-radius: 0; cursor: pointer; }
 .ed-stage.fs.fs-idle { cursor: none; }
@@ -1173,3 +1177,8 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .su-row small { display: block; font-size: 11.5px; margin-top: 2px; font-weight: 400; }
 .su-cards:has(> :nth-child(3)) { grid-template-columns: repeat(3, 1fr); }
 .su-card { display: flex; flex-direction: column; } .su-card .hk { margin-top: auto; }
+
+/* prepnutie hry / plochy na pravítku časovej osi */
+.tlx-ruler .fgm { position: absolute; top: 3px; margin-left: -9px; width: 18px; height: 16px; border-radius: 5px; display: grid; place-items: center; font-style: normal; background: var(--panel); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .3); color: var(--muted); pointer-events: auto; cursor: default; z-index: 2; }
+.tlx-ruler .fgm.game { color: var(--accent); }
+.tlx-ruler .fgm svg { width: 12px; height: 12px; }

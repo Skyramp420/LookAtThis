@@ -29,6 +29,8 @@ window.Player = (function () {
   const ANIM_OUT = [{ v: 'none', l: 'Žiadna' }, { v: 'fade', l: 'Fade' }];
   const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
   const FADE = 0.5; // dĺžka roztmievania/stmievania úseku
+  const FG_GAME = '<svg viewBox="0 0 16 16"><path d="M4.6 5h6.8a2.6 2.6 0 0 1 2.5 1.9l.9 3.3a1.7 1.7 0 0 1-2.9 1.6L10.6 10.5H5.4l-1.3 1.3a1.7 1.7 0 0 1-2.9-1.6l.9-3.3A2.6 2.6 0 0 1 4.6 5Z" fill="currentColor"/><path d="M5 6.7v2M4 7.7h2" stroke="#000" stroke-width="1.1" stroke-linecap="round"/></svg>';
+  const FG_SCREEN = '<svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 13.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
   const ASPECTS = {
     orig: { l: 'Pôvodný formát', short: 'Pôvodný', r: 0 },
     '9:16': { l: 'Na výšku 9:16', short: '9:16', r: 9 / 16, sub: 'TikTok, Shorts, Reels' },
@@ -144,7 +146,6 @@ window.Player = (function () {
             </div>
             <div class="ed-hint" id="hint" hidden></div>
             <div class="ed-flash" id="flash"></div>
-            <button class="ed-fsb" id="fsBtn" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             <div class="ed-fs" id="fsBar"><button class="fs-play" id="fsPlay">${I.play}</button><span class="fs-time" id="fsTime"></span><div class="fs-prog" id="fsProg"><i id="fsFill"></i></div><button class="fs-exit" id="fsExit" title="Zavrieť celú obrazovku (Esc)"><svg viewBox="0 0 16 16"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
             <div class="ed-loading" id="loading"><div class="mx-load"><i></i><i></i><i></i></div><span>Pripravujem klip…</span></div>
           </div>
@@ -167,6 +168,7 @@ window.Player = (function () {
         <div class="ed-bar">
           <button class="pl-play" id="plPlay" aria-label="Prehrať (medzerník)">${I.play}</button>
           <span class="pl-time" id="plTime">0:00.00 <i>/ 0:00</i></span>
+          <button class="ed-tb ed-fsb2" id="fsBtn" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Celá obrazovka</span></button>
           <span class="ed-sep"></span>
           <div class="ed-tools">
             <button class="ed-tb" id="bSplit" title="Rozdeliť na pozícii prehrávania (S)">${IC.split}<span>Rozdeliť</span></button>
@@ -311,7 +313,9 @@ window.Player = (function () {
       OW = outW();
     }
     function layoutFrame() {
-      const r = stage.getBoundingClientRect(); if (!r.width) return;
+      // clientWidth/Height = skutočný rozmer bez transformácie (getBoundingClientRect počas nábehovej animácie okna vracia zmenšený
+      // rozmer a ResizeObserver sa potom už neozve → video zostalo menšie s čiernym okrajom vpravo)
+      const r = { width: stage.clientWidth, height: stage.clientHeight }; if (!r.width) return;
       const ed = !!rgEdit, A = ed ? SW / SH : OW / H, pad = ed ? 64 : 0, avH = r.height - pad, avW = r.width - (ed ? 24 : 0);
       let fw = avW, fh = fw / A;
       if (fh > avH) { fh = avH; fw = fh * A; }
@@ -688,7 +692,18 @@ window.Player = (function () {
       for (let x = 0; x <= D + 1e-6; x += step) html += `<span style="left:${x * pps}px">${lab(x)}</span>`;
       for (let x = step / 2; x <= D + 1e-6; x += step) html += `<i style="left:${x * pps}px"></i>`;
       for (const mk of markTimes()) html += `<b class="mk" style="left:${mk * pps}px" title="Značka · ${durMs(mk)} (M = ďalšia)"></b>`;
+      for (const f of fgTimes()) html += `<em class="fgm ${f.kind}" style="left:${f.t * pps}px" title="${esc((f.kind === 'game' ? 'Hra: ' : f.kind === 'desktop' ? 'Plocha' : 'Prepnuté na ') + (f.kind === 'desktop' ? '' : f.name))} · ${durMs(f.t)}">${f.kind === 'game' ? FG_GAME : FG_SCREEN}</em>`;
       $('#ruler', m).innerHTML = html;
+    }
+    /* prepnutia okna v popredí (iná hra / plocha) počas záznamu: malé ikonky na pravítku */
+    function fgTimes() {
+      const out = []; let a = 0;
+      for (const s of segs) {
+        const src = sources.get(s.src), list = (src && src.fg) || [];
+        list.forEach((f, i) => { if (i > 0 && f.t >= s.in && f.t <= s.out) out.push({ t: a + (f.t - s.in) / sp(s), kind: f.kind, name: f.name }); });
+        a += sd(s);
+      }
+      return out;
     }
     /* značky zo skratky počas hrania: čas na výslednej osi (cez všetky úseky, s rýchlosťou) */
     function markTimes() {

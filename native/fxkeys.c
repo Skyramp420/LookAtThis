@@ -102,12 +102,15 @@ static void jsonStr(char *dst, size_t cap, const wchar_t *w) {
   for (char *s = u; *s && k + 3 < cap; s++) { if (*s == '"' || *s == '\\') dst[k++] = '\\'; dst[k++] = (unsigned char)*s < 32 ? ' ' : *s; }
   dst[k] = 0;
 }
-static int rectMode(void) {
+static void dpiAware(void) {
   typedef BOOL (WINAPI *SetCtx)(HANDLE);
   SetCtx f = (SetCtx)GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetProcessDpiAwarenessContext");
   if (f) f((HANDLE)-4); /* PER_MONITOR_AWARE_V2: súradnice v skutočných pixeloch */
+}
+/* poloha okna v popredí ako JSON do buf; 0 = žiadne okno */
+static int fgJson(char *buf, size_t cap) {
   HWND h = GetForegroundWindow();
-  if (!h) { puts("{}"); return 0; }
+  if (!h) return 0;
   RECT c; POINT p = {0, 0};
   GetClientRect(h, &c); ClientToScreen(h, &p);
   MONITORINFO mi; mi.cbSize = sizeof mi;
@@ -118,15 +121,23 @@ static int rectMode(void) {
   if (pr) { QueryFullProcessImageNameW(pr, 0, path, &sz); CloseHandle(pr); }
   for (wchar_t *q = path; *q; q++) if (*q == L'\\') base = q + 1;
   char exe[600]; jsonStr(exe, sizeof exe, base);
-  printf("{\"x\":%ld,\"y\":%ld,\"w\":%ld,\"h\":%ld,\"mx\":%ld,\"my\":%ld,\"mw\":%ld,\"mh\":%ld,\"exe\":\"%s\",\"zoomed\":%d}\n",
+  snprintf(buf, cap, "{\"x\":%ld,\"y\":%ld,\"w\":%ld,\"h\":%ld,\"mx\":%ld,\"my\":%ld,\"mw\":%ld,\"mh\":%ld,\"exe\":\"%s\",\"zoomed\":%d}",
          p.x, p.y, c.right - c.left, c.bottom - c.top, mi.rcMonitor.left, mi.rcMonitor.top,
          mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, exe, IsZoomed(h) ? 1 : 0);
+  return 1;
+}
+static int rectMode(void) {
+  char b[900]; dpiAware();
+  puts(fgJson(b, sizeof b) ? b : "{}");
   return 0;
 }
 
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "--rect")) return rectMode();
   InitializeCriticalSection(&cs);
+  int fgOn = 0;
+  for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--fg")) fgOn = 1;
+  if (fgOn) dpiAware();
   if (argc > 2 && !strcmp(argv[1], "--pipe")) {
     for (int i = 0; i < 100 && pipeH == INVALID_HANDLE_VALUE; i++) {
       pipeH = CreateFileA(argv[2], GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
@@ -149,7 +160,8 @@ int main(int argc, char **argv) {
   int raw = hw && RegisterRawInputDevices(&rid, 1, sizeof rid);
   { char b[48]; snprintf(b, sizeof b, "ready %d raw=%d\n", n, raw); out(b); }
 
-  DWORD beat = GetTickCount();
+  DWORD beat = GetTickCount(), fgT = 0;
+  char fgLast[900] = "";
   for (;;) {
     MsgWaitForMultipleObjects(0, NULL, FALSE, 8, QS_ALLINPUT);
     MSG msg;
@@ -162,6 +174,11 @@ int main(int argc, char **argv) {
       K[i].down = now;
     }
     LeaveCriticalSection(&cs);
+    /* okno v popredí: pri zmene (iná appka, presun, zmena veľkosti) pošli "fg {json}" — appka z toho vie prepnutia hier a výrez okna */
+    if (fgOn && GetTickCount() - fgT > 500) {
+      char b[900], line[920]; fgT = GetTickCount();
+      if (fgJson(b, sizeof b) && strcmp(b, fgLast)) { strcpy(fgLast, b); snprintf(line, sizeof line, "fg %s\n", b); out(line); }
+    }
     if (pipeH != INVALID_HANDLE_VALUE && GetTickCount() - beat > 2000) { beat = GetTickCount(); out(".\n"); }
   }
 }

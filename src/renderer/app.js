@@ -7,7 +7,8 @@
   let lastLevels = {};
   const seenClips = new Set();
   let firstRender = true;
-  let lastSig = '';
+  let lastSig = '', lastFavN = -1, favT = 0;
+  const favCount = () => (S && S.clips ? S.clips.filter(c => c.fav).length : 0);
   const picked = new Set();   // vybrané klipy (cesty)
   let anchor = null, visible = [];
 
@@ -522,7 +523,9 @@
       e.stopPropagation();
       const el = fv.closest('.clip'), path = el.dataset.path, c = S.clips.find(x => x.path === path);
       const on = !(c && c.fav);
-      el.classList.toggle('is-fav', on); fv.classList.remove('pop'); void fv.offsetWidth; fv.classList.add('pop');
+      el.classList.toggle('is-fav', on); fv.classList.remove('pop', 'unpop'); void fv.offsetWidth; fv.classList.add(on ? 'pop' : 'unpop');
+      fv.title = on ? 'Odobrať z obľúbených' : 'Pridať do obľúbených';
+      if (c) c.fav = on; // hneď lokálne, nech príchod nového stavu kartu neprekreslí (animácia by sa prerušila)
       api.action('setClipMeta', { paths: [path], patch: { fav: on } });
     }
   }, true);
@@ -1403,13 +1406,18 @@
     if (busy() || document.querySelector('.pop-menu')) return;
     // klipy prekresli len keď sa naozaj zmenili (inak by karty pri každej zmene stavu znova naskakovali)
     // náhľady pribúdajú po dávkach: vtedy len doplň obrázky, celú knižnicu neprekresľuj
-    const sig = (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + c.game + (c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
+    // hviezdičky sú v podpise len v zobrazení Obľúbené (inde ich karta prepne sama, bez prekreslenia)
+    const sig = (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + c.game + (gameF === '__fav' && c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
     if (view === 'clips') {
       if (sig !== lastSig) {
         // zmena na pozadí (nový clip, presun…): prekresli potichu, bez nábehovej animácie a so zachovaným posunom
         const sc = $('#view-clips'), top = sc.scrollTop, quiet = !!lastSig;
-        lastSig = sig; renderClips(quiet); sc.scrollTop = top;
-      } else patchThumbs();
+        lastSig = sig; lastFavN = favCount(); renderClips(quiet); sc.scrollTop = top;
+      } else if (favCount() !== lastFavN) {
+        // pribudla/ubudla obľúbená: počítadlo v pásiku hier obnov až po dobehnutí animácie hviezdičky
+        lastFavN = favCount(); clearTimeout(favT);
+        favT = setTimeout(() => { if (view === 'clips' && !busy()) { const sc = $('#view-clips'), top = sc.scrollTop; renderClips(true); sc.scrollTop = top; } }, 700);
+      } else { patchThumbs(); $$('#view-clips .clip').forEach(el => { const c = S.clips.find(x => x.path === el.dataset.path); if (c && el.classList.contains('is-fav') !== !!c.fav) el.classList.toggle('is-fav', !!c.fav); }); }
     } else if (view === 'audio') renderAudio(); else renderSettings();
   });
   // okno v pozadí: zastav nekonečné animácie (pulzujúce bodky, pásik buffra)

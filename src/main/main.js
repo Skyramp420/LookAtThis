@@ -131,7 +131,7 @@ function scanClips() {
     const name = f.replace(VIDEO, '');
     // hru a typ vieme odvodiť aj z názvu súboru (klipy zo starších verzií alebo bez záznamu)
     const kind = m.kind || (/\(\d+ MB\)/.test(name) ? 'small' : /\(strih/.test(name) ? 'cut' : /\(upraven/.test(name) ? 'edit' : /\(orez/.test(name) ? 'trim' : /^nahrávka /i.test(name) ? 'rec' : '');
-    return { path: p, folder, name, ext: path.extname(f).slice(1), size: st.size, mtime: st.mtimeMs, thumb: hasThumb ? th : null, duration: m.duration || 0, game: m.game === '-' ? '' : m.game ? m.game : Games.fromFileName(name), kind, fav: !!m.fav, win: m.win || null, marks: m.marks || null };
+    return { path: p, folder, name, ext: path.extname(f).slice(1), size: st.size, mtime: st.mtimeMs, thumb: hasThumb ? th : null, duration: m.duration || 0, game: m.game === '-' ? '' : m.game ? m.game : Games.fromFileName(name), kind, fav: !!m.fav, win: m.win || null, marks: m.marks || null, fg: m.fg || null };
   }).filter(Boolean).sort((a, b) => b.mtime - a.mtime);
 }
 async function pumpThumbs() {
@@ -296,6 +296,58 @@ function toast(kind, title, body, extra) { send('event', { type: 'toast', kind, 
 const CAPTURE_KEYS = ['powerSave', 'monitor', 'fps', 'resolution', 'quality', 'encoder', 'codec', 'cursor', 'tracks', 'games', 'exclude'];
 let restartT = null;
 
+/* okno (z fxkeys) → výrez 0–1 vzhľadom na nahrávaný monitor; null pri celej obrazovke / inom monitore */
+function regionFrom(r) {
+  if (!r || !r.w || !r.h || !r.mw || !r.mh) return null;
+  const mon = monitors().find(m => m.idx === (Number(store.get().monitor) || 0));
+  if (mon && (Math.abs(mon.w - r.mw) > 2 || Math.abs(mon.h - r.mh) > 2)) return null;
+  const c = v => Math.max(0, Math.min(1, v));
+  const x = c((r.x - r.mx) / r.mw), y = c((r.y - r.my) / r.mh);
+  const w = c(Math.min(r.w / r.mw, 1 - x)), h = c(Math.min(r.h / r.mh, 1 - y));
+  if ((w > 0.97 && h > 0.97) || w < 0.15 || h < 0.15) return null;
+  return { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), h: +h.toFixed(4) };
+}
+/* história okna v popredí (prepnutia hier, alt-tab na plochu); hlási ju fxkeys pri každej zmene */
+let fgLog = [];
+function onForeground(r) {
+  const exe = String(r.exe || '').toLowerCase();
+  if (!exe || exe === 'lookatthis.exe') return;
+  const now = Date.now();
+  fgLog.push({ t: now, exe, r });
+  if (fgLog.length > 3000 || now - fgLog[0].t > 4 * 3600e3) fgLog = fgLog.filter(e => now - e.t < 3 * 3600e3).slice(-2000);
+}
+function isGameExe(exe) {
+  const n = exe.replace(/\.exe$/i, ''), s = store.get();
+  if ((s.exclude || []).some(x => String(x).toLowerCase() === exe)) return false;
+  if ((s.games || []).some(x => String(x).toLowerCase() === exe)) return true;
+  if (Games.KNOWN[n]) return true;
+  return (installed.games || []).some(g => (g.exes || []).map(x => String(x).toLowerCase()).includes(n));
+}
+function exeName(exe) {
+  const n = exe.replace(/\.exe$/i, '');
+  const g = (installed.games || []).find(x => (x.exes || []).map(y => String(y).toLowerCase()).includes(n));
+  if (g) return g.name;
+  if (n === 'explorer') return 'Plocha';
+  return Games.pretty(n, store.get().gameNames);
+}
+/* čo bolo v popredí počas [from, to] (ms): prepnutia pre editor + okno hry, ktoré tam bolo najdlhšie (na výrez) */
+function fgDuring(from, to) {
+  const ev = [];
+  let start = null;
+  for (const e of fgLog) { if (e.t <= from) start = e; else if (e.t <= to) ev.push(e); }
+  const all = start ? [{ ...start, t: from }, ...ev] : ev;
+  const list = [], dur = new Map();
+  all.forEach((e, i) => {
+    const end = i + 1 < all.length ? all[i + 1].t : to;
+    const game = isGameExe(e.exe), rg = game ? regionFrom(e.r) : null;
+    if (game) { const k = JSON.stringify(rg); dur.set(k, (dur.get(k) || 0) + (end - e.t)); }
+    const last = list[list.length - 1];
+    if (!last || last.exe !== e.exe) list.push({ t: +((e.t - from) / 1000).toFixed(2), exe: e.exe, kind: game ? 'game' : e.exe === 'explorer.exe' ? 'desktop' : 'app', name: exeName(e.exe) });
+  });
+  let best = null, bestD = 0;
+  for (const [k, d] of dur) if (d > bestD) { bestD = d; best = JSON.parse(k); }
+  return { list, win: best };
+}
 /* poloha okna v popredí (okno hry) vzhľadom na nahrávaný monitor: editor z nej vie vyrezať len hru */
 function windowRegion() {
   return new Promise(resolve => {
@@ -322,8 +374,10 @@ async function saveClip(seconds) {
     const winP = windowRegion();
     const r = await engine.saveClip(store.get().clipsDir, seconds);
     const region = await winP;
-    const end = Date.now(), mk = marksIn(end - r.seconds * 1000, end);
-    store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip', ...(region ? { win: region } : {}), ...(mk.length ? { marks: mk } : {}) });
+    const end = Date.now(), mk = marksIn(end - r.seconds * 1000, end), fg = fgDuring(end - r.seconds * 1000, end);
+    const win = fg.win || region;
+    log.info(`clip: okno hry ${win ? JSON.stringify(win) : 'žiadne (celá obrazovka)'}, prepnutia ${fg.list.map(x => x.name).join(' → ') || '—'}`);
+    store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip', ...(win ? { win } : {}), ...(mk.length ? { marks: mk } : {}), ...(fg.list.length ? { fg: fg.list } : {}) });
     announce(r, 'Clip uložený');
   } catch (e) {
     log.warn('clip', e.message);
@@ -338,7 +392,7 @@ async function toggleRecord() {
     if (engine.recording) {
       const since = engine.recording.since;
       const r = await engine.stopRecording(store.get().clipsDir);
-      if (r) { const mk = marksIn(since, since + r.seconds * 1000); store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'rec', ...(mk.length ? { marks: mk } : {}) }); announce(r, 'Nahrávka uložená'); }
+      if (r) { const to = since + r.seconds * 1000, mk = marksIn(since, to), fg = fgDuring(since, to); store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'rec', ...(fg.win ? { win: fg.win } : {}), ...(mk.length ? { marks: mk } : {}), ...(fg.list.length ? { fg: fg.list } : {}) }); announce(r, 'Nahrávka uložená'); }
       if (!store.get().bufferEnabled) await engine.stop();
     } else {
       await engine.startRecording();
@@ -818,14 +872,14 @@ function registerHotkeys() {
     if (v) args.push(`${id}:${v.mask}:${v.vk}`);
   }
   syncAdminKeys(args);
-  if (process.platform === 'win32' && args.length && fs.existsSync(FXKEYS)) {
+  if (process.platform === 'win32' && fs.existsSync(FXKEYS)) {
     try {
-      const p = spawn(FXKEYS, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+      const p = spawn(FXKEYS, ['--fg', ...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
       keysProc = p;
       let buf = '';
       p.stdout.on('data', d => {
         buf += d; let i;
-        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (l && !l.startsWith('ready')) fireHotkey(l); }
+        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (!l || l.startsWith('ready')) continue; if (l.startsWith('fg ')) { try { onForeground(JSON.parse(l.slice(3))); } catch (e) { } continue; } fireHotkey(l); }
       });
       p.on('error', e => log.warn('fxkeys', e.message));
       p.on('exit', () => { if (keysProc === p) keysProc = null; });

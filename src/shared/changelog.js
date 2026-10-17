@@ -1,6 +1,13 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.13', items: [
+      'Časová os v editore ukazuje malé ikonky, keď si počas klipu prepol na inú hru alebo na plochu.',
+      'Výrez okna hry sa berie z toho, ako dlho a kde bolo okno hry počas celého klipu, nie len v momente uloženia.',
+      'Opravené: video v editore malo po otvorení niekedy čierny okraj vpravo.',
+      'Tlačidlo celej obrazovky je teraz v lište nad časovou osou.',
+      'Hviezdička obľúbených má jemnejšiu animáciu a karta už neposkočí.'
+    ] },
     { v: '1.0.12', items: [
       'Skratku zmeníš priamo v karte buffra vľavo dole: klikni na ňu a stlač novú kombináciu.',
       'Editor vie prehrať video na celú obrazovku (tlačidlo v rohu videa alebo kláves F).',
