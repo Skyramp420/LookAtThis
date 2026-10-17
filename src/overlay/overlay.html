@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'">
+<title>LookAtThis overlay</title>
+<style>
+  @font-face { font-family: 'Inter Variable'; font-weight: 100 900; src: url(../../node_modules/@fontsource-variable/inter/files/inter-latin-ext-opsz-normal.woff2) format('woff2-variations'); }
+  :root { --accent: #ff9f0a; --rec: #ff453a; --mint: #30d158; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font-family: 'Inter Variable', 'Segoe UI', system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
+  body { display: flex; align-items: center; justify-content: flex-end; padding: 0 14px; box-sizing: border-box; }
+  body.left { justify-content: flex-start; }
+  .card { display: flex; align-items: center; gap: 14px; padding: 12px 20px 12px 14px; border-radius: 20px; background: rgba(28, 28, 30, .86); backdrop-filter: blur(24px) saturate(1.8); color: #f5f5f7; box-shadow: 0 0 0 .5px rgba(255, 255, 255, .14), 0 14px 38px rgba(0, 0, 0, .45); opacity: 0; transform: translateX(40px) scale(.92); position: relative; overflow: hidden; }
+  body.left .card { transform: translateX(-40px) scale(.92); }
+  .card.in { animation: cin .5s cubic-bezier(.3, 1.4, .5, 1) forwards; }
+  body.left .card.in { animation-name: cinl; }
+  .card.in.out { animation: cout .35s cubic-bezier(.5, 0, .8, .4) forwards; }
+  body.left .card.in.out { animation-name: coutl; }
+  @keyframes cin { to { opacity: 1; transform: none; } }
+  @keyframes cinl { to { opacity: 1; transform: none; } }
+  @keyframes cout { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(50px) scale(.95); } }
+  @keyframes coutl { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(-50px) scale(.95); } }
+  .card.snap { animation: cin .5s cubic-bezier(.3, 1.4, .5, 1) forwards, shake .3s .5s; }
+  @keyframes shake { 25% { translate: 0 2px; } 50% { translate: 0 -1px; } 75% { translate: 0 1px; } }
+
+  /* klapka */
+  .clap { width: 58px; height: 52px; flex: none; position: relative; }
+  .clap svg { width: 100%; height: 100%; overflow: visible; }
+  .arm { transform-origin: 6px 19px; transform: rotate(-32deg); }
+  .card.in .arm { animation: snap .55s .18s cubic-bezier(.6, 0, .9, .5) forwards; }
+  @keyframes snap { 0% { transform: rotate(-32deg); } 70% { transform: rotate(2deg); } 85% { transform: rotate(-4deg); } 100% { transform: rotate(0); } }
+  .burst line { stroke: #fff; stroke-width: 2.6; stroke-linecap: round; opacity: 0; }
+  .card.in .burst line { animation: burst .45s .56s ease-out forwards; }
+  @keyframes burst { 0% { opacity: 0; stroke-dasharray: 0 10; } 30% { opacity: 1; } 100% { opacity: 0; stroke-dasharray: 10 10; stroke-dashoffset: -10; } }
+  .dot { fill: var(--rec); }
+  .rec .dot { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* oko: otvorí sa, rozhliadne a pozrie na teba */
+  .eye-svg { display: none; }
+  body.eye .clap-svg { display: none; }
+  body.eye .eye-svg { display: block; }
+  .lid { transform-origin: 30px 27px; transform: scaleY(.04); }
+  .card.in .lid { animation: lidopen .55s .12s cubic-bezier(.3, 1.5, .5, 1) forwards, lidblink .24s 1.5s ease-in-out; }
+  @keyframes lidopen { to { transform: scaleY(1); } }
+  @keyframes lidblink { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.06); } }
+  .look { transform: translateX(-7px); }
+  .card.in .look { animation: look .9s .35s cubic-bezier(.4, 0, .2, 1) forwards; }
+  @keyframes look { 0% { transform: translateX(-7px); } 45% { transform: translateX(6px); } 100% { transform: translateX(0); } }
+  .spark { opacity: 0; transform-origin: 52px 9px; }
+  .card.in .spark { animation: spark .6s .75s ease-out forwards; }
+  @keyframes spark { 0% { opacity: 0; transform: scale(.3) rotate(0); } 40% { opacity: 1; } 100% { opacity: 0; transform: scale(1.2) rotate(45deg); } }
+  .err .iris-c { fill: var(--rec); }
+  .rec .iris-c { fill: var(--rec); }
+  .tx { display: flex; flex-direction: column; min-width: 0; opacity: 0; transform: translateY(6px); }
+  .card.in .tx { animation: txin .4s .5s cubic-bezier(.2, .9, .3, 1) forwards; }
+  @keyframes txin { to { opacity: 1; transform: none; } }
+  .tx b { font-size: 16px; font-weight: 700; letter-spacing: -.015em; white-space: nowrap; }
+  .tx span { font-size: 12.5px; color: rgba(245, 245, 247, .66); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+  .tx span em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); opacity: .9; }
+  .card.in .bar { animation: bar 2.2s .5s linear forwards; }
+  @keyframes bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .err .bar, .err .burst { display: none; }
+  .err .board { fill: #3a2224; }
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="clap">
+      <svg class="clap-svg" viewBox="0 0 60 54">
+        <!-- telo klapky -->
+        <rect class="board" x="4" y="21" width="52" height="30" rx="5" fill="#2c2c2e" stroke="rgba(255,255,255,.18)"/>
+        <rect x="4" y="21" width="52" height="8" rx="3" fill="#fff"/>
+        <path d="M12 21l-6 8M24 21l-6 8M36 21l-6 8M48 21l-6 8" stroke="#1c1c1e" stroke-width="4.5"/>
+        <circle class="dot" cx="47" cy="41" r="4.5"/>
+        <rect x="11" y="37" width="22" height="3" rx="1.5" fill="rgba(255,255,255,.35)"/>
+        <rect x="11" y="43" width="14" height="3" rx="1.5" fill="rgba(255,255,255,.22)"/>
+        <!-- rameno -->
+        <g class="arm">
+          <rect x="4" y="11" width="52" height="8" rx="3" fill="#fff"/>
+          <path d="M12 11l-6 8M24 11l-6 8M36 11l-6 8M48 11l-6 8" stroke="#1c1c1e" stroke-width="4.5"/>
+          <circle cx="7" cy="19" r="2.6" fill="#8e8e93"/>
+        </g>
+        <!-- záblesk pri tlesknutí -->
+        <g class="burst"><line x1="58" y1="14" x2="66" y2="8"/><line x1="60" y1="21" x2="69" y2="21"/><line x1="58" y1="28" x2="66" y2="33"/></g>
+      </svg>
+      <svg class="eye-svg" viewBox="0 0 60 54">
+        <defs><clipPath id="ec"><path d="M4 27c6-10 14-15.5 26-15.5S50 17 56 27c-6 10-14 15.5-26 15.5S10 37 4 27z"/></clipPath></defs>
+        <g class="lid">
+          <path d="M4 27c6-10 14-15.5 26-15.5S50 17 56 27c-6 10-14 15.5-26 15.5S10 37 4 27z" fill="#f5f5f7"/>
+          <g clip-path="url(#ec)"><g class="look">
+            <circle class="iris-c" cx="30" cy="27" r="11.5" fill="var(--accent)"/>
+            <path d="M27 21.6v10.8l9-5.4z" fill="#1c1c1e" stroke="#1c1c1e" stroke-width="1.6" stroke-linejoin="round"/>
+            <circle cx="34" cy="22" r="2.2" fill="#fff" opacity=".9"/>
+          </g></g>
+        </g>
+        <path class="spark" d="M52 2v14M45 9h14M47 4l10 10M57 4L47 14" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="tx"><b id="t">Clip uložený</b><span id="s"></span></div>
+    <i class="bar"></i>
+  </div>
+<script>
+  let hideT = null;
+  const esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  /* d = { kind: 'clip'|'rec'|'recStop'|'error', title, sub, game, accent, corner, ms } */
+  function play(d) {
+    const card = document.getElementById('card');
+    document.body.classList.toggle('left', /l$/.test(d.corner || 'tr'));
+    document.body.classList.toggle('eye', (d.style || 'eye') === 'eye');
+    document.documentElement.style.setProperty('--accent', d.accent || '#ff9f0a');
+    card.className = 'card';
+    void card.offsetWidth;
+    card.classList.add('in');
+    if (d.kind === 'clip' || d.kind === 'recStop') card.classList.add('snap');
+    if (d.kind === 'rec') card.classList.add('rec');
+    if (d.kind === 'error') card.classList.add('err');
+    document.getElementById('t').textContent = d.title || 'Clip uložený';
+    document.getElementById('s').innerHTML = (d.game ? `<em>${esc(d.game)}</em> · ` : '') + esc(d.sub || '');
+    clearTimeout(hideT);
+    hideT = setTimeout(() => card.classList.add('out'), d.ms || 2700);
+  }
+  window.play = play;
+  /* zvuky klipnutia (rovnaké ako v okne appky) */
+  let ac = null, noiseBuf = null;
+  const SOUNDS = [
+    { id: 'clap', label: 'Klapka' }, { id: 'shutter', label: 'Fotoaparát' }, { id: 'beep', label: 'Pípnutie' },
+    { id: 'pop', label: 'Bublina' }, { id: 'chime', label: 'Zvonček' }, { id: 'arcade', label: 'Arkáda' }, { id: 'none', label: 'Žiadny' }
+  ];
+  function tone(f, at, len, vol, type = 'sine', f2) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, at);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, at + len);
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(vol, at + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    o.connect(g).connect(ac.destination);
+    o.start(at); o.stop(at + len + 0.02);
+  }
+  function noise(at, len, vol, freq, q = 1, type = 'bandpass') {
+    if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noiseBuf; f.type = type; f.frequency.value = freq; f.Q.value = q;
+    g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    src.connect(f).connect(g).connect(ac.destination);
+    src.start(at); src.stop(at + len + 0.02);
+  }
+  /* všetky zvuky sú syntetizované, žiadne súbory */
+  function sound(name, vol = 0.5) {
+    try {
+      ac = ac || new AudioContext();
+      const t = ac.currentTime + 0.01, v = Math.max(0, Math.min(1, vol));
+      if (!v || name === 'none') return;
+      switch (name) {
+        case 'clap': // tlesknutie klapky: krátky šum + tupý úder
+          noise(t, 0.09, 0.9 * v, 1800, 0.8); noise(t, 0.035, 0.6 * v, 5200, 1.2); tone(140, t, 0.12, 0.5 * v, 'sine', 60); break;
+        case 'shutter': // uzávierka: dve cvaknutia
+          noise(t, 0.03, 0.8 * v, 3500, 2); noise(t + 0.07, 0.05, 0.6 * v, 2200, 1.5); tone(1200, t, 0.02, 0.15 * v, 'square'); break;
+        case 'pop': tone(520, t, 0.14, 0.45 * v, 'sine', 1400); break;
+        case 'chime': [1046.5, 1318.5, 1568].forEach((f, i) => tone(f, t + i * 0.07, 0.5, 0.18 * v, 'sine')); break;
+        case 'arcade': tone(988, t, 0.08, 0.16 * v, 'square'); tone(1319, t + 0.08, 0.28, 0.16 * v, 'square'); break;
+        case 'beep': case 'saved': tone(880, t, 0.22, 0.25 * v); tone(1318.5, t + 0.09, 0.22, 0.25 * v); break;
+        case 'trash': [[523, 0.62], [392, 0.7], [196, 0.78]].forEach(([f, d]) => tone(f, t + d, 0.22, 0.25 * v)); break;
+        case 'rec': tone(660, t, 0.18, 0.25 * v); tone(660, t + 0.12, 0.18, 0.25 * v); break;
+        case 'stop': tone(880, t, 0.2, 0.25 * v); tone(587, t + 0.1, 0.2, 0.25 * v); break;
+        default: tone(220, t, 0.22, 0.25 * v, 'triangle'); tone(196, t + 0.12, 0.22, 0.25 * v, 'triangle');
+      }
+    } catch (e) { }
+  }
+
+  window.sound = sound;
+</script>
+</body>
+</html>

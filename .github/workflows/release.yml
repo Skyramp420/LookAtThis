@@ -1,0 +1,51 @@
+# Vydanie novej verzie: stačí pushnúť tag, napr. v1.0.1 (alebo v1.1.0-beta.1 pre testovaciu verziu).
+# GitHub postaví inštalačku pre Windows, nahrá ju do Releases a appky sa podľa nej samy aktualizujú.
+name: Vydanie
+
+on:
+  push:
+    tags: ['v*']
+  # alebo ručne: záložka Actions → Vydanie → Run workflow (verzia sa zoberie z package.json)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Kontrola kódu
+        shell: bash
+        run: for f in src/main/*.js src/renderer/*.js src/shared/*.js src/preload.js; do node --check "$f" || exit 1; done
+
+      - name: Pomocník pre zvuk je na mieste
+        shell: bash
+        run: test -s native/fxaudio.exe || (echo "Chýba native/fxaudio.exe" && exit 1)
+
+      - name: Beta verzia?
+        shell: bash
+        # verzia s pomlčkou (napr. 1.1.0-beta.1) ide ako prerelease: dostanú ju len tí, čo si zapli beta verzie
+        run: echo "EP_PRE_RELEASE=$(node -p "require('./package.json').version.includes('-')")" >> "$GITHUB_ENV"
+
+      - name: Značka verzie
+        # pri ručnom spustení (Run workflow) značka ešte neexistuje a GitHub bez nej vydanie nezverejní
+        if: github.ref_type != 'tag'
+        shell: bash
+        run: |
+          V="v$(node -p "require('./package.json').version")"
+          if git ls-remote --exit-code --tags origin "refs/tags/$V" >/dev/null; then echo "Značka $V už existuje"; else git tag "$V" && git push origin "refs/tags/$V"; fi
+
+      - name: Inštalačka a vydanie
+        run: npx electron-builder --win nsis --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="sk" data-scheme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; media-src 'self' file:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'">
+  <title>LookAtThis</title>
+  <link rel="stylesheet" href="../../node_modules/@fontsource/jetbrains-mono/500.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="titlebar">
+    <div class="win-ctl">
+      <button id="winMin" aria-label="Minimalizovať"><svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button id="winMax" aria-label="Maximalizovať"><svg class="g-max" viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg><svg class="g-restore" viewBox="0 0 10 10"><rect x=".5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/><path d="M2.5 2.5V.5h7v7h-2" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button id="winClose" class="x" aria-label="Zavrieť"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.1"/></svg></button>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="brand">
+      <svg class="brand-mark" id="brandEye" viewBox="0 0 64 64" aria-hidden="true">
+        <defs><radialGradient id="bIris" cx=".42" cy=".38" r=".7"><stop offset="0" stop-color="#ffc35a"/><stop offset=".6" stop-color="var(--accent)"/><stop offset="1" stop-color="#ff5e3a"/></radialGradient>
+          <clipPath id="bEyeClip"><path d="M12 32c5.5-9 12.5-13.5 20-13.5S46.5 23 52 32c-5.5 9-12.5 13.5-20 13.5S17.5 41 12 32z"/></clipPath></defs>
+        <rect x="2" y="2" width="60" height="60" rx="15" fill="#232325"/>
+        <path d="M15 14h-3.5A3.5 3.5 0 0 0 8 17.5V21M49 14h3.5a3.5 3.5 0 0 1 3.5 3.5V21M15 50h-3.5A3.5 3.5 0 0 1 8 46.5V43M49 50h3.5a3.5 3.5 0 0 0 3.5-3.5V43" fill="none" stroke="var(--accent)" stroke-width="3.4" stroke-linecap="round"/>
+        <g class="be-eye">
+          <path d="M12 32c5.5-9 12.5-13.5 20-13.5S46.5 23 52 32c-5.5 9-12.5 13.5-20 13.5S17.5 41 12 32z" fill="#f5f5f7"/>
+          <g clip-path="url(#bEyeClip)"><g class="be-iris" id="brandIris"><circle cx="32" cy="32" r="10.5" fill="url(#bIris)"/><path d="M29.2 27.2v9.6l8-4.8z" fill="#1c1c1e" stroke="#1c1c1e" stroke-width="1.6" stroke-linejoin="round"/><circle cx="35.6" cy="27.6" r="2" fill="#fff" opacity=".9"/></g></g>
+        </g>
+      </svg>
+      <span class="brand-name">Look<b>At</b>This</span>
+    </div>
+    <nav class="nav" id="nav">
+      <i class="nav-ind" id="navInd"></i>
+      <button data-view="clips" class="active"><svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 7.8v4.4l3.8-2.2z" fill="currentColor"/></svg><span>Klipy</span><i class="nav-badge" id="clipCount"></i></button>
+      <button data-view="audio"><svg viewBox="0 0 20 20"><path d="M3 8v4M6.5 5v10M10 7.5v5M13.5 3.5v13M17 8v4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" fill="none"/></svg><span>Zvuk</span><i class="nav-dot" id="audioWarn" hidden></i></button>
+      <button data-view="settings"><svg viewBox="0 0 20 20"><path d="M3 6h8M15 6h2M3 14h2M9 14h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="13" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7" cy="14" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Nastavenia</span></button>
+    </nav>
+    <div class="folders" id="folders"></div>
+
+    <button class="upd-pill" id="updPill" hidden title="Reštartuje appku a nainštaluje novú verziu"><svg viewBox="0 0 20 20"><path d="M10 3v9.5M6 8.5l4 4 4-4M4 15.5h12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Aktualizovať</span></button>
+    <div class="buf" id="buf">
+      <div class="buf-top">
+        <span class="buf-dot"></span>
+        <b id="bufState">Buffer</b>
+        <label class="toggle sm" title="Replay buffer"><input type="checkbox" id="bufToggle"></label>
+      </div>
+      <div class="buf-bar"><i id="bufFill"></i></div>
+      <div class="buf-sub"><span class="buf-t"><span id="bufText">—</span><button type="button" class="buf-len" id="bufLen" title="Koľko sekúnd sa uloží"></button></span><span id="bufEnc"></span></div>
+      <div class="buf-keys">
+        <div><kbd id="hkClip">Alt+F10</kbd><span>clip</span></div>
+        <div><kbd id="hkRec">Alt+F9</kbd><span>nahrávanie</span></div>
+        <div id="hkShortRow" hidden><kbd id="hkShort"></kbd><span>krátky clip</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div class="top-title">
+        <h1 id="viewTitle">Klipy</h1>
+        <p id="viewSub"></p>
+      </div>
+      <div class="rec" id="rec">
+        <span class="rec-dot"></span>
+        <div class="rec-tc" id="recTc">00:00</div>
+        <div class="rec-meta"><b id="recWhat">Buffer je vypnutý</b><span id="recSub"></span></div>
+        <button class="rec-btn" id="recBtn">Nahrávať</button>
+      </div>
+      <button class="btn primary" id="clipBtn"><svg viewBox="0 0 20 20"><path d="M6 4H4.5A1.5 1.5 0 0 0 3 5.5v9A1.5 1.5 0 0 0 4.5 16H6M14 4h1.5A1.5 1.5 0 0 1 17 5.5v9a1.5 1.5 0 0 1-1.5 1.5H14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="10" r="2.6" fill="currentColor"/></svg><span>Uložiť clip</span></button>
+    </header>
+
+    <section class="view" id="view-clips"></section>
+    <section class="view" id="view-audio" hidden></section>
+    <section class="view" id="view-settings" hidden></section>
+  </main>
+
+  <div class="modal-wrap" id="modalWrap" hidden><div class="modal" id="modal"></div></div>
+  <div class="toasts" id="toasts"></div>
+
+  <script src="../shared/games.js"></script>
+  <script src="../shared/compress.js"></script>
+  <script src="ui.js"></script>
+  <script src="player.js"></script>
+  <script src="setup.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
