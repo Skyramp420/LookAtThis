@@ -1232,6 +1232,7 @@
         ${row('Uložiť clip', S.hotkeyErrors.includes('clip') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Funguje aj v hre na celú obrazovku.', `<button class="hk${S.hotkeyErrors.includes('clip') ? ' bad' : ''}" data-hk="clip">${esc(s.hotkeys.clip || 'Nastaviť')}</button>`)}
         ${row('Krátky clip', S.hotkeyErrors.includes('short') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Druhá skratka, ktorá uloží len posledných pár sekúnd. Backspace ju zruší.', `${seg('shortSeconds', [10, 15, 20, 30].map(v => ({ v, l: v + ' s' })), s.shortSeconds || 15)}<button class="hk${S.hotkeyErrors.includes('short') ? ' bad' : ''}" data-hk="short">${esc(s.hotkeys.short || 'Nastaviť')}</button>`)}
         ${row('Spustiť / zastaviť nahrávanie', S.hotkeyErrors.includes('record') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : '', `<button class="hk${S.hotkeyErrors.includes('record') ? ' bad' : ''}" data-hk="record">${esc(s.hotkeys.record || 'Nastaviť')}</button>`)}
+        ${row('Skratky v hrách s anti-cheatom', 'LoL, Valorant a podobné hry bežia ako správca a Windows bežným appkám ich klávesy nepustí. Zapni, ak ti skratka v hre nejde. Pri štarte appky sa Windows raz opýta na povolenie.', toggle('hotkeysAdmin', !!s.hotkeysAdmin))}
       </div>
 
       <div class="sec-title">Video</div>

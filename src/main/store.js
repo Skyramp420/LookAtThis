@@ -30,6 +30,7 @@ function defaults(videosDir) {
     mixTrack: true,
     gameNames: {},
     hotkeys: { clip: 'Alt+F10', record: 'Alt+F9', short: '' },
+    hotkeysAdmin: false,
     shortSeconds: 15,
     cleanupGB: 0,
     updateChannel: 'stable',

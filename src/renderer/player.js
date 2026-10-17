@@ -110,6 +110,7 @@ window.Player = (function () {
     let segs = [], overlays = [], mixer = [], T = 0, titles = [];
     let selSeg = null, sel = null, tool = 'select', keepTracks = false, saving = false, tab = 'text';
     let t = 0, playing = false, active = null; // active = { seg, src }
+    let SW = 1920, SH = 1080, RG = null, rgEdit = null; // SW×SH = celý záznam, RG = výrez oblasti (0–1), napr. len okno hry
     let W = 1920, H = 1080, FPS = 60, OW = 1920, aspect = 'orig'; // OW = šírka výsledku (pri výreze na výšku užšia)
     let pps = 0, fitPps = 0, seq = 0, saveMB = 0, savedSnap = null, snapOn = LS.get('snap', true), closed = false;
     const meterDisp = [];
@@ -246,8 +247,8 @@ window.Player = (function () {
         segs.push({ id: 's' + (++seq), src: src.path, in: 0, out: src.duration || 0.1 });
       }
       const first = sources.get(segs[0].src);
-      W = (first.width || 1920); H = (first.height || 1080); FPS = first.fps || 60;
-      OW = outW(); layoutFrame(); renderFormat();
+      SW = (first.width || 1920); SH = (first.height || 1080); FPS = first.fps || 60;
+      dims(); layoutFrame(); renderFormat();
       rebuildTracks();
       $('#loading', m).classList.add('gone');
       fitZoom(); renderAll(); seek(0);
@@ -295,20 +296,31 @@ window.Player = (function () {
     // ľavý okraj výrezu v pixeloch zdroja; cx = stred výrezu 0–1 (každý úsek má vlastný)
     const cropLeft = seg => Math.max(0, Math.min(W - OW, (seg && seg.cx != null ? seg.cx : 0.5) * W - OW / 2));
     let fk = 1; // px na obrazovke / px videa
+    function dims() {
+      if (RG) { W = Math.max(16, Math.round(SW * RG.w / 2) * 2); H = Math.max(16, Math.round(SH * RG.h / 2) * 2); }
+      else { W = SW; H = SH; }
+      if (aspect !== 'orig' && outW(aspect) >= W) aspect = 'orig';
+      OW = outW();
+    }
     function layoutFrame() {
       const r = stage.getBoundingClientRect(); if (!r.width) return;
-      const A = OW / H; let fw = r.width, fh = fw / A;
-      if (fh > r.height) { fh = r.height; fw = fh * A; }
-      fk = fh / H;
-      Object.assign(frame.style, { width: fw + 'px', height: fh + 'px', left: (r.width - fw) / 2 + 'px', top: (r.height - fh) / 2 + 'px' });
-      vids.style.width = W * fk + 'px';
+      const ed = !!rgEdit, A = ed ? SW / SH : OW / H, pad = ed ? 64 : 0, avH = r.height - pad, avW = r.width - (ed ? 24 : 0);
+      let fw = avW, fh = fw / A;
+      if (fh > avH) { fh = avH; fw = fh * A; }
+      fk = fh / (ed ? SH : H);
+      Object.assign(frame.style, { width: fw + 'px', height: fh + 'px', left: (r.width - fw) / 2 + 'px', top: pad + (avH - fh) / 2 - (ed ? 8 : 0) + 'px' });
+      vids.style.width = SW * fk + 'px'; vids.style.height = SH * fk + 'px';
       ov.setAttribute('viewBox', `0 0 ${OW} ${H}`);
-      stage.classList.toggle('cropmode', cropped());
+      stage.classList.toggle('cropmode', cropped() && !ed);
+      stage.classList.toggle('rgmode', ed);
       placeCanvas(); drawOverlays();
+      if (ed) placeRgBox();
     }
     function placeCanvas(seg) {
       seg = seg || (active ? active.seg : segs[0]);
-      vids.style.transform = `translateX(${-cropLeft(seg) * fk}px)`;
+      if (rgEdit) { vids.style.transform = 'none'; return; }
+      const rx = RG ? RG.x * SW : 0, ry = RG ? RG.y * SH : 0;
+      vids.style.transform = `translate(${-(rx + cropLeft(seg)) * fk}px, ${-ry * fk}px)`;
     }
     new ResizeObserver(() => layoutFrame()).observe(stage);
     function setAspect(a) {
@@ -338,8 +350,93 @@ window.Player = (function () {
     function renderFormat() {
       const cur = ASPECTS[aspect];
       const r = cur.r || W / H, bw = r >= 1 ? 14 : 14 * r, bh = r >= 1 ? 14 / r : 14;
-      $('#fmtPb', m).innerHTML = `<button type="button" class="pb fmt${aspect !== 'orig' ? ' on' : ''}" id="fmtBtn" title="Formát videa (na výšku pre TikTok a Shorts)"><svg viewBox="0 0 16 16"><rect x="${(16 - bw) / 2}" y="${(16 - bh) / 2}" width="${bw}" height="${bh}" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>${esc(cur.short)}</span>${I.chev}</button>`;
-      $('#fmtBtn', m).onclick = e => UI.menu(e.currentTarget, Object.entries(ASPECTS).map(([k, x]) => ({ label: x.l, v: k, checked: k === aspect, sub: (k === 'orig' ? `${W}×${H}` : `${outW(k)}×${H}`) + (x.sub ? ' · ' + x.sub : ''), disabled: k !== 'orig' && outW(k) >= W })), it => setAspect(it.v));
+      $('#fmtPb', m).innerHTML = `<button type="button" class="pb fmt${aspect !== 'orig' || RG ? ' on' : ''}" id="fmtBtn" title="Formát videa (na výšku pre TikTok a Shorts)"><svg viewBox="0 0 16 16"><rect x="${(16 - bw) / 2}" y="${(16 - bh) / 2}" width="${bw}" height="${bh}" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span>${esc(RG ? (aspect === 'orig' ? 'Výrez' : cur.short + ' · výrez') : cur.short)}</span>${I.chev}</button>`;
+      $('#fmtBtn', m).onclick = e => {
+        const wr = winRegion(), same = (a, b) => a && b && ['x', 'y', 'w', 'h'].every(k => Math.abs(a[k] - b[k]) < 0.002);
+        const items = Object.entries(ASPECTS).map(([k, x]) => ({ label: x.l, v: k, checked: k === aspect, sub: (k === 'orig' ? `${W}×${H}` : `${outW(k)}×${H}`) + (x.sub ? ' · ' + x.sub : ''), disabled: k !== 'orig' && outW(k) >= W }));
+        items.push({ sep: true }, { head: 'Oblasť záznamu' });
+        if (wr) items.push({ label: 'Len okno hry', v: '@win', checked: same(RG, wr), sub: `${Math.round(SW * wr.w)}×${Math.round(SH * wr.h)}` });
+        items.push({ label: 'Celá obrazovka', v: '@full', checked: !RG, sub: `${SW}×${SH}` }, { label: 'Vlastný výrez…', v: '@edit', checked: !!RG && !same(RG, wr) });
+        UI.menu(e.currentTarget, items, it => {
+          if (it.v === '@win') setRegion({ x: wr.x, y: wr.y, w: wr.w, h: wr.h });
+          else if (it.v === '@full') setRegion(null);
+          else if (it.v === '@edit') editRegion();
+          else setAspect(it.v);
+        });
+      };
+    }
+    /* ---------- oblasť záznamu (napr. hra v okne 16:9 na širokom monitore) ---------- */
+    function winRegion() {
+      for (const sg of segs) { const src = sources.get(sg.src); if (src && src.win && src.win.w) return src.win; }
+      return null;
+    }
+    function setRegion(rg, noUndo) {
+      if (JSON.stringify(rg) === JSON.stringify(RG)) return;
+      if (!noUndo) remember();
+      const oOW = OW, oH = H;
+      RG = rg; dims();
+      // text a šípky ostanú na rovnakom mieste výsledku (pomerne)
+      const kx = OW / oOW, ky = H / oH;
+      overlays.forEach(o => {
+        if (o.type === 'text') { o.x *= kx; o.y *= ky; o.size = Math.max(12, Math.round(o.size * ky)); }
+        else { o.x1 *= kx; o.x2 *= kx; o.y1 *= ky; o.y2 *= ky; o.size = Math.max(2, Math.round(o.size * ky)); }
+      });
+      layoutFrame(); renderFormat(); renderInspector();
+      if (tab === 'seg') renderSegPane();
+    }
+    let rgBox = null;
+    function placeRgBox() {
+      if (!rgBox || !rgEdit) return;
+      const fw = SW * fk, fh = SH * fk;
+      Object.assign(rgBox.querySelector('.rg-r').style, { left: rgEdit.x * fw + 'px', top: rgEdit.y * fh + 'px', width: rgEdit.w * fw + 'px', height: rgEdit.h * fh + 'px' });
+      rgBox.querySelector('.rg-r b').textContent = `${Math.round(SW * rgEdit.w / 2) * 2} × ${Math.round(SH * rgEdit.h / 2) * 2}`;
+    }
+    function editRegion() {
+      if (playing) pause();
+      rgEdit = RG ? { ...RG } : { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+      const wr = winRegion();
+      rgBox = document.createElement('div');
+      rgBox.className = 'rg-wrap';
+      rgBox.innerHTML = `<div class="rg-r"><b></b>${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(h => `<i class="rg-h ${h}" data-h="${h}"></i>`).join('')}</div>`;
+      frame.appendChild(rgBox);
+      const bar = document.createElement('div');
+      bar.className = 'rg-bar';
+      bar.innerHTML = `<span>Ťahaj rámik alebo jeho rohy</span>${wr ? '<button class="btn" data-a="win">Okno hry</button>' : ''}<button class="btn" data-a="full">Celá obrazovka</button><button class="btn" data-a="no">Zrušiť</button><button class="btn primary" data-a="ok">Hotovo</button>`;
+      stage.appendChild(bar);
+      const finish = ok => {
+        const r = rgEdit; rgEdit = null; rgBox.remove(); rgBox = null; bar.remove();
+        if (ok) setRegion(r.w > 0.995 && r.h > 0.995 ? null : { x: +r.x.toFixed(4), y: +r.y.toFixed(4), w: +r.w.toFixed(4), h: +r.h.toFixed(4) });
+        else layoutFrame();
+      };
+      bar.addEventListener('click', e => {
+        const a = e.target.closest('[data-a]'); if (!a) return;
+        if (a.dataset.a === 'win') { rgEdit = { x: wr.x, y: wr.y, w: wr.w, h: wr.h }; placeRgBox(); }
+        else if (a.dataset.a === 'full') { rgEdit = { x: 0, y: 0, w: 1, h: 1 }; placeRgBox(); }
+        else finish(a.dataset.a === 'ok');
+      });
+      rgBox.addEventListener('pointerdown', e => {
+        const r = rgBox.querySelector('.rg-r');
+        if (!r.contains(e.target)) return;
+        e.stopPropagation(); e.preventDefault();
+        const h = e.target.dataset.h || 'move', x0 = e.clientX, y0 = e.clientY, g0 = { ...rgEdit };
+        const fw = SW * fk, fh = SH * fk, MIN = 0.1;
+        r.setPointerCapture(e.pointerId);
+        const move = ev => {
+          const dx = (ev.clientX - x0) / fw, dy = (ev.clientY - y0) / fh;
+          let { x, y, w, h: hh } = g0;
+          if (h === 'move') { x = Math.max(0, Math.min(1 - w, x + dx)); y = Math.max(0, Math.min(1 - hh, y + dy)); }
+          else {
+            if (h.includes('w')) { const nx = Math.max(0, Math.min(x + w - MIN, x + dx)); w += x - nx; x = nx; }
+            if (h.includes('e')) w = Math.max(MIN, Math.min(1 - x, w + dx));
+            if (h.includes('n')) { const ny = Math.max(0, Math.min(y + hh - MIN, y + dy)); hh += y - ny; y = ny; }
+            if (h.includes('s')) hh = Math.max(MIN, Math.min(1 - y, hh + dy));
+          }
+          rgEdit = { x, y, w, h: hh }; placeRgBox();
+        };
+        const up = () => { r.removeEventListener('pointermove', move); r.removeEventListener('pointerup', up); };
+        r.addEventListener('pointermove', move); r.addEventListener('pointerup', up);
+      });
+      layoutFrame();
     }
     function setCx(seg, cx) { seg.cx = Math.max(0, Math.min(1, cx)); if (Math.abs(seg.cx - 0.5) < 0.004) seg.cx = 0.5; placeCanvas(); }
 
@@ -430,12 +527,12 @@ window.Player = (function () {
     $('#plPlay', m).onclick = toggle;
 
     /* ================= história (Späť / Znova) ================= */
-    const snap = () => JSON.stringify({ segs, overlays, aspect });
+    const snap = () => JSON.stringify({ segs, overlays, aspect, RG });
     function remember() { undoStack.push(snap()); if (undoStack.length > 80) undoStack.shift(); redoStack.length = 0; updUndo(); }
     function restore(json) {
       const d = JSON.parse(json);
       segs = d.segs; overlays = d.overlays;
-      if ((d.aspect || 'orig') !== aspect) { aspect = d.aspect || 'orig'; OW = outW(); layoutFrame(); renderFormat(); }
+      if ((d.aspect || 'orig') !== aspect || JSON.stringify(d.RG || null) !== JSON.stringify(RG)) { aspect = d.aspect || 'orig'; RG = d.RG || null; dims(); layoutFrame(); renderFormat(); }
       selSeg = selSeg && segs.find(s => s.id === selSeg.id) || null;
       sel = sel && overlays.find(o => o.id === sel.id) || null;
       refit(300); renderAll(); seek(Math.min(t, total()), false);
@@ -911,7 +1008,7 @@ window.Player = (function () {
           <label class="sp-row"><span><b>Roztmievanie</b><small>Začne z čiernej, zvuk sa zosilní</small></span><span class="toggle sm"><input type="checkbox" data-f="fadeIn" ${s.fadeIn ? 'checked' : ''}></span></label>
           <label class="sp-row"><span><b>Stmievanie</b><small>Skončí do čiernej, zvuk zoslabne</small></span><span class="toggle sm"><input type="checkbox" data-f="fadeOut" ${s.fadeOut ? 'checked' : ''}></span></label></div>
         ${cropped() ? `<div class="sp-sec"><h5>Výrez ${esc(ASPECTS[aspect].short)}</h5>
-          <div class="sp-crop" id="spCrop"${src.thumb ? ` style="background-image:url('${esc(fileUrl(src.thumb))}')"` : ''}><i style="left:${cropLeft(s) / W * 100}%;width:${OW / W * 100}%"></i></div>
+          <div class="sp-crop" id="spCrop"${src.thumb ? ` style="background-image:url('${esc(fileUrl(src.thumb))}')${RG ? `;background-size:${100 / RG.w}% ${100 / RG.h}%;background-position:${RG.w < 1 ? RG.x / (1 - RG.w) * 100 : 0}% ${RG.h < 1 ? RG.y / (1 - RG.h) * 100 : 0}%` : ''}"` : ''}><i style="left:${cropLeft(s) / W * 100}%;width:${OW / W * 100}%"></i></div>
           <div class="sp-btns three"><button class="btn small" data-cx="0">Vľavo</button><button class="btn small" data-cx="0.5">Stred</button><button class="btn small" data-cx="1">Vpravo</button></div>
           ${segs.length > 1 ? '<button class="btn small ghost" data-a="cxall">Rovnaký výrez pre všetky úseky</button>' : ''}
           <p class="sp-hint">Ťahaj video v náhľade do strán. Každý úsek môže mať výrez inde, takže po rozdelení (S) ho môžeš posunúť za akciou.</p></div>` : ''}
@@ -1181,7 +1278,7 @@ window.Player = (function () {
     }
 
     stage.addEventListener('pointerdown', e => {
-      if (!segs.length || e.button !== 0) return;
+      if (!segs.length || e.button !== 0 || rgEdit) return;
       const p = svgP(e);
       const hitHandle = e.target.closest('.hd'), hitItem = e.target.closest('.ov-item');
       const drag = (move, end) => {
@@ -1471,7 +1568,7 @@ window.Player = (function () {
           ovs.push({ ...r, start: o.start, end: o.end, animIn: o.animIn || 'none', animOut: o.animOut || 'none' });
         }
         const out = await api.action('exportSequence', {
-          W, H, fps: FPS, keepTracks, targetMB: saveMB, cropW: OW < W ? OW : 0,
+          W, H, fps: FPS, keepTracks, targetMB: saveMB, cropW: OW < W ? OW : 0, region: RG,
           offsets: Object.fromEntries(mixer.filter(x => x.off).map(x => [x.i, x.off])),
           segments: segs.map(s => { const src = sources.get(s.src); return { file: src.path, in: s.in, out: s.out, cropX: OW < W ? cropLeft(s) : null, speed: sp(s), fadeIn: !!s.fadeIn, fadeOut: !!s.fadeOut, audio: src.tracks.length || (src.ready ? 0 : 1) }; }),
           overlays: ovs,

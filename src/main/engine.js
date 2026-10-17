@@ -591,7 +591,11 @@ async function exportSequence(ffmpeg, job, enc, onProgress) {
   const atempo = r => { const f = []; while (r < 0.5) { f.push('atempo=0.5'); r /= 0.5; } while (r > 2) { f.push('atempo=2'); r /= 2; } if (Math.abs(r - 1) > 1e-3) f.push(`atempo=${r.toFixed(4)}`); return f; };
   segs.forEach((s, k) => {
     const D = od(s), d = D.toFixed(3), r = spd(s), F2 = Math.min(0.5, D / 3);
-    const vf = [`setpts=(PTS-STARTPTS)/${r}`, `fps=${F}`, `scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`, 'setsar=1', 'format=yuv420p'];
+    const n4 = v => Math.max(0, Math.min(1, Number(v) || 0)).toFixed(4);
+    const rg = job.region && Number(job.region.w) > 0 && Number(job.region.h) > 0 ? { x: n4(job.region.x), y: n4(job.region.y), w: n4(job.region.w), h: n4(job.region.h) } : null;
+    // oblasť záznamu (napr. len okno hry): výrez v pomere k rozmeru zdroja, potom zjednotenie na W×H
+    const rgf = rg ? [`crop=trunc(iw*${rg.w}/2)*2:trunc(ih*${rg.h}/2)*2:trunc(iw*${rg.x}):trunc(ih*${rg.y})`] : [];
+    const vf = [`setpts=(PTS-STARTPTS)/${r}`, `fps=${F}`, ...rgf, `scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`, 'setsar=1', 'format=yuv420p'];
     if (CW < W) vf.push(`crop=${CW}:${H}:${Math.max(0, Math.min(W - CW, Math.round((s.cropX != null ? Number(s.cropX) : (W - CW) / 2) / 2) * 2))}:0`);
     if (s.fadeIn) vf.push(`fade=t=in:st=0:d=${F2.toFixed(3)}`);
     if (s.fadeOut) vf.push(`fade=t=out:st=${(D - F2).toFixed(3)}:d=${F2.toFixed(3)}`);

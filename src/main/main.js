@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
+const net = require('net');
 const os = require('os');
 const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip } = require('./engine');
 const Compress = require('../shared/compress');
@@ -130,7 +131,7 @@ function scanClips() {
     const name = f.replace(VIDEO, '');
     // hru a typ vieme odvodiť aj z názvu súboru (klipy zo starších verzií alebo bez záznamu)
     const kind = m.kind || (/\(\d+ MB\)/.test(name) ? 'small' : /\(strih/.test(name) ? 'cut' : /\(upraven/.test(name) ? 'edit' : /\(orez/.test(name) ? 'trim' : /^nahrávka /i.test(name) ? 'rec' : '');
-    return { path: p, folder, name, ext: path.extname(f).slice(1), size: st.size, mtime: st.mtimeMs, thumb: hasThumb ? th : null, duration: m.duration || 0, game: m.game === '-' ? '' : m.game ? m.game : Games.fromFileName(name), kind, fav: !!m.fav };
+    return { path: p, folder, name, ext: path.extname(f).slice(1), size: st.size, mtime: st.mtimeMs, thumb: hasThumb ? th : null, duration: m.duration || 0, game: m.game === '-' ? '' : m.game ? m.game : Games.fromFileName(name), kind, fav: !!m.fav, win: m.win || null };
   }).filter(Boolean).sort((a, b) => b.mtime - a.mtime);
 }
 async function pumpThumbs() {
@@ -244,10 +245,33 @@ function toast(kind, title, body, extra) { send('event', { type: 'toast', kind, 
 const CAPTURE_KEYS = ['powerSave', 'monitor', 'fps', 'resolution', 'quality', 'encoder', 'codec', 'cursor', 'tracks', 'games', 'exclude'];
 let restartT = null;
 
+/* poloha okna v popredí (okno hry) vzhľadom na nahrávaný monitor: editor z nej vie vyrezať len hru */
+function windowRegion() {
+  return new Promise(resolve => {
+    if (process.platform !== 'win32' || !fs.existsSync(FXKEYS)) return resolve(null);
+    execFile(FXKEYS, ['--rect'], { windowsHide: true, timeout: 1500 }, (err, out) => {
+      if (err) return resolve(null);
+      try {
+        const r = JSON.parse(String(out).trim());
+        if (!r.w || !r.h || !r.mw || !r.mh || /^(lookatthis|explorer)\.exe$/i.test(r.exe || '')) return resolve(null);
+        const mon = monitors().find(m => m.idx === (Number(store.get().monitor) || 0));
+        if (mon && (Math.abs(mon.w - r.mw) > 2 || Math.abs(mon.h - r.mh) > 2)) return resolve(null); // okno je na inom monitore
+        const c = v => Math.max(0, Math.min(1, v));
+        const x = c((r.x - r.mx) / r.mw), y = c((r.y - r.my) / r.mh);
+        const w = c(Math.min(r.w / r.mw, 1 - x)), h = c(Math.min(r.h / r.mh, 1 - y));
+        // celá obrazovka alebo maličké okno: nič na výrez
+        if ((w > 0.97 && h > 0.97) || w < 0.15 || h < 0.15) return resolve(null);
+        resolve({ x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), h: +h.toFixed(4), exe: r.exe || '' });
+      } catch (e) { resolve(null); }
+    });
+  });
+}
 async function saveClip(seconds) {
   try {
+    const winP = windowRegion();
     const r = await engine.saveClip(store.get().clipsDir, seconds);
-    store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip' });
+    const region = await winP;
+    store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip', ...(region ? { win: region } : {}) });
     announce(r, 'Clip uložený');
   } catch (e) {
     log.warn('clip', e.message);
@@ -386,7 +410,7 @@ function notify(title, body, onClick) {
 }
 
 function applySettings(before, now) {
-  if (JSON.stringify(before.hotkeys) !== JSON.stringify(now.hotkeys)) registerHotkeys();
+  if (JSON.stringify(before.hotkeys) !== JSON.stringify(now.hotkeys) || before.hotkeysAdmin !== now.hotkeysAdmin) { adminAsked = false; registerHotkeys(); }
   if (before.launchAtLogin !== now.launchAtLogin) setLogin(now.launchAtLogin);
   if (before.cleanupGB !== now.cleanupGB) scheduleCleanup(1500);
   engine.settings = now;
@@ -650,6 +674,55 @@ function fireHotkey(id) {
   else if (id === 'record') toggleRecord();
   else if (id === 'short') saveClip(store.get().shortSeconds || 15);
 }
+/* skratky so zvýšenými právami: hry s anti-cheatom (LoL/Vanguard, Valorant…) bežia ako správca a Windows
+   bežnej appke ich klávesy nepustí. fxkeys sa vtedy spustí ako správca (raz sa opýta UAC) a hlási cez rúru. */
+const KEYS_PIPE = `\\\\.\\pipe\\lookatthis-keys-${process.pid}`;
+let adminSrv = null, adminSock = null, adminCfg = '', adminAsked = false;
+function syncAdminKeys(args) {
+  adminCfg = 'cfg ' + args.join(' ') + '\n';
+  const want = process.platform === 'win32' && store.get().hotkeysAdmin && args.length && fs.existsSync(FXKEYS);
+  if (!want) { stopAdminKeys(); return; }
+  if (adminSock) { try { adminSock.write(adminCfg); } catch (e) { } return; }
+  if (adminSrv) return; // čaká sa na pripojenie
+  adminSrv = net.createServer(sock => {
+    if (adminSock) { sock.destroy(); return; }
+    adminSock = sock;
+    sock.setEncoding('utf8');
+    sock.write(adminCfg);
+    let buf = '';
+    sock.on('data', d => {
+      buf += d; let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!l || l === '.') continue;
+        if (l.startsWith('ready')) { log.info('fxkeys (správca) ' + l); continue; }
+        fireHotkey(l);
+      }
+    });
+    const gone = () => { if (adminSock === sock) adminSock = null; };
+    sock.on('close', gone); sock.on('error', gone);
+  });
+  adminSrv.on('error', e => log.warn('fxkeys rúra', e.message));
+  adminSrv.listen(KEYS_PIPE, () => {
+    const q = x => "'" + String(x).replace(/'/g, "''") + "'";
+    const cmd = `Start-Process -FilePath ${q(FXKEYS)} -ArgumentList ${q('--pipe')},${q(KEYS_PIPE)} -Verb RunAs -WindowStyle Hidden`;
+    const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], { windowsHide: true });
+    let err = '';
+    ps.stderr.on('data', d => { err += d; });
+    ps.on('close', code => {
+      if (code !== 0) {
+        log.warn('fxkeys správca odmietnutý', err.trim().slice(0, 200));
+        if (!adminAsked) toast('warn', 'Skratky bez práv správcu', 'Bez povolenia nemusia skratky fungovať v hrách s anti-cheatom (LoL, Valorant). Skús znova v Nastaveniach.');
+        stopAdminKeys();
+      }
+      adminAsked = true;
+    });
+  });
+}
+function stopAdminKeys() {
+  if (adminSock) { try { adminSock.end('quit\n'); } catch (e) { } adminSock = null; }
+  if (adminSrv) { try { adminSrv.close(); } catch (e) { } adminSrv = null; }
+}
 function stopKeys() { if (keysProc) { try { keysProc.stdin.end(); keysProc.kill(); } catch (e) { } keysProc = null; } }
 function registerHotkeys() {
   globalShortcut.unregisterAll();
@@ -664,6 +737,7 @@ function registerHotkeys() {
     const v = accelToVk(key);
     if (v) args.push(`${id}:${v.mask}:${v.vk}`);
   }
+  syncAdminKeys(args);
   if (process.platform === 'win32' && args.length && fs.existsSync(FXKEYS)) {
     try {
       const p = spawn(FXKEYS, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
@@ -889,4 +963,4 @@ app.on('before-quit', async e => {
     app.exit(0);
   } else if (store) store.flush();
 });
-app.on('will-quit', () => { globalShortcut.unregisterAll(); stopKeys(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); stopKeys(); stopAdminKeys(); });
