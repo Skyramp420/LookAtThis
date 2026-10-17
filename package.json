@@ -1,7 +1,7 @@
 {
   "name": "lookatthis",
   "productName": "LookAtThis",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Ľahký replay buffer a nahrávanie obrazovky s viacerými zvukovými stopami, odolný voči SteelSeries Sonar.",
   "author": "Alex Troják",
   "repository": "github:Skyramp420/LookAtThis",
@@ -29,6 +29,7 @@
       "src/**/*",
       "assets/**/*",
       "native/fxaudio.exe",
+      "native/fxkeys.exe",
       "package.json"
     ],
     "win": {

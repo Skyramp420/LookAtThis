@@ -872,6 +872,7 @@ function registerHotkeys() {
     if (v) args.push(`${id}:${v.mask}:${v.vk}`);
   }
   syncAdminKeys(args);
+  if (process.platform === 'win32' && !fs.existsSync(FXKEYS)) log.warn('chýba fxkeys.exe: ' + FXKEYS);
   if (process.platform === 'win32' && fs.existsSync(FXKEYS)) {
     try {
       const p = spawn(FXKEYS, ['--fg', ...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
@@ -879,7 +880,7 @@ function registerHotkeys() {
       let buf = '';
       p.stdout.on('data', d => {
         buf += d; let i;
-        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (!l || l.startsWith('ready')) continue; if (l.startsWith('fg ')) { try { onForeground(JSON.parse(l.slice(3))); } catch (e) { } continue; } fireHotkey(l); }
+        while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (!l) continue; if (l.startsWith('ready')) { log.info('fxkeys ' + l); continue; } if (l.startsWith('fg ')) { try { onForeground(JSON.parse(l.slice(3))); } catch (e) { } continue; } fireHotkey(l); }
       });
       p.on('error', e => log.warn('fxkeys', e.message));
       p.on('exit', () => { if (keysProc === p) keysProc = null; });

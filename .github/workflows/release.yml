@@ -30,7 +30,7 @@ jobs:
 
       - name: Pomocník pre zvuk je na mieste
         shell: bash
-        run: test -s native/fxaudio.exe || (echo "Chýba native/fxaudio.exe" && exit 1)
+        run: for f in fxaudio fxkeys; do test -s native/$f.exe || { echo "Chýba native/$f.exe"; exit 1; }; done; grep -q "native/fxkeys.exe" package.json || { echo "fxkeys.exe nie je v build.files"; exit 1; }
 
       - name: Beta verzia?
         shell: bash
