@@ -1042,6 +1042,7 @@ app.whenReady().then(async () => {
     }
     pushState();
   });
+  engine.on('stall', () => toast('warn', 'Obraz sa zasekol', 'Snímanie obrazovky prestalo dodávať snímky (hra asi zmenila režim zobrazenia). Buffer som reštartoval.'));
   engine.on('state', st => { if (st.state === 'error') { toast('error', 'Buffer spadol', st.error); notify('LookAtThis: buffer spadol', st.error); } });
 
   if (!HIDDEN || !s.onboarded) createWindow(true);

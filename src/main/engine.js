@@ -246,6 +246,21 @@ class Engine extends EventEmitter {
     });
 
     this.cleaner = setInterval(() => this.clean(), 2000);
+    // strážca: segment má vznikať každé 2 s. Keď sa snímanie obrazu zasekne (napr. hra prepne režim obrazovky
+    // alebo sa skryje pred nahrávaním), segmenty prestanú pribúdať a zvuk by sa lepil do jedného obrovského
+    // segmentu → klip by mal desiatky minút „prázdneho“ videa. Po 12 s bez nového segmentu ffmpeg reštartujeme.
+    let lastIdx = -1, lastNew = Date.now();
+    this.watch = setInterval(() => {
+      if (this.proc !== proc || this.state !== 'on') return;
+      const sg = this.segments(), idx = sg.length ? sg[sg.length - 1].idx : -1;
+      if (idx !== lastIdx) { lastIdx = idx; lastNew = Date.now(); return; }
+      if (Date.now() - lastNew > 12000) {
+        this.log.warn(`obraz sa zasekol (${Math.round((Date.now() - lastNew) / 1000)} s bez nového segmentu), reštartujem buffer`);
+        this.emit('stall');
+        lastNew = Date.now();
+        try { proc.kill(); } catch (e) { }
+      }
+    }, 3000);
     // keď do 6 s nevznikne prvý segment, niečo je zle → ffmpeg zostrelíme a skúsime záložný režim
     setTimeout(() => {
       if (this.proc === proc && !this.segments().length) { this.log.warn('žiadne segmenty, skúšam iný režim'); try { proc.kill(); } catch (e) { } }
@@ -424,7 +439,19 @@ class Engine extends EventEmitter {
     fs.mkdirSync(dir, { recursive: true });
     const o = this.outName(dir, 'Clip');
     await this.mux(pick, o.path, o);
-    return { path: o.path, game: o.game, seconds: pick.length * SEG };
+    // poistka: keby sa do segmentov dostal zaseknutý úsek (obraz stál, zvuk bežal), klip by bol oveľa dlhší ako buffer → nechaj len koniec
+    let secs = pick.length * SEG;
+    try {
+      const info = await probe(this.ffmpeg, o.path);
+      if (info.duration > want + 3 * SEG + 4) {
+        this.log.warn(`klip mal ${Math.round(info.duration)} s namiesto ~${want} s (zaseknutý obraz), skracujem`);
+        const tmp = o.path.replace(/\.mp4$/i, '.tmp.mp4');
+        const r = await run(this.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-sseof', String(-(want + SEG)), '-i', o.path, '-map', '0', '-c', 'copy', '-movflags', '+faststart', tmp]);
+        if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, o.path); secs = want + SEG; }
+        else try { fs.unlinkSync(tmp); } catch (e) { }
+      } else if (info.duration) secs = Math.round(info.duration);
+    } catch (e) { }
+    return { path: o.path, game: o.game, seconds: secs };
   }
 
   async startRecording() {
