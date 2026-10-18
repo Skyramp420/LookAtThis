@@ -107,7 +107,11 @@ window.Player = (function () {
 
   /* clips: jeden klip alebo pole klipov (poradie = poradie na osi); opts.library() vráti klipy z knižnice */
   let openEd = 0; // počet otvorených editorov (okno appky sa vtedy na pozadí nezatvára)
+  let curCleanup = null; // upratanie práve otvoreného editora
   function open(clips, opts = {}) {
+    // druhé otvorenie (dvojklik, klik + Enter…): predošlý editor najprv úplne uprac, inak by jeho video hralo
+    // na pozadí a písal by do toho istého okna (dlhšia časová os)
+    if (curCleanup) { try { curCleanup(); } catch (e) { } }
     openEd++;
     clips = (Array.isArray(clips) ? clips : [clips]).map(c => ({ ...c }));
     const sources = new Map();
@@ -198,6 +202,7 @@ window.Player = (function () {
         </div>
         <div class="ed-layer" id="picker" hidden></div>
       </div>`, 'editor', cleanup, beforeClose);
+    curCleanup = cleanup;
 
     const ov = $('#ov', m), stage = $('#stage', m), vids = $('#vids', m), frame = $('#frame', m);
     const tlx = $('#tlx', m), scroller = $('#tlScroll', m), layer = $('#picker', m);
@@ -1031,10 +1036,16 @@ window.Player = (function () {
       tab = x;
       $$('#tabs button', m).forEach(b => b.classList.toggle('on', b.dataset.tab === x));
       $('#paneText', m).hidden = x !== 'text'; $('#paneSeg', m).hidden = x !== 'seg'; $('#paneAudio', m).hidden = x !== 'audio';
-      const b = $(`#tabs [data-tab="${x}"]`, m), ind = $('.ed-tabs-ind', m);
-      ind.style.width = b.offsetWidth + 'px'; ind.style.transform = `translateX(${b.offsetLeft}px)`;
+      placeInd();
       if (x === 'seg') renderSegPane();
     }
+    function placeInd() {
+      const b = $(`#tabs [data-tab="${tab}"]`, m), ind = $('.ed-tabs-ind', m);
+      if (!b || !ind || !b.offsetWidth) return;
+      ind.style.width = b.offsetWidth + 'px'; ind.style.transform = `translateX(${b.offsetLeft}px)`;
+    }
+    // výber záložky drž na mieste pri každej zmene šírky panelu (napr. po návrate z celej obrazovky)
+    new ResizeObserver(() => placeInd()).observe($('#tabs', m));
     $('#tabs', m).addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); });
 
     /* úsek: vybraný, inak ten pod prehrávaním */
@@ -1347,6 +1358,7 @@ window.Player = (function () {
       stage.classList.toggle('fs', on); stage.classList.remove('fs-idle');
       if (on) fsWake();
       requestAnimationFrame(() => { layoutFrame(); layoutHead(); });
+      if (!on) setTimeout(() => { placeInd(); fitZoom(true); layoutAll(); }, 120);
     };
     document.addEventListener('fullscreenchange', onFs);
     stage.addEventListener('pointerdown', e => {
@@ -1695,7 +1707,9 @@ window.Player = (function () {
 
     /* ================= klávesy a upratanie ================= */
     function cleanup() {
-      if (!closed) openEd = Math.max(0, openEd - 1);
+      if (closed) return;
+      if (curCleanup === cleanup) curCleanup = null;
+      openEd = Math.max(0, openEd - 1);
       document.removeEventListener('fullscreenchange', onFs);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
       closed = true;

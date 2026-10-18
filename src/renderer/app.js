@@ -877,7 +877,8 @@
 
   /* ---------- výber viacerých klipov ---------- */
   const PICK = '<svg viewBox="0 0 16 16"><path d="M4 8.4 6.8 11 12 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  const openEditor = list => Player.open(list.map(c => ({ ...c })), { library: () => S.clips, autoWin: !!S.settings.autoWinCrop });
+  let lastOpenEd = 0;
+  const openEditor = list => (Date.now() - lastOpenEd < 600 ? null : (lastOpenEd = Date.now(), Player.open(list.map(c => ({ ...c })), { library: () => S.clips, autoWin: !!S.settings.autoWinCrop })));
   const pickedClips = () => S.clips.filter(c => picked.has(c.path));
   function updPicked() {
     $$('#view-clips .clip').forEach(el => el.classList.toggle('picked', picked.has(el.dataset.path)));

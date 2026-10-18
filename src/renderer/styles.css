@@ -863,7 +863,8 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
 
 /* časová os */
 .tlx-scroll { overflow: auto; max-height: 34vh; margin: 0 12px 12px; border-radius: 12px; background: var(--well); }
-.tlx { position: relative; min-width: 100%; padding: 0 0 8px; touch-action: none; user-select: none; }
+.tlx { position: relative; min-width: 100%; padding: 0 0 8px; touch-action: none; user-select: none; overflow-x: clip; }
+/* posledný popis na pravítku (napr. „2:00“) pretŕčal za koniec osi a dal sa o kúsok posúvať */
 .tlx-ruler { position: sticky; top: 0; z-index: 7; height: 24px; background: var(--well); border-bottom: .5px solid var(--line-soft); cursor: col-resize; }
 .tlx-ruler span { position: absolute; top: 5px; font: 500 10.5px var(--tc); color: var(--faint); padding-left: 5px; border-left: 1px solid var(--line); height: 14px; line-height: 12px; pointer-events: none; }
 .tlx-ruler i { position: absolute; bottom: 0; width: 1px; height: 5px; background: var(--line); pointer-events: none; }

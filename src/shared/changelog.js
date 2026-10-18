@@ -1,6 +1,11 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.17', items: [
+      'Opravené: klip sa v editore niekedy otvoril dvakrát, video hralo na pozadí a časová os bola dlhšia.',
+      'Opravené: po odchode z celej obrazovky bol výber záložky (Text / Úsek / Zvuk) roztiahnutý.',
+      'Časová os sa už nedá posunúť o kúsok za koniec.'
+    ] },
     { v: '1.0.16', items: [
       'Opravené: keď sa snímanie obrazu zaseklo, klip mohol mať desiatky minút prázdneho videa. Buffer sa teraz po 12 s sám reštartuje a klip sa skráti na správnu dĺžku.'
     ] },
