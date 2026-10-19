@@ -118,13 +118,19 @@ static int fgJson(char *buf, size_t cap) {
   wchar_t path[MAX_PATH] = L"", *base = path; DWORD pid = 0, sz = MAX_PATH;
   GetWindowThreadProcessId(h, &pid);
   HANDLE pr = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-  if (pr) { QueryFullProcessImageNameW(pr, 0, path, &sz); CloseHandle(pr); }
+  unsigned long long pst = 0; /* kedy proces vznikol (unix ms) — na zistenie, či hra štartovala pred alebo po appke */
+  if (pr) {
+    QueryFullProcessImageNameW(pr, 0, path, &sz);
+    FILETIME cr, ex, ke, us;
+    if (GetProcessTimes(pr, &cr, &ex, &ke, &us)) { unsigned long long t = ((unsigned long long)cr.dwHighDateTime << 32) | cr.dwLowDateTime; if (t > 116444736000000000ULL) pst = (t - 116444736000000000ULL) / 10000ULL; }
+    CloseHandle(pr);
+  }
   for (wchar_t *q = path; *q; q++) if (*q == L'\\') base = q + 1;
   char exe[600]; jsonStr(exe, sizeof exe, base);
   DWORD aff = 0; GetWindowDisplayAffinity(h, &aff); /* 0x11 = WDA_EXCLUDEFROMCAPTURE: okno sa nedá nahrať snímaním obrazovky */
-  snprintf(buf, cap, "{\"x\":%ld,\"y\":%ld,\"w\":%ld,\"h\":%ld,\"mx\":%ld,\"my\":%ld,\"mw\":%ld,\"mh\":%ld,\"exe\":\"%s\",\"zoomed\":%d,\"aff\":%lu}",
+  snprintf(buf, cap, "{\"x\":%ld,\"y\":%ld,\"w\":%ld,\"h\":%ld,\"mx\":%ld,\"my\":%ld,\"mw\":%ld,\"mh\":%ld,\"exe\":\"%s\",\"zoomed\":%d,\"aff\":%lu,\"pst\":%llu}",
          p.x, p.y, c.right - c.left, c.bottom - c.top, mi.rcMonitor.left, mi.rcMonitor.top,
-         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, exe, IsZoomed(h) ? 1 : 0, aff);
+         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, exe, IsZoomed(h) ? 1 : 0, aff, pst);
   return 1;
 }
 static int rectMode(void) {

@@ -308,17 +308,31 @@ function regionFrom(r) {
   return { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), h: +h.toFixed(4) };
 }
 /* história okna v popredí (prepnutia hier, alt-tab na plochu); hlási ju fxkeys pri každej zmene */
-let fgLog = [], lastBlockedExe = '';
+let fgLog = [], lastBlockedExe = '', lastFgKey = '';
 const APP_START = Date.now(); let blockedSince = 0;
 function onForeground(r) {
   const exe = String(r.exe || '').toLowerCase();
   if (!exe || exe === 'lookatthis.exe') return;
   const now = Date.now();
   fgLog.push({ t: now, exe, r });
-  // hra sa schováva pred snímaním obrazovky (vo videu by bolo vidieť len to, čo je za ňou)
-  // fxkeys pošle novú správu aj keď sa zmení len aff, takže tu vidíme presný čas, kedy sa hra skryla / znova ukázala
+  // hra sa schováva pred snímaním obrazovky (vo videu by bolo vidieť len to, čo je za ňou).
+  // fxkeys pošle novú správu aj keď sa zmení len aff, takže tu vidíme presný čas, kedy sa hra skryla / znova ukázala.
+  const game = isGameExe(exe), key = exe + ':' + (r.aff === 0x11 ? 1 : 0);
+  if (game && key !== lastFgKey) {
+    // podrobný záznam pre diagnostiku: kedy hra vznikla oproti štartu appky a či je skrytá
+    const rel = r.pst ? Math.round((r.pst - APP_START) / 1000) : null;
+    log.info(`popredie ${exe} aff=${r.aff}` + (rel == null ? '' : `, hra spustená ${rel >= 0 ? rel + ' s po' : -rel + ' s pred'} štarte appky`));
+  }
+  lastFgKey = game ? key : '';
   if (r.aff !== 0x11 && exe === lastBlockedExe) { lastBlockedExe = ''; log.info(`${exe} sa znova dá nahrať (aff=${r.aff}), skrytá bola ${Math.round((now - blockedSince) / 1000)} s`); }
-  if (r.aff === 0x11 && exe !== lastBlockedExe) { lastBlockedExe = exe; blockedSince = now; log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE), appka beží ${Math.round((now - APP_START) / 60000)} min`); toast('warn', `${exeName(exe)} sa skrýva pred nahrávaním`, 'Hra práve zakázala snímanie obrazovky, v klipe bude vidieť len to, čo je za ňou. Rozhoduje o tom hra, nie LookAtThis.'); }
+  if (r.aff === 0x11 && exe !== lastBlockedExe) {
+    lastBlockedExe = exe; blockedSince = now;
+    log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE), appka beží ${Math.round((now - APP_START) / 60000)} min`);
+    toast('warn', `${exeName(exe)} sa skrýva pred nahrávaním`, 'Hra práve zakázala snímanie obrazovky, v klipe bude vidieť len to, čo je za ňou. Rozhoduje o tom hra, nie LookAtThis.');
+    showOverlay({ kind: 'error', title: `${exeName(exe)} sa nenahráva`, sub: 'Hra sa skryla, v klipe bude len plocha', ms: 4500 });
+  }
+  // kontrolka v rohu svieti, kým je skrytá hra v popredí
+  setBadge(r.aff === 0x11 ? exeName(exe) : '');
   if (fgLog.length > 3000 || now - fgLog[0].t > 4 * 3600e3) fgLog = fgLog.filter(e => now - e.t < 3 * 3600e3).slice(-2000);
 }
 function isGameExe(exe) {
@@ -421,6 +435,8 @@ function ensureOverlay() {
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }
   });
   ov.setAlwaysOnTop(true, 'screen-saver');
+  // overlay sa nesmie dostať do klipu (buffer beží ďalej) → Windows ho pri snímaní vynechá
+  try { ov.setContentProtection(true); } catch (e) { }
   ov.setIgnoreMouseEvents(true);
   ov.setVisibleOnAllWorkspaces(true);
   ovReady = new Promise(res => ov.webContents.once('did-finish-load', res));
@@ -431,6 +447,34 @@ function ensureOverlay() {
 }
 let ovKill = null;
 function killOverlaySoon() { clearTimeout(ovKill); ovKill = setTimeout(() => { if (ov && !ov.isDestroyed() && !ov.isVisible()) ov.destroy(); }, 15000); }
+/* overlay na monitor, ktorý sa nahráva (rovnaké poradie ako v Nastaveniach), do zvoleného rohu */
+function placeOverlay() {
+  const s = store.get();
+  const prim = screen.getPrimaryDisplay().id;
+  const disp = screen.getAllDisplays().sort((a, b) => (b.id === prim) - (a.id === prim) || a.bounds.x - b.bounds.x)[Number(s.monitor) || 0] || screen.getPrimaryDisplay();
+  const corner = s.overlayCorner || 'tr', W = 400, H = 120, M = 18, wa = disp.workArea, b = disp.bounds;
+  const x = corner.endsWith('l') ? b.x + M : b.x + b.width - W - M;
+  const y = corner.startsWith('t') ? b.y + M : wa.y + wa.height - H - M;
+  ov.setBounds({ x: Math.round(x), y: Math.round(y), width: W, height: H });
+  return corner;
+}
+/* stála kontrolka „hra sa nenahráva“ (svieti, kým je skrytá hra v popredí) */
+let badgeOn = '';
+async function setBadge(name) {
+  if (name === badgeOn) return;
+  badgeOn = name;
+  const s = store.get();
+  if (s.overlay === false && name) return;
+  if (!name && (!ov || ov.isDestroyed())) return;
+  try {
+    await ensureOverlay();
+    if (badgeOn !== name) return;
+    const corner = placeOverlay();
+    await ov.webContents.executeJavaScript(`badge(${JSON.stringify(name ? { name, corner, accent: s.accent } : null)})`);
+    if (name) { clearTimeout(ovKill); ov.showInactive(); ov.setAlwaysOnTop(true, 'screen-saver'); }
+    else if (!ovHide) { ov.hide(); killOverlaySoon(); }
+  } catch (e) { log.warn('kontrolka', e.message); }
+}
 /* zvuk klipnutia hrá overlay okno (neviditeľne), takže funguje aj keď je hlavné okno zatvorené */
 async function playSound(name) {
   const s = store.get();
@@ -447,18 +491,12 @@ async function showOverlay(d) {
   if (s.overlay === false && !d.test) return;
   try {
     await ensureOverlay();
-    // monitor, ktorý sa nahráva (rovnaké poradie ako v Nastaveniach)
-    const prim = screen.getPrimaryDisplay().id;
-    const disp = screen.getAllDisplays().sort((a, b) => (b.id === prim) - (a.id === prim) || a.bounds.x - b.bounds.x)[Number(s.monitor) || 0] || screen.getPrimaryDisplay();
-    const corner = s.overlayCorner || 'tr', W = 400, H = 120, M = 18, wa = disp.workArea, b = disp.bounds;
-    const x = corner.endsWith('l') ? b.x + M : b.x + b.width - W - M;
-    const y = corner.startsWith('t') ? b.y + M : wa.y + wa.height - H - M;
-    ov.setBounds({ x: Math.round(x), y: Math.round(y), width: W, height: H });
+    const corner = placeOverlay();
     ov.showInactive();
     ov.setAlwaysOnTop(true, 'screen-saver');
     await ov.webContents.executeJavaScript(`play(${JSON.stringify({ ...d, corner, accent: s.accent, style: s.overlayStyle || 'eye' })})`);
     clearTimeout(ovHide);
-    ovHide = setTimeout(() => { if (ov && !ov.isDestroyed()) ov.hide(); killOverlaySoon(); }, (d.ms || 2700) + 500);
+    ovHide = setTimeout(() => { ovHide = null; if (badgeOn) return; if (ov && !ov.isDestroyed()) ov.hide(); killOverlaySoon(); }, (d.ms || 2700) + 500);
   } catch (e) { log.warn('overlay', e.message); }
 }
 
@@ -508,7 +546,8 @@ function announce(r, title) {
   const body = `${path.basename(r.path)}`;
   send('event', { type: 'sound', name: 'saved' }); playSound('saved');
   const g = r.game ? Games.pretty(r.game, store.get().gameNames, engine.detectedMap) : '';
-  showOverlay({ kind: title.startsWith('Nahrávka') ? 'recStop' : 'clip', title, game: g, sub: r.seconds ? (r.seconds >= 60 ? `${Math.floor(r.seconds / 60)}:${String(r.seconds % 60).padStart(2, '0')}` : `${r.seconds} s`) : '' });
+  if (badgeOn) { showOverlay({ kind: 'error', title: title + ', ale bez hry', sub: `${badgeOn} sa skryl, v klipe je plocha`, ms: 3500 }); }
+  else showOverlay({ kind: title.startsWith('Nahrávka') ? 'recStop' : 'clip', title, game: g, sub: r.seconds ? (r.seconds >= 60 ? `${Math.floor(r.seconds / 60)}:${String(r.seconds % 60).padStart(2, '0')}` : `${r.seconds} s`) : '' });
   toast('ok', title, body, { path: r.path });
   if (wantNotify() && (!win || !win.isVisible() || !win.isFocused())) notify(title, body, () => showWindow(() => send('event', { type: 'open', path: r.path })));
   pushState();

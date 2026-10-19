@@ -1,6 +1,11 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.20', items: [
+      'Keď sa hra (napr. Valorant) skryje pred nahrávaním, v rohu obrazovky sa rozsvieti kontrolka „sa nenahráva“ a svieti, kým to trvá.',
+      'Ak uložíš clip, kým je hra skrytá, oznámenie ti povie, že v klipe bude len plocha.',
+      'Oznámenia v rohu sa už nedostanú do klipov.'
+    ] },
     { v: '1.0.19', items: [
       'Keď sa hra (napr. Valorant) skryje pred nahrávaním alebo sa znova ukáže, appka si zapíše presný čas. Pomôže to zistiť, prečo sa to deje.'
     ] },

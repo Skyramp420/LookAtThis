@@ -63,6 +63,15 @@
   @keyframes bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
   .err .bar, .err .burst { display: none; }
   .err .board { fill: #3a2224; }
+  /* kontrolka: hra sa skryla pred snímaním, svieti v rohu kým to trvá */
+  #badge { position: absolute; top: 6px; right: 14px; display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border-radius: 20px; background: rgba(28, 28, 30, .86); backdrop-filter: blur(24px) saturate(1.8); color: #f5f5f7; font-size: 12.5px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; box-shadow: 0 0 0 .5px rgba(255, 69, 58, .55), 0 6px 18px rgba(0, 0, 0, .4); opacity: 0; transform: translateY(-8px) scale(.94); transition: opacity .3s ease, transform .45s cubic-bezier(.32, 1.25, .5, 1); }
+  body.left #badge { right: auto; left: 14px; }
+  body.bottom #badge { top: auto; bottom: 6px; transform: translateY(8px) scale(.94); }
+  #badge.on { opacity: 1; transform: none; animation: glow 2s ease-in-out infinite; }
+  body.busy #badge.on { opacity: 0; transform: scale(.94); }
+  #badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); flex: none; animation: pulse 1.2s ease-in-out infinite; }
+  #badge small { font-size: 12px; font-weight: 500; color: rgba(245, 245, 247, .62); }
+  @keyframes glow { 50% { box-shadow: 0 0 0 .5px rgba(255, 69, 58, .8), 0 0 16px rgba(255, 69, 58, .35), 0 6px 18px rgba(0, 0, 0, .4); } }
 </style>
 </head>
 <body>
@@ -101,6 +110,7 @@
     <div class="tx"><b id="t">Clip uložený</b><span id="s"></span></div>
     <i class="bar"></i>
   </div>
+  <div id="badge"><i></i><span id="bn"></span><small>sa nenahráva</small></div>
 <script>
   let hideT = null;
   const esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -119,8 +129,19 @@
     document.getElementById('t').textContent = d.title || 'Clip uložený';
     document.getElementById('s').innerHTML = (d.game ? `<em>${esc(d.game)}</em> · ` : '') + esc(d.sub || '');
     clearTimeout(hideT);
-    hideT = setTimeout(() => card.classList.add('out'), d.ms || 2700);
+    document.body.classList.add('busy');
+    hideT = setTimeout(() => { card.classList.add('out'); setTimeout(() => document.body.classList.remove('busy'), 350); }, d.ms || 2700);
   }
+  /* d = { name, corner, accent } alebo null (zhasni) */
+  function badge(d) {
+    const b = document.getElementById('badge');
+    if (!d) { b.classList.remove('on'); return; }
+    document.body.classList.toggle('left', /l$/.test(d.corner || 'tr'));
+    document.body.classList.toggle('bottom', /^b/.test(d.corner || 'tr'));
+    document.getElementById('bn').textContent = d.name;
+    b.classList.add('on');
+  }
+  window.badge = badge;
   window.play = play;
   /* zvuky klipnutia (rovnaké ako v okne appky) */
   let ac = null, noiseBuf = null;
