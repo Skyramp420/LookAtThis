@@ -318,7 +318,7 @@ function onForeground(r) {
   // hra sa schováva pred snímaním obrazovky (vo videu by bolo vidieť len to, čo je za ňou)
   // fxkeys pošle novú správu aj keď sa zmení len aff, takže tu vidíme presný čas, kedy sa hra skryla / znova ukázala
   if (r.aff !== 0x11 && exe === lastBlockedExe) { lastBlockedExe = ''; log.info(`${exe} sa znova dá nahrať (aff=${r.aff}), skrytá bola ${Math.round((now - blockedSince) / 1000)} s`); }
-  if (r.aff === 0x11 && exe !== lastBlockedExe) { lastBlockedExe = exe; blockedSince = now; log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE), appka beží ${Math.round((now - APP_START) / 60000)} min`); toast('warn', `${exeName(exe)} sa skrýva pred nahrávaním`, 'Hra práve zakázala snímanie obrazovky, v klipe bude vidieť len to, čo je za ňou. Skús hru reštartovať.'); }
+  if (r.aff === 0x11 && exe !== lastBlockedExe) { lastBlockedExe = exe; blockedSince = now; log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE), appka beží ${Math.round((now - APP_START) / 60000)} min`); toast('warn', `${exeName(exe)} sa skrýva pred nahrávaním`, 'Hra práve zakázala snímanie obrazovky, v klipe bude vidieť len to, čo je za ňou. Rozhoduje o tom hra, nie LookAtThis.'); }
   if (fgLog.length > 3000 || now - fgLog[0].t > 4 * 3600e3) fgLog = fgLog.filter(e => now - e.t < 3 * 3600e3).slice(-2000);
 }
 function isGameExe(exe) {
