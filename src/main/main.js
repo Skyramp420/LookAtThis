@@ -8,7 +8,8 @@ const { execFile, spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
 const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars } = require('./engine');
-const { Obs, findObs } = require('./obs');
+const { Obs, findObs, killStaleOurs } = require('./obs');
+const { mergeObsWithTracks } = require('./obs-merge');
 const ObsConfig = require('./obs-config');
 const Compress = require('../shared/compress');
 const GameScan = require('./games-scan');
@@ -401,18 +402,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let obsStarting = false, obsShownOverlay = false;
 function obsOn() { return store.get().obsBridge && obs && obs.connected; }
 /* nastavenie pre OBS odvodené z LookAtThis: monitor, fps, enkodér, zvukové zariadenia */
+function obsTempDir() { const d = path.join(app.getPath('temp'), 'LookAtThis-obs'); try { fs.mkdirSync(d, { recursive: true }); } catch (e) {} return d; }
 function obsSetup() {
   const s = store.get();
   const mon = monitors().find(m => m.idx === (Number(s.monitor) || 0)) || monitors()[0] || { w: 1920, h: 1080 };
   const fam = engine && engine.pickEncoder ? engine.pickEncoder(s).fam : 'nvenc';
   const tr = id => (s.tracks || []).find(t => t.id === id) || {};
-  const desktopOn = ['system', 'game', 'discord'].some(id => tr(id).on);
+  // OBS dáva len obraz; zvuk (všetky stopy) berieme z LookAtThis. Zvuk počítača v OBS slúži iba na zosynchronizovanie.
   return {
-    clipsDir: s.clipsDir, seconds: s.bufferSeconds, fps: Number(s.fps) || 60,
+    clipsDir: obsTempDir(), seconds: s.bufferSeconds, fps: Number(s.fps) || 60,
     width: mon.w, height: mon.h,
     encoder: ObsConfig.simpleEncoderFor(fam),
-    desktopDevice: desktopOn ? (tr('system').deviceId || 'default') : '',
-    micDevice: tr('mic').on ? (tr('mic').deviceId || 'default') : '',
+    desktopDevice: tr('system').deviceId || 'default',
+    micDevice: '',
   };
 }
 async function obsEnsureUp() {
@@ -430,8 +432,9 @@ async function obsEnsureUp() {
     // beží už OBS? (napr. tvoje vlastné) — dve inštancie OBS nejdú, tak sa skús pripojiť
     try { await obs.connect(cfg.port, cfg.password, 1500); }
     catch (e) {
-      const procs = await listProcesses();
-      if (procs.has('obs64.exe')) {
+      // naše staré OBS, ktoré visí (napr. na dialógu) → ukonči ho; cudzie (tvoje) OBS nechaj tak
+      const st = await killStaleOurs(log);
+      if (st.foreign) {
         log.warn('OBS most: OBS už beží a nedá sa k nemu pripojiť');
         toast('warn', 'OBS už beží', 'Zavri svoje OBS, LookAtThis si spustí vlastné skryté OBS s Game Capture.');
         showOverlay({ kind: 'error', title: 'Zavri OBS', sub: 'Most do OBS potrebuje vlastné OBS', ms: 4000 });
@@ -440,7 +443,7 @@ async function obsEnsureUp() {
       try { obs.launch(s.obsPath); } catch (e2) { log.warn('OBS most: ' + e2.message); toast('warn', 'OBS most', e2.message); return false; }
       let ok = false;
       for (let i = 0; i < 20 && !ok; i++) { await sleep(1000); try { await obs.connect(cfg.port, cfg.password, 1500); ok = true; } catch (e3) {} }
-      if (!ok) { log.warn('OBS most: nepripojil som sa k OBS do 20 s'); toast('error', 'OBS most', 'OBS sa nepodarilo spustiť alebo pripojiť.'); return false; }
+      if (!ok) { await obs.killSpawned(); log.warn('OBS most: nepripojil som sa k OBS do 20 s, OBS ukončené'); toast('error', 'OBS most', 'OBS sa nepodarilo spustiť alebo pripojiť.'); return false; }
     }
     await obs.fitSource(setup.width, setup.height);
     const rb = await obs.ensureReplayBuffer();
@@ -500,15 +503,40 @@ async function obsWatch() {
     } else if (needed && obs.quitTimer) obs.cancelQuit();
   } finally { obsWatchBusy = false; }
 }
+/* klip, keď sa hra skrýva: obraz z OBS + všetky zvukové stopy z LookAtThis */
 async function saveClipViaObs(seconds) {
-  const path2 = await obs.saveReplay(15000);
-  // presuň súbor z OBS do knižnice pod pekný názov (OBS ukladá rovno do clipsDir, ale s prefixom „Replay“)
   const s = store.get();
   const g = lastBlockedExe ? exeName(lastBlockedExe) : '';
+  const tmp = path.join(app.getPath('temp'), 'LookAtThis-merge');
+  const [obsR, latR] = await Promise.allSettled([obs.saveReplay(15000), engine.saveClip(tmp, seconds)]);
+  if (obsR.status !== 'fulfilled') throw obsR.reason;
+  const obsFile = obsR.value;
   const base = `${(g || 'Clip').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim().slice(0, 60)} ${stampNow()}`;
+  fs.mkdirSync(s.clipsDir, { recursive: true });
   let dest = path.join(s.clipsDir, base + '.mp4'), k = 2;
   while (fs.existsSync(dest)) dest = path.join(s.clipsDir, `${base} (${k++}).mp4`);
-  try { fs.renameSync(path2, dest); } catch (e) { fs.copyFileSync(path2, dest); try { fs.unlinkSync(path2); } catch (x) {} }
+  let merged = false;
+  if (latR.status === 'fulfilled') {
+    // ktorá stopa v klipe LookAtThis je „zvuk počítača“ (na porovnanie so zvukom z OBS)
+    const order = engine.trackOrder || [];
+    const sysI = order.findIndex(t => t.id === 'system'), micI = order.findIndex(t => t.id === 'mic');
+    const mix = s.mixTrack && sysI >= 0 && micI >= 0;
+    const latRef = sysI >= 0 ? sysI + (mix ? 1 : 0) : 0;
+    try {
+      const m = await mergeObsWithTracks({
+        ffmpeg: FFMPEG, probe: f => probe(FFMPEG, f), obsFile, latFile: latR.value.path, latRef,
+        endGap: 0.45, seconds: seconds || null, out: dest, comment: `LookAtThis${g ? ' · ' + g : ''} · obraz cez OBS`,
+      });
+      merged = true;
+      log.info(`OBS klip: obraz z OBS + ${m.tracks} zvukových stôp z LookAtThis, posun ${m.d.toFixed(3)} s (${m.how})`);
+    } catch (e) { log.warn('OBS klip: spojenie so zvukom z LookAtThis zlyhalo — ' + e.message); }
+    try { fs.unlinkSync(latR.value.path); } catch (e) {}
+  } else log.warn('OBS klip: zvuk z LookAtThis nie je — ' + (latR.reason && latR.reason.message));
+  if (merged) { try { fs.unlinkSync(obsFile); } catch (e) {} }
+  else {
+    // záloha: aspoň klip z OBS tak, ako je (obraz + zvuk počítača)
+    try { fs.renameSync(obsFile, dest); } catch (e) { fs.copyFileSync(obsFile, dest); try { fs.unlinkSync(obsFile); } catch (x) {} }
+  }
   let secs = seconds || s.bufferSeconds;
   try { const info = await probe(FFMPEG, dest); if (info.duration) secs = Math.round(info.duration); } catch (e) {}
   return { path: dest, game: g, seconds: secs, viaObs: true };

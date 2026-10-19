@@ -133,8 +133,9 @@ class Obs {
     const info = findObs(obsRoot);
     if (!info) throw new Error('OBS som nenašiel. Nainštaluj OBS alebo zadaj cestu v nastaveniach.');
     this.log.info('spúšťam OBS skryto: ' + info.exe);
+    cleanSentinel(this.log);
     const args = [
-      '--minimize-to-tray', '--disable-shutdown-check',
+      '--minimize-to-tray',
       '--collection', 'LookAtThis', '--profile', 'LookAtThis',
       '--startreplaybuffer',
     ];
@@ -200,6 +201,13 @@ class Obs {
     clearTimeout(this.quitTimer);
     this.quitTimer = setTimeout(() => this.quit(), ms);
   }
+  /* náš proces sa nepripojil (zasekol sa) → zabi ho a uprac */
+  async killSpawned() {
+    const p = this.proc; this.proc = null; this.spawnedByUs = false;
+    if (p) { try { p.kill(); } catch (e) {} await sleep(800); }
+    await killStaleOurs(this.log);
+    cleanSentinel(this.log);
+  }
   cancelQuit() { clearTimeout(this.quitTimer); this.quitTimer = null; }
 
   /* vypni OBS slušne: zastav replay buffer, pošli zatvorenie oknu (taskkill bez /F),
@@ -216,9 +224,10 @@ class Obs {
     const p = this.proc;
     const args = p && p.pid ? ['/PID', String(p.pid)] : ['/IM', 'obs64.exe'];
     await new Promise(r => execFile('taskkill.exe', args, { windowsHide: true, timeout: 5000 }, () => r()));
+    if (!p) { await sleep(3000); await killStaleOurs(this.log); }
     if (p) {
       const gone = await new Promise(r => { if (p.exitCode != null) return r(true); const t = setTimeout(() => r(false), 8000); p.once('exit', () => { clearTimeout(t); r(true); }); });
-      if (!gone) { this.log.warn('OBS sa nezavrelo, ukončujem natvrdo'); try { p.kill(); } catch (e) {} }
+      if (!gone) { this.log.warn('OBS sa nezavrelo, ukončujem natvrdo'); try { p.kill(); } catch (e) {} await sleep(800); cleanSentinel(this.log); }
     }
     this.proc = null; this.spawnedByUs = false;
   }
@@ -226,4 +235,37 @@ class Obs {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-module.exports = { Obs, findObs, authString };
+/* OBS 32 si pri štarte zapíše „run_…“ do %APPDATA%\obs-studio\.sentinel a pri čistom vypnutí ho zmaže.
+   Keď súbor ostane (OBS bolo ukončené natvrdo), ďalší štart ukáže dialóg „Spustiť v núdzovom režime?“
+   — pri skrytom OBS ho nevidíš, len počuješ pípnutie, a OBS stojí. Pred naším štartom ho preto zmažeme
+   (len keď OBS nebeží). */
+function cleanSentinel(log) {
+  const appdata = process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
+  const dir = path.join(appdata, 'obs-studio', '.sentinel');
+  let n = 0;
+  try { for (const f of fs.readdirSync(dir)) if (f.startsWith('run_')) { try { fs.unlinkSync(path.join(dir, f)); n++; } catch (e) {} } } catch (e) {}
+  if (n && log) log.info(`OBS: zmazaný záznam o nečistom vypnutí (${n})`);
+  return n;
+}
+
+/* bežiace obs64.exe: { pid, ours } — „naše“ = spustené s kolekciou LookAtThis */
+function listObsProcesses() {
+  return new Promise(resolve => {
+    if (process.platform !== 'win32') return resolve([]);
+    const ps = "Get-CimInstance Win32_Process -Filter \"Name='obs64.exe'\" | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }";
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 10000 }, (err, out) => {
+      if (err) return resolve([]);
+      resolve(String(out).split(/\r?\n/).filter(Boolean).map(l => { const [pid, cmd] = l.split('\t'); return { pid: Number(pid), ours: /--collection\s+"?LookAtThis/i.test(cmd || '') }; }).filter(x => x.pid));
+    });
+  });
+}
+/* ukonči natvrdo naše zaseknuté OBS (napr. visí na dialógu); cudzie nechaj */
+async function killStaleOurs(log) {
+  const list = await listObsProcesses();
+  const ours = list.filter(x => x.ours);
+  for (const x of ours) await new Promise(r => execFile('taskkill.exe', ['/F', '/PID', String(x.pid)], { windowsHide: true, timeout: 5000 }, () => r()));
+  if (ours.length) { log && log.warn(`OBS: ukončené zaseknuté OBS z LookAtThis (${ours.length})`); await sleep(800); cleanSentinel(log); }
+  return { killed: ours.length, foreign: list.length - ours.length };
+}
+
+module.exports = { Obs, findObs, authString, cleanSentinel, killStaleOurs };

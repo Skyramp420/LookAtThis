@@ -1,6 +1,10 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.23', items: [
+      'Most do OBS: OBS dodá len obraz hry, zvuk je z LookAtThis, takže klip má zase oddelené stopy (systém, hra, Discord, mikrofón, mix). Obraz so zvukom sa zosynchronizuje automaticky podľa zvuku.',
+      'Opravené: skryté OBS sa niekedy nespustilo (zaseklo sa na neviditeľnom okne a Windows len pípol). LookAtThis teraz také OBS ukončí a spustí znova.'
+    ] },
     { v: '1.0.22', items: [
       'Most do OBS: obraz z hry je roztiahnutý na celé plátno v rozlíšení tvojho monitora (predtým bola v klipe len časť obrazu).',
       'Most do OBS nahráva aj zvuk počítača a mikrofón (rovnaké zariadenia ako v LookAtThis) a kóduje na grafike (NVENC/AMD/Intel) namiesto procesora.',

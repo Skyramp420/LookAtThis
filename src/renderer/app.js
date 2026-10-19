@@ -1280,7 +1280,7 @@
 
       <div class="sec-title">Hry, čo sa skrývajú pred nahrávaním (Valorant)</div>
       <div class="box">
-        ${row('Nahrávať cez OBS', 'Valorant a niektoré hry zakážu snímanie obrazovky (vo videu je potom len plocha). Keď je toto zapnuté, LookAtThis spustí s takou hrou na pozadí OBS (skrytý v tray, s rovnakým monitorom, fps, GPU enkodérom a zvukom ako LookAtThis). Kým sa hra skrýva, klip uloží cez OBS, inak ako zvyčajne. Keď hru vypneš, OBS sa samo zavrie. Vyžaduje nainštalovaný OBS a tvoje vlastné OBS musí byť zavreté.', toggle('obsBridge', !!s.obsBridge))}
+        ${row('Nahrávať cez OBS', 'Valorant a niektoré hry zakážu snímanie obrazovky (vo videu je potom len plocha). Keď je toto zapnuté, LookAtThis spustí s takou hrou na pozadí OBS (skrytý v tray). Kým sa hra skrýva, obraz do klipu dodá OBS a zvuk ostane z LookAtThis so všetkými stopami, zosynchronizovaný. Keď hru vypneš, OBS sa samo zavrie. Vyžaduje nainštalovaný OBS a tvoje vlastné OBS musí byť zavreté.', toggle('obsBridge', !!s.obsBridge))}
       </div>
 
       <div class="sec-title">Hry</div>
