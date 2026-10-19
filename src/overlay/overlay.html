@@ -72,6 +72,11 @@
   #badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); flex: none; animation: pulse 1.2s ease-in-out infinite; }
   #badge small { font-size: 12px; font-weight: 500; color: rgba(245, 245, 247, .62); }
   @keyframes glow { 50% { box-shadow: 0 0 0 .5px rgba(255, 69, 58, .8), 0 0 16px rgba(255, 69, 58, .35), 0 6px 18px rgba(0, 0, 0, .4); } }
+  /* režim OBS: nie je to chyba, nahráva sa inak → pokojná zelená */
+  #badge.obs { box-shadow: 0 0 0 .5px rgba(48, 209, 88, .55), 0 6px 18px rgba(0, 0, 0, .4); }
+  #badge.obs i { background: var(--mint); }
+  #badge.obs.on { animation: glowm 2s ease-in-out infinite; }
+  @keyframes glowm { 50% { box-shadow: 0 0 0 .5px rgba(48, 209, 88, .8), 0 0 16px rgba(48, 209, 88, .3), 0 6px 18px rgba(0, 0, 0, .4); } }
 </style>
 </head>
 <body>
@@ -110,7 +115,7 @@
     <div class="tx"><b id="t">Clip uložený</b><span id="s"></span></div>
     <i class="bar"></i>
   </div>
-  <div id="badge"><i></i><span id="bn"></span><small>sa nenahráva</small></div>
+  <div id="badge"><i></i><span id="bn"></span><small id="bs">sa nenahráva</small></div>
 <script>
   let hideT = null;
   const esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -139,6 +144,9 @@
     document.body.classList.toggle('left', /l$/.test(d.corner || 'tr'));
     document.body.classList.toggle('bottom', /^b/.test(d.corner || 'tr'));
     document.getElementById('bn').textContent = d.name;
+    document.getElementById('bs').textContent = d.obs ? 'cez OBS' : 'sa nenahráva';
+    b.classList.toggle('obs', !!d.obs);
+    if (d.obs && d.accent) document.documentElement.style.setProperty('--accent', d.accent);
     b.classList.add('on');
   }
   window.badge = badge;

@@ -1278,6 +1278,11 @@
         ${row('Úsporný režim', perfDesc(s), seg('powerSave', [{ v: 'auto', l: 'Automaticky' }, { v: 'on', l: 'Zapnutý' }, { v: 'off', l: 'Vypnutý' }], s.powerSave || 'auto'))}
       </div>
 
+      <div class="sec-title">Hry, čo sa skrývajú pred nahrávaním (Valorant)</div>
+      <div class="box">
+        ${row('Nahrávať cez OBS', 'Valorant a niektoré hry zakážu snímanie obrazovky (vo videu je potom len plocha). Keď je toto zapnuté, LookAtThis pri takej hre spustí na pozadí OBS (skrytý v tray) a klip uloží cezeň — OBS berie obraz priamo z hry. Vyžaduje nainštalovaný OBS. Klip uložíš tou istou skratkou a objaví sa v knižnici ako vždy.', toggle('obsBridge', !!s.obsBridge))}
+      </div>
+
       <div class="sec-title">Hry</div>
       <div class="box">
         ${row('Nainštalované hry', S.scanningGames ? 'Hľadám v Steame, Epicu, GOG, Ubisofte, Xboxe, Riote a Minecrafte…' : `${(S.installed || []).length} nájdených. Stopa Hra ich spozná aj v okne a klipy dostanú ich názov a ikonku.`, `<button class="btn" id="scanG"${S.scanningGames ? ' disabled' : ''}>${I.refresh}<span>${S.scanningGames ? 'Hľadám…' : 'Hľadať znova'}</span></button>`)}

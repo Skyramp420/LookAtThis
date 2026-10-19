@@ -1,6 +1,10 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.21', items: [
+      'Nové (skúšobné): most do OBS pre hry, čo sa skrývajú pred nahrávaním (Valorant). Zapni v Nastaveniach → „Nahrávať cez OBS“. Keď sa hra skryje, LookAtThis spustí na pozadí OBS (skrytý v tray), nahráva cez jeho Game Capture a klip uloží tou istou skratkou do tvojej knižnice.',
+      'Kontrolka v rohu pri takej hre ukáže „cez OBS“ (zelená) namiesto „sa nenahráva“, a vyskočí aj upozornenie „Nahrávam cez OBS“.'
+    ] },
     { v: '1.0.20', items: [
       'Keď sa hra (napr. Valorant) skryje pred nahrávaním, v rohu obrazovky sa rozsvieti kontrolka „sa nenahráva“ a svieti, kým to trvá.',
       'Ak uložíš clip, kým je hra skrytá, oznámenie ti povie, že v klipe bude len plocha.',

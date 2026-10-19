@@ -8,6 +8,8 @@ const { execFile, spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
 const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars } = require('./engine');
+const { Obs, findObs } = require('./obs');
+const ObsConfig = require('./obs-config');
 const Compress = require('../shared/compress');
 const GameScan = require('./games-scan');
 const Store = require('./store');
@@ -52,7 +54,7 @@ process.on('uncaughtException', err => { log.error('uncaught', err); });
 process.on('unhandledRejection', err => { log.error('unhandledRejection', err instanceof Error ? err : new Error(String(err))); });
 app.on('render-process-gone', (e, wc, d) => log.error('render-process-gone', d));
 app.on('child-process-gone', (e, d) => log.error('child-process-gone', d));
-let store, engine, win, tray, quitting = false;
+let store, engine, obs, win, tray, quitting = false;
 let devices = { render: [], capture: [] }, sessions = [], hotkeyErrors = [];
 
 /* ---------- pomocník fxaudio ---------- */
@@ -324,15 +326,18 @@ function onForeground(r) {
     log.info(`popredie ${exe} aff=${r.aff}` + (rel == null ? '' : `, hra spustená ${rel >= 0 ? rel + ' s po' : -rel + ' s pred'} štarte appky`));
   }
   lastFgKey = game ? key : '';
-  if (r.aff !== 0x11 && exe === lastBlockedExe) { lastBlockedExe = ''; log.info(`${exe} sa znova dá nahrať (aff=${r.aff}), skrytá bola ${Math.round((now - blockedSince) / 1000)} s`); }
+  if (r.aff !== 0x11 && exe === lastBlockedExe) { lastBlockedExe = ''; log.info(`${exe} sa znova dá nahrať (aff=${r.aff}), skrytá bola ${Math.round((now - blockedSince) / 1000)} s`); obsOnShown(); }
   if (r.aff === 0x11 && exe !== lastBlockedExe) {
     lastBlockedExe = exe; blockedSince = now;
     log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE), appka beží ${Math.round((now - APP_START) / 60000)} min`);
-    toast('warn', `${exeName(exe)} sa skrýva pred nahrávaním`, 'Hra práve zakázala snímanie obrazovky, v klipe bude vidieť len to, čo je za ňou. Rozhoduje o tom hra, nie LookAtThis.');
-    showOverlay({ kind: 'error', title: `${exeName(exe)} sa nenahráva`, sub: 'Hra sa skryla, v klipe bude len plocha', ms: 4500 });
+    if (store.get().obsBridge) obsOnHidden(exeName(exe)); // nahrávanie preberie OBS, žiadne strašenie
+    else {
+      toast('warn', `${exeName(exe)} sa skrýva pred nahrávaním`, 'Hra práve zakázala snímanie obrazovky, v klipe bude vidieť len to, čo je za ňou. Rozhoduje o tom hra, nie LookAtThis.');
+      showOverlay({ kind: 'error', title: `${exeName(exe)} sa nenahráva`, sub: 'Hra sa skryla, v klipe bude len plocha', ms: 4500 });
+    }
   }
-  // kontrolka v rohu svieti, kým je skrytá hra v popredí
-  setBadge(r.aff === 0x11 ? exeName(exe) : '');
+  // kontrolka v rohu: „cez OBS“ keď je most zapnutý, inak „sa nenahráva“
+  setBadge(r.aff === 0x11 ? exeName(exe) : '', store.get().obsBridge);
   if (fgLog.length > 3000 || now - fgLog[0].t > 4 * 3600e3) fgLog = fgLog.filter(e => now - e.t < 3 * 3600e3).slice(-2000);
 }
 function isGameExe(exe) {
@@ -388,7 +393,82 @@ function windowRegion() {
     });
   });
 }
+/* ---------- most do OBS (pre hry, ktoré sa skrývajú pred snímaním obrazovky) ---------- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let obsStarting = false, obsShownOverlay = false;
+function obsOn() { return store.get().obsBridge && obs && obs.connected; }
+async function obsEnsureUp() {
+  if (!store.get().obsBridge) return false;
+  if (obs.connected) { obs.cancelQuit(); return true; }
+  if (obsStarting) return false;
+  obsStarting = true;
+  try {
+    const s = store.get();
+    if (!findObs(s.obsPath)) { log.warn('OBS most: OBS nenájdený'); return false; }
+    // priprav vlastný profil/scénu/websocket (len čo chýba) a zapamätaj port+heslo
+    let cfg;
+    try { cfg = ObsConfig.ensureConfig({ clipsDir: s.clipsDir, seconds: s.bufferSeconds, encoder: s.obsEncoder, port: s.obsPort, password: s.obsPassword, log }); }
+    catch (e) { log.warn('OBS most: konfigurácia — ' + e.message); toast('warn', 'OBS most', e.message); return false; }
+    if (cfg.password !== s.obsPassword || cfg.port !== s.obsPort) store.set({ obsPassword: cfg.password, obsPort: cfg.port });
+    // skús sa najprv pripojiť (OBS už beží?), inak spusti vlastnú skrytú inštanciu
+    try { await obs.connect(cfg.port, cfg.password, 1500); }
+    catch (e) {
+      try { obs.launch(s.obsPath); } catch (e2) { log.warn('OBS most: ' + e2.message); toast('warn', 'OBS most', e2.message); return false; }
+      let ok = false;
+      for (let i = 0; i < 20 && !ok; i++) { await sleep(1000); try { await obs.connect(cfg.port, cfg.password, 1500); ok = true; } catch (e3) {} }
+      if (!ok) { log.warn('OBS most: nepripojil som sa k OBS do 20 s'); toast('error', 'OBS most', 'OBS sa nepodarilo spustiť alebo pripojiť.'); return false; }
+    }
+    await obs.ensureReplayBuffer();
+    log.info('OBS most: pripravený (replay buffer beží)');
+    return true;
+  } finally { obsStarting = false; }
+}
+function obsOnHidden(name) {
+  if (!store.get().obsBridge) return;
+  obs.cancelQuit();
+  obsEnsureUp().then(ok => {
+    if (ok && !obsShownOverlay) {
+      obsShownOverlay = true;
+      showOverlay({ kind: 'rec', title: 'Nahrávam cez OBS', sub: `${name} sa skrýva pred snímaním obrazovky`, ms: 3500 });
+    }
+  });
+}
+function obsOnShown() {
+  obsShownOverlay = false;
+  if (obs && obs.connected) obs.scheduleQuit(25000); // hra odišla → OBS po chvíli vypni
+}
+async function saveClipViaObs(seconds) {
+  const path2 = await obs.saveReplay(15000);
+  // presuň súbor z OBS do knižnice pod pekný názov (OBS ukladá rovno do clipsDir, ale s prefixom „Replay“)
+  const s = store.get();
+  const g = lastBlockedExe ? exeName(lastBlockedExe) : '';
+  const base = `${(g || 'Clip').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim().slice(0, 60)} ${stampNow()}`;
+  let dest = path.join(s.clipsDir, base + '.mp4'), k = 2;
+  while (fs.existsSync(dest)) dest = path.join(s.clipsDir, `${base} (${k++}).mp4`);
+  try { fs.renameSync(path2, dest); } catch (e) { fs.copyFileSync(path2, dest); try { fs.unlinkSync(path2); } catch (x) {} }
+  let secs = seconds || s.bufferSeconds;
+  try { const info = await probe(FFMPEG, dest); if (info.duration) secs = Math.round(info.duration); } catch (e) {}
+  return { path: dest, game: g, seconds: secs, viaObs: true };
+}
+function stampNow() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
 async function saveClip(seconds) {
+  // hra sa práve skrýva pred snímaním obrazovky a most do OBS je zapnutý → ulož klip cez OBS
+  if (obsOn() && lastBlockedExe) {
+    try {
+      const r = await saveClipViaObs(seconds);
+      store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'clip', viaObs: true });
+      announce(r, 'Clip uložený (OBS)');
+      return;
+    } catch (e) {
+      log.warn('OBS klip: ' + e.message);
+      toast('error', 'Clip cez OBS sa neuložil', e.message);
+      showOverlay({ kind: 'error', title: 'Clip cez OBS sa neuložil', sub: e.message, ms: 3500 });
+      return;
+    }
+  }
   try {
     const winP = windowRegion();
     const r = await engine.saveClip(store.get().clipsDir, seconds);
@@ -459,10 +539,10 @@ function placeOverlay() {
   return corner;
 }
 /* stála kontrolka „hra sa nenahráva“ (svieti, kým je skrytá hra v popredí) */
-let badgeOn = '';
-async function setBadge(name) {
-  if (name === badgeOn) return;
-  badgeOn = name;
+let badgeOn = '', badgeObs = false;
+async function setBadge(name, obsMode) {
+  if (name === badgeOn && !!obsMode === badgeObs) return;
+  badgeOn = name; badgeObs = !!obsMode;
   const s = store.get();
   if (s.overlay === false && name) return;
   if (!name && (!ov || ov.isDestroyed())) return;
@@ -470,7 +550,7 @@ async function setBadge(name) {
     await ensureOverlay();
     if (badgeOn !== name) return;
     const corner = placeOverlay();
-    await ov.webContents.executeJavaScript(`badge(${JSON.stringify(name ? { name, corner, accent: s.accent } : null)})`);
+    await ov.webContents.executeJavaScript(`badge(${JSON.stringify(name ? { name, corner, accent: s.accent, obs: !!obsMode } : null)})`);
     if (name) { clearTimeout(ovKill); ov.showInactive(); ov.setAlwaysOnTop(true, 'screen-saver'); }
     else if (!ovHide) { ov.hide(); killOverlaySoon(); }
   } catch (e) { log.warn('kontrolka', e.message); }
@@ -1058,6 +1138,7 @@ app.whenReady().then(async () => {
   const s = store.get();
   nativeTheme.themeSource = s.appearance === 'auto' ? 'system' : s.appearance;
   engine = new Engine({ ffmpeg: FFMPEG, fxaudio: FXAUDIO, tmpRoot: TMP, log });
+  obs = new Obs({ log });
   // skutočné rozlíšenie monitora v pixeloch (enkodéry majú strop šírky, napr. H.264 do 4096 px)
   engine.monitorPx = idx => { try { return monitors().find(m => m.idx === (Number(idx) || 0)) || null; } catch (e) { return null; } };
   applyInstalled();
@@ -1150,6 +1231,7 @@ ipcMain.on('log', (e, { level, msg }) => log[level] ? log[level]('[okno] ' + msg
 app.on('window-all-closed', e => { /* beží ďalej v lište */ });
 app.on('before-quit', async e => {
   quitting = true;
+  try { if (obs) await obs.quit(); } catch (err) { }
   if (engine && (engine.proc || engine.helpers.length)) {
     e.preventDefault();
     try { if (engine.recording) await engine.stopRecording(store.get().clipsDir); } catch (err) { }
