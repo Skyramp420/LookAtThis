@@ -1,6 +1,9 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.19', items: [
+      'Keď sa hra (napr. Valorant) skryje pred nahrávaním alebo sa znova ukáže, appka si zapíše presný čas. Pomôže to zistiť, prečo sa to deje.'
+    ] },
     { v: '1.0.18', items: [
       'Opravené: keď si zamkol PC alebo vyskočilo okno „Chcete povoliť…“ (UAC), buffer spadol a už sa nerozbehol. Teraz počká a rozbehne sa sám, hneď ako sa obrazovka vráti.'
     ] },
