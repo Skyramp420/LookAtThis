@@ -35,7 +35,8 @@ function defaults(videosDir) {
     obsPath: '',
     obsPort: 4455,
     obsPassword: '',
-    obsEncoder: 'jim_nvenc',
+    obsEncoder: '',
+    hidingGames: ['valorant-win64-shipping.exe'], // hry, čo sa skrývajú pred snímaním → OBS sa spustí hneď s nimi
     ignoreRecorders: [],
     hotkeysAdmin: false,
     rawInput: true,

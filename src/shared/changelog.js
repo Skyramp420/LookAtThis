@@ -1,6 +1,12 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.22', items: [
+      'Most do OBS: obraz z hry je roztiahnutý na celé plátno v rozlíšení tvojho monitora (predtým bola v klipe len časť obrazu).',
+      'Most do OBS nahráva aj zvuk počítača a mikrofón (rovnaké zariadenia ako v LookAtThis) a kóduje na grafike (NVENC/AMD/Intel) namiesto procesora.',
+      'OBS sa spustí hneď s Valorantom, takže aj prvý klip po skrytí hry má celý buffer. Keď hru vypneš, OBS sa samo zavrie a vyskočí „Nahrávam cez LookAtThis“.',
+      'OBS spustené mostom sa už nehlási ako „iný nahrávací program“.'
+    ] },
     { v: '1.0.21', items: [
       'Nové (skúšobné): most do OBS pre hry, čo sa skrývajú pred nahrávaním (Valorant). Zapni v Nastaveniach → „Nahrávať cez OBS“. Keď sa hra skryje, LookAtThis spustí na pozadí OBS (skrytý v tray), nahráva cez jeho Game Capture a klip uloží tou istou skratkou do tvojej knižnice.',
       'Kontrolka v rohu pri takej hre ukáže „cez OBS“ (zelená) namiesto „sa nenahráva“, a vyskočí aj upozornenie „Nahrávam cez OBS“.'

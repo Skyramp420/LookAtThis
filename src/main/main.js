@@ -258,7 +258,8 @@ async function detectRecorders() {
     const ign = store.get().ignoreRecorders || [];
     const found = RECORDERS.filter(r => r.exes.some(e => procs.has(e))).map(r => ({ id: r.id, name: r.name, how: r.how, soft: !!r.soft, canClose: !r.soft }));
     if (bar) found.push({ id: 'gamebar', name: 'Xbox Game Bar (nahrávanie na pozadí)', how: 'Vo Windows nastaveniach vypni „Nahrávať, čo sa stalo“. Nahráva to isté čo LookAtThis.', settings: true });
-    const list = found.filter(r => !ign.includes(r.id));
+    const bridgeObs = obs && (obs.connected || obs.proc || obsStarting);
+    const list = found.filter(r => !ign.includes(r.id) && !(r.id === 'obs' && bridgeObs));
     const before = otherRecorders.map(r => r.id).join(','), now = list.map(r => r.id).join(',');
     const fresh = list.filter(r => !otherRecorders.some(o => o.id === r.id));
     otherRecorders = list;
@@ -326,9 +327,11 @@ function onForeground(r) {
     log.info(`popredie ${exe} aff=${r.aff}` + (rel == null ? '' : `, hra spustená ${rel >= 0 ? rel + ' s po' : -rel + ' s pred'} štarte appky`));
   }
   lastFgKey = game ? key : '';
-  if (r.aff !== 0x11 && exe === lastBlockedExe) { lastBlockedExe = ''; log.info(`${exe} sa znova dá nahrať (aff=${r.aff}), skrytá bola ${Math.round((now - blockedSince) / 1000)} s`); obsOnShown(); }
+  if (game && store.get().obsBridge && (store.get().hidingGames || []).includes(exe) && !obs.connected) obsWarmup(exe);
+  if (r.aff !== 0x11 && exe === lastBlockedExe) { lastBlockedExe = ''; log.info(`${exe} sa znova dá nahrať (aff=${r.aff}), skrytá bola ${Math.round((now - blockedSince) / 1000)} s`); obsOnShown(exe, 'shown'); }
   if (r.aff === 0x11 && exe !== lastBlockedExe) {
     lastBlockedExe = exe; blockedSince = now;
+    { const hg = store.get().hidingGames || []; if (!hg.includes(exe)) store.set({ hidingGames: [...hg, exe].slice(-20) }); }
     log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE), appka beží ${Math.round((now - APP_START) / 60000)} min`);
     if (store.get().obsBridge) obsOnHidden(exeName(exe)); // nahrávanie preberie OBS, žiadne strašenie
     else {
@@ -397,45 +400,105 @@ function windowRegion() {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let obsStarting = false, obsShownOverlay = false;
 function obsOn() { return store.get().obsBridge && obs && obs.connected; }
+/* nastavenie pre OBS odvodené z LookAtThis: monitor, fps, enkodér, zvukové zariadenia */
+function obsSetup() {
+  const s = store.get();
+  const mon = monitors().find(m => m.idx === (Number(s.monitor) || 0)) || monitors()[0] || { w: 1920, h: 1080 };
+  const fam = engine && engine.pickEncoder ? engine.pickEncoder(s).fam : 'nvenc';
+  const tr = id => (s.tracks || []).find(t => t.id === id) || {};
+  const desktopOn = ['system', 'game', 'discord'].some(id => tr(id).on);
+  return {
+    clipsDir: s.clipsDir, seconds: s.bufferSeconds, fps: Number(s.fps) || 60,
+    width: mon.w, height: mon.h,
+    encoder: ObsConfig.simpleEncoderFor(fam),
+    desktopDevice: desktopOn ? (tr('system').deviceId || 'default') : '',
+    micDevice: tr('mic').on ? (tr('mic').deviceId || 'default') : '',
+  };
+}
 async function obsEnsureUp() {
   if (!store.get().obsBridge) return false;
   if (obs.connected) { obs.cancelQuit(); return true; }
-  if (obsStarting) return false;
-  obsStarting = true;
-  try {
+  if (obsStarting) return obsStarting;   // už sa spúšťa → počkaj na ten istý pokus
+  obsStarting = (async () => {
     const s = store.get();
-    if (!findObs(s.obsPath)) { log.warn('OBS most: OBS nenájdený'); return false; }
-    // priprav vlastný profil/scénu/websocket (len čo chýba) a zapamätaj port+heslo
+    if (!findObs(s.obsPath)) { log.warn('OBS most: OBS nenájdený'); toast('warn', 'OBS most', 'OBS Studio som nenašiel. Nainštaluj ho z obsproject.com.'); return false; }
+    const setup = obsSetup();
     let cfg;
-    try { cfg = ObsConfig.ensureConfig({ clipsDir: s.clipsDir, seconds: s.bufferSeconds, encoder: s.obsEncoder, port: s.obsPort, password: s.obsPassword, log }); }
+    try { cfg = ObsConfig.ensureConfig({ ...setup, port: s.obsPort, password: s.obsPassword, log }); }
     catch (e) { log.warn('OBS most: konfigurácia — ' + e.message); toast('warn', 'OBS most', e.message); return false; }
     if (cfg.password !== s.obsPassword || cfg.port !== s.obsPort) store.set({ obsPassword: cfg.password, obsPort: cfg.port });
-    // skús sa najprv pripojiť (OBS už beží?), inak spusti vlastnú skrytú inštanciu
+    // beží už OBS? (napr. tvoje vlastné) — dve inštancie OBS nejdú, tak sa skús pripojiť
     try { await obs.connect(cfg.port, cfg.password, 1500); }
     catch (e) {
+      const procs = await listProcesses();
+      if (procs.has('obs64.exe')) {
+        log.warn('OBS most: OBS už beží a nedá sa k nemu pripojiť');
+        toast('warn', 'OBS už beží', 'Zavri svoje OBS, LookAtThis si spustí vlastné skryté OBS s Game Capture.');
+        showOverlay({ kind: 'error', title: 'Zavri OBS', sub: 'Most do OBS potrebuje vlastné OBS', ms: 4000 });
+        return false;
+      }
       try { obs.launch(s.obsPath); } catch (e2) { log.warn('OBS most: ' + e2.message); toast('warn', 'OBS most', e2.message); return false; }
       let ok = false;
       for (let i = 0; i < 20 && !ok; i++) { await sleep(1000); try { await obs.connect(cfg.port, cfg.password, 1500); ok = true; } catch (e3) {} }
       if (!ok) { log.warn('OBS most: nepripojil som sa k OBS do 20 s'); toast('error', 'OBS most', 'OBS sa nepodarilo spustiť alebo pripojiť.'); return false; }
     }
-    await obs.ensureReplayBuffer();
-    log.info('OBS most: pripravený (replay buffer beží)');
-    return true;
-  } finally { obsStarting = false; }
+    await obs.fitSource(setup.width, setup.height);
+    const rb = await obs.ensureReplayBuffer();
+    log.info(`OBS most: pripravený (replay buffer ${rb ? 'beží' : 'NEBEŽÍ'})`);
+    detectRecorders();
+    return rb;
+  })();
+  try { return await obsStarting; } finally { obsStarting = false; }
+}
+/* hra, ktorá sa už niekedy skryla, práve beží → OBS spusti hneď, nech má plný buffer, keď sa skryje */
+let warmAt = 0;
+function obsWarmup(exe) {
+  if (obsStarting || Date.now() - warmAt < 60000) return; // nespamuj pokusy, keď OBS nejde
+  warmAt = Date.now();
+  log.info(`OBS most: ${exe} sa v minulosti skrýval, spúšťam OBS vopred`);
+  obsEnsureUp().catch(() => {});
 }
 function obsOnHidden(name) {
   if (!store.get().obsBridge) return;
   obs.cancelQuit();
   obsEnsureUp().then(ok => {
-    if (ok && !obsShownOverlay) {
+    if (ok && !obsShownOverlay && lastBlockedExe) {
       obsShownOverlay = true;
       showOverlay({ kind: 'rec', title: 'Nahrávam cez OBS', sub: `${name} sa skrýva pred snímaním obrazovky`, ms: 3500 });
     }
   });
 }
-function obsOnShown() {
+/* hra sa prestala skrývať ('shown') alebo skončila ('exit') → klipy opäť cez LookAtThis */
+function obsOnShown(exe, why) {
+  if (obsShownOverlay) {
+    const name = exeName(exe || '');
+    showOverlay({ kind: 'rec', title: 'Nahrávam cez LookAtThis', sub: why === 'exit' ? `${name} skončil, OBS sa vypína` : `${name} sa už neskrýva`, ms: 3500 });
+  }
   obsShownOverlay = false;
-  if (obs && obs.connected) obs.scheduleQuit(25000); // hra odišla → OBS po chvíli vypni
+}
+/* strážca: každých 5 s skontroluje, či skrytá hra ešte beží; keď už žiadna taká hra nebeží, OBS vypne */
+let obsWatchBusy = false;
+async function obsWatch() {
+  if (obsWatchBusy || (!lastBlockedExe && !store.get().obsBridge && !(obs && (obs.connected || obs.proc)))) return;
+  obsWatchBusy = true;
+  try {
+    const procs = await listProcesses();
+    if (!procs.size) return;
+    if (lastBlockedExe && !procs.has(lastBlockedExe)) {
+      const exe = lastBlockedExe; lastBlockedExe = ''; lastFgKey = '';
+      log.info(`${exe} skončil (skrytá bola ${Math.round((Date.now() - blockedSince) / 1000)} s)`);
+      setBadge('', false);
+      obsOnShown(exe, 'exit');
+    }
+    const hg = store.get().hidingGames || [];
+    const needed = store.get().obsBridge && (lastBlockedExe || hg.some(e => procs.has(e)));
+    // skrývajúca sa hra beží (napr. LookAtThis sa spustil, keď už hra bežala) → OBS vopred
+    const runningHider = hg.find(e => procs.has(e));
+    if (store.get().obsBridge && runningHider && !obs.connected && !obsStarting) obsWarmup(runningHider);
+    if (obs && (obs.connected || obs.proc) && !needed && !obsStarting) {
+      if (!obs.quitTimer) obs.scheduleQuit(10000);
+    } else if (needed && obs.quitTimer) obs.cancelQuit();
+  } finally { obsWatchBusy = false; }
 }
 async function saveClipViaObs(seconds) {
   const path2 = await obs.saveReplay(15000);
@@ -1139,6 +1202,7 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = s.appearance === 'auto' ? 'system' : s.appearance;
   engine = new Engine({ ffmpeg: FFMPEG, fxaudio: FXAUDIO, tmpRoot: TMP, log });
   obs = new Obs({ log });
+  setInterval(() => obsWatch().catch(() => {}), 5000);
   // skutočné rozlíšenie monitora v pixeloch (enkodéry majú strop šírky, napr. H.264 do 4096 px)
   engine.monitorPx = idx => { try { return monitors().find(m => m.idx === (Number(idx) || 0)) || null; } catch (e) { return null; } };
   applyInstalled();

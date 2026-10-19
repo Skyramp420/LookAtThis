@@ -10,7 +10,7 @@
    - keď hra skončí, OBS po chvíli vypne.
 
    Všetko je opt-in (nastavenie obsBridge) a nijako nezasahuje do bežného snímania obrazovky. */
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -140,17 +140,49 @@ class Obs {
     ];
     const p = spawn(info.exe, args, { cwd: info.cwd, windowsHide: true, detached: false });
     p.on('error', e => this.log.warn('OBS spustenie: ' + e.message));
-    p.on('exit', () => { this.proc = null; });
+    p.on('exit', () => { if (this.proc === p) this.proc = null; });
     this.proc = p; this.spawnedByUs = true;
     return info;
   }
 
+  /* hneď po štarte OBS hlási „not ready“ → skús to pár krát */
   async ensureReplayBuffer() {
+    for (let i = 0; i < 8; i++) {
+      try {
+        const st = await this.request('GetReplayBufferStatus');
+        if (st.outputActive) return true;
+        await this.request('StartReplayBuffer'); await sleep(500);
+        return true;
+      } catch (e) {
+        if (i === 7) { this.log.warn('replay buffer: ' + e.message); return false; }
+        await sleep(1000);
+      }
+    }
+    return false;
+  }
+
+  /* je to „naše“ OBS (beží s kolekciou LookAtThis)? Také môžeme pokojne vypnúť. */
+  async isOurs() {
+    if (this.spawnedByUs) return true;
+    try { const r = await this.request('GetSceneCollectionList'); return r.currentSceneCollectionName === 'LookAtThis'; } catch (e) { return false; }
+  }
+
+  /* roztiahni Game Capture na celé plátno (záloha, keby scéna zo súboru nesadla) */
+  async fitSource(width, height) {
     try {
-      const st = await this.request('GetReplayBufferStatus');
-      if (!st.outputActive) { await this.request('StartReplayBuffer'); await sleep(500); }
+      const v = await this.request('GetVideoSettings');
+      const W = v.baseWidth || width, H = v.baseHeight || height;
+      if (width && height && (W !== width || H !== height)) this.log.warn(`OBS plátno ${W}×${H}, monitor ${width}×${height}`);
+      const { sceneItems } = await this.request('GetSceneItemList', { sceneName: 'LookAtThis' });
+      for (const it of sceneItems || []) {
+        if (it.inputKind !== 'game_capture') continue;
+        await this.request('SetSceneItemTransform', {
+          sceneName: 'LookAtThis', sceneItemId: it.sceneItemId,
+          sceneItemTransform: { positionX: 0, positionY: 0, alignment: 5, boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsAlignment: 0, boundsWidth: W, boundsHeight: H },
+        });
+      }
       return true;
-    } catch (e) { this.log.warn('replay buffer: ' + e.message); return false; }
+    } catch (e) { this.log.warn('OBS roztiahnutie: ' + e.message); return false; }
   }
 
   /* uloží posledných N sekúnd (podľa nastavenia bufferu v OBS) a vráti cestu k súboru */
@@ -170,15 +202,25 @@ class Obs {
   }
   cancelQuit() { clearTimeout(this.quitTimer); this.quitTimer = null; }
 
+  /* vypni OBS slušne: zastav replay buffer, pošli zatvorenie oknu (taskkill bez /F),
+     a až keď sa do 8 s nezavrie, ukonči proces natvrdo. Cudzie OBS (tvoje vlastné) nevypíname. */
   async quit() {
     this.cancelQuit();
-    try { if (this.connected) await this.request('StopReplayBuffer').catch(() => {}); } catch (e) {}
+    const ours = this.connected ? await this.isOurs() : this.spawnedByUs;
+    try { if (this.connected && ours) await this.request('StopReplayBuffer', {}, 3000).catch(() => {}); } catch (e) {}
     try { if (this.ws) this.ws.close(); } catch (e) {}
     this.ws = null; this.connected = false;
-    if (this.proc && this.spawnedByUs) {
-      try { this.proc.kill(); } catch (e) {}
+    if (!ours) { this.proc = null; return; }
+    this.log.info('vypínam OBS (most už netreba)');
+    await sleep(800);
+    const p = this.proc;
+    const args = p && p.pid ? ['/PID', String(p.pid)] : ['/IM', 'obs64.exe'];
+    await new Promise(r => execFile('taskkill.exe', args, { windowsHide: true, timeout: 5000 }, () => r()));
+    if (p) {
+      const gone = await new Promise(r => { if (p.exitCode != null) return r(true); const t = setTimeout(() => r(false), 8000); p.once('exit', () => { clearTimeout(t); r(true); }); });
+      if (!gone) { this.log.warn('OBS sa nezavrelo, ukončujem natvrdo'); try { p.kill(); } catch (e) {} }
     }
-    this.proc = null;
+    this.proc = null; this.spawnedByUs = false;
   }
 }
 
