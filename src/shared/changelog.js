@@ -1,6 +1,9 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.18', items: [
+      'Opravené: keď si zamkol PC alebo vyskočilo okno „Chcete povoliť…“ (UAC), buffer spadol a už sa nerozbehol. Teraz počká a rozbehne sa sám, hneď ako sa obrazovka vráti.'
+    ] },
     { v: '1.0.17', items: [
       'Opravené: klip sa v editore niekedy otvoril dvakrát, video hralo na pozadí a časová os bola dlhšia.',
       'Opravené: po odchode z celej obrazovky bol výber záložky (Text / Úsek / Zvuk) roztiahnutý.',

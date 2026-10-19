@@ -106,7 +106,7 @@ kbd { font: 560 11px var(--body); background: var(--fill2); color: var(--muted);
 .buf-top b { flex: 1; font: 650 13.5px var(--display); }
 .buf-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; transition: background .3s; }
 .buf.on .buf-dot { background: var(--mint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mint) 22%, transparent); }
-.buf.starting .buf-dot { background: var(--amber); animation: blink 1s ease-in-out infinite; }
+.buf.starting .buf-dot, .buf.waiting .buf-dot { background: var(--amber); animation: blink 1s ease-in-out infinite; }
 .buf.error .buf-dot { background: var(--rec); }
 .buf.is-rec .buf-dot { background: var(--rec); animation: recpulse 1.4s ease-in-out infinite; }
 .buf-bar { height: 5px; border-radius: 5px; background: var(--fill2); margin: 10px 0 6px; overflow: hidden; }
@@ -155,7 +155,7 @@ kbd { font: 560 11px var(--body); background: var(--fill2); color: var(--muted);
 .rec.is-rec::after { animation: scrub .6s linear infinite; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--rec) 70%, transparent) 0 2px, transparent 2px 12px); }
 .rec.is-rec .rec-btn { background: var(--rec); color: #fff; }
 .rec.is-rec .rec-btn::before { background: #fff; border-radius: 2px; }
-.rec.starting .rec-dot { background: var(--amber); animation: blink 1s ease-in-out infinite; }
+.rec.starting .rec-dot, .rec.waiting .rec-dot { background: var(--amber); animation: blink 1s ease-in-out infinite; }
 .rec.error .rec-dot { background: var(--rec); }
 @keyframes recpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 60%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
 /* posun cez transform: kreslí sa raz, grafika ho len posúva (background-position by sa prekresľoval 60× za sekundu) */

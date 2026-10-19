@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, Notification, nativeImage, globalShortcut, screen, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, Notification, nativeImage, globalShortcut, screen, nativeTheme, powerMonitor } = require('electron');
 const U = require('./updater');
 const Calib = require('./calib');
 const path = require('path');
@@ -987,7 +987,7 @@ function refreshTray() {
   const s = store.get(), st = engine.status();
   const rec = !!st.recording;
   try { tray.setImage(nativeImage.createFromPath(rec ? TRAY_REC : TRAY)); } catch (e) { }
-  const what = rec ? 'nahrávam' : st.state === 'on' ? `buffer ${s.bufferSeconds} s` : st.state === 'starting' ? 'štartujem' : st.state === 'error' ? 'chyba' : 'vypnuté';
+  const what = rec ? 'nahrávam' : st.state === 'on' ? `buffer ${s.bufferSeconds} s` : st.state === 'starting' ? 'štartujem' : st.state === 'waiting' ? 'čaká na obrazovku' : st.state === 'error' ? 'chyba' : 'vypnuté';
   tray.setToolTip(`LookAtThis · ${what}`);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Otvoriť LookAtThis', click: () => showWindow() },
@@ -1042,6 +1042,7 @@ app.whenReady().then(async () => {
     }
     pushState();
   });
+  for (const ev of ['unlock-screen', 'resume', 'user-did-become-active']) powerMonitor.on(ev, () => engine.wake());
   engine.on('stall', () => toast('warn', 'Obraz sa zasekol', 'Snímanie obrazovky prestalo dodávať snímky (hra asi zmenila režim zobrazenia). Buffer som reštartoval.'));
   engine.on('state', st => { if (st.state === 'error') { toast('error', 'Buffer spadol', st.error); notify('LookAtThis: buffer spadol', st.error); } });
 

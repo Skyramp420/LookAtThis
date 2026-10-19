@@ -156,7 +156,8 @@ class Engine extends EventEmitter {
 
   async _start(settings) {
     const gen = ++this.gen;
-    this.setState('starting');
+    // kým čakáme na odomknutie obrazovky, stav ostáva „čaká“ (nech UI každých pár sekúnd neblikne „Rozbieham…“)
+    this.setState(this.waiting ? 'waiting' : 'starting');
     if (!this.available) { try { await this.detectEncoders(); } catch (e) { this.log.warn('detekcia enkodérov', e.message); } }
     if (gen !== this.gen) return;
 
@@ -234,6 +235,22 @@ class Engine extends EventEmitter {
       clearInterval(this.cleaner); clearInterval(this.watch);
       if (!this.wanted) { this.setState('off'); return; }
       const quick = Date.now() - startedAt < 8000;
+      // Obrazovku si zobral systém: zamknutý PC (Win+L), UAC okno, Ctrl+Alt+Del, prihlasovacia obrazovka po spánku.
+      // Za to nemôže enkodér, takže nemíňame záložné pokusy a nevzdávame to – skúšame znova, kým sa obrazovka nevráti.
+      if (/Desktop duplication access denied|AcquireNextFrame failed|887a0026|ACCESS_LOST/i.test(errTail)) {
+        this.retry = 0;
+        const first = !this.waiting;
+        if (first || Date.now() - (this.waitLogged || 0) > 300000) {
+          this.waitLogged = Date.now();
+          this.log.warn(`obrazovka nedostupná (zamknutý PC / UAC?), čakám a skúšam znova: ${lastLine(errTail)}`);
+        }
+        this.waiting = true; this.waitN = first ? 0 : (this.waitN || 0) + 1;
+        this.error = 'Obrazovka je zamknutá alebo ju má systém (UAC, Ctrl+Alt+Del). Buffer sa rozbehne sám.';
+        this.setState('waiting');
+        clearTimeout(this.waitTimer);
+        this.waitTimer = setTimeout(() => { if (this.wanted && !this.proc) this.start(this.settings); }, [1500, 3000, 5000][this.waitN] || 10000);
+        return;
+      }
       this.log.warn(`ffmpeg skončil (${code}) po ${Math.round((Date.now() - startedAt) / 1000)} s: ${errTail.slice(-600)}`);
       if (quick) this.retry++; else this.retry = 0;
       if (this.retry > 3) {
@@ -264,7 +281,10 @@ class Engine extends EventEmitter {
     // keď do 6 s nevznikne prvý segment, niečo je zle → ffmpeg zostrelíme a skúsime záložný režim
     setTimeout(() => {
       if (this.proc === proc && !this.segments().length) { this.log.warn('žiadne segmenty, skúšam iný režim'); try { proc.kill(); } catch (e) { } }
-      else if (this.proc === proc) { this.error = ''; this.setState('on'); }
+      else if (this.proc === proc) {
+        if (this.waiting) this.log.info('obrazovka je späť, buffer beží');
+        this.waiting = false; this.error = ''; this.setState('on');
+      }
     }, 6000);
   }
 
@@ -285,8 +305,16 @@ class Engine extends EventEmitter {
 
   killHelpers() { for (const h of this.helpers) { try { h.kill(); } catch (e) { } } this.helpers = []; }
 
+  // PC sa odomkol / prebudil: keď čakáme na obrazovku, neskúšaj až o 10 s, ale hneď
+  wake() {
+    if (!this.waiting || !this.wanted || this.proc || this.starting) return;
+    clearTimeout(this.waitTimer); this.waitN = 0;
+    setTimeout(() => { if (this.wanted && !this.proc) this.start(this.settings); }, 800);
+  }
+
   async stop() {
     this.wanted = false; this.gen++;
+    clearTimeout(this.waitTimer); this.waiting = false;
     const p = this.proc;
     if (p) {
       try { p.stdin.write('q'); } catch (e) { }
@@ -428,7 +456,7 @@ class Engine extends EventEmitter {
   }
 
   async saveClip(dir, seconds) {
-    if (!this.proc || this.state !== 'on') throw new Error(this.state === 'starting' ? 'Buffer sa ešte rozbieha' : 'Buffer nebeží');
+    if (!this.proc || this.state !== 'on') throw new Error(this.state === 'starting' ? 'Buffer sa ešte rozbieha' : this.state === 'waiting' ? 'Buffer čaká na obrazovku (PC bol zamknutý)' : 'Buffer nebeží');
     // počkaj chvíľu, aby sa do segmentu dostali aj posledné snímky pred stlačením
     await sleep(400);
     const segs = this.segments();

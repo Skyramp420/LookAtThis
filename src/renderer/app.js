@@ -77,13 +77,14 @@
     $('#hkMarkRow').hidden = !s.hotkeys.mark; chip('#hkMark', s.hotkeys.mark || '');
     $('#hkShortRow span').textContent = `${s.shortSeconds || 15} s clip`;
     $('#bufEnc').textContent = e.encoder || '';
-    $('#bufState').textContent = rec ? 'Nahrávam' : { on: 'Buffer beží', starting: 'Rozbieham…', error: 'Buffer spadol', off: 'Buffer vypnutý' }[e.state] || 'Buffer';
+    $('#bufState').textContent = rec ? 'Nahrávam' : { on: 'Buffer beží', starting: 'Rozbieham…', waiting: 'Čaká na obrazovku', error: 'Buffer spadol', off: 'Buffer vypnutý' }[e.state] || 'Buffer';
     $('#recBtn').textContent = rec ? 'Zastaviť' : 'Nahrávať';
     $('#clipBtn').disabled = e.state !== 'on';
     const game = e.tracks.game && e.tracks.game.status === 'bound' ? e.tracks.game.name.replace(/\.exe$/i, '') : '';
     if (rec) { $('#recWhat').textContent = game ? `Nahrávam · ${game}` : 'Nahrávam obrazovku'; $('#recSub').textContent = `Zastavíš cez ${s.hotkeys.record}`; }
     else if (e.state === 'on') { $('#recWhat').textContent = game ? `Pripravený · ${game}` : 'Replay buffer beží'; $('#recSub').textContent = `${s.hotkeys.clip} uloží posledných ${dur(s.bufferSeconds)}`; }
     else if (e.state === 'starting') { $('#recWhat').textContent = 'Rozbieham buffer…'; $('#recSub').textContent = 'Hľadám enkodér a zvuk'; }
+    else if (e.state === 'waiting') { $('#recWhat').textContent = 'Čakám na obrazovku'; $('#recSub').textContent = 'PC je zamknutý alebo je otvorené systémové okno. Rozbehne sa sám.'; }
     else if (e.state === 'error') { $('#recWhat').textContent = 'Buffer spadol'; $('#recSub').textContent = e.error || 'Pozri log v Nastaveniach'; }
     else { $('#recWhat').textContent = 'Buffer je vypnutý'; $('#recSub').textContent = 'Zapni ho vľavo dole'; }
     const missing = S.settings.tracks.some(t => t.on && e.tracks[t.id] && ['missing', 'error'].includes(e.tracks[t.id].status) && t.kind === 'device');
