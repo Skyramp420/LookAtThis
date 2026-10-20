@@ -18,7 +18,7 @@
     discord: { c: '#bf5af2', ic: '<svg viewBox="0 0 20 20"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h7A2.5 2.5 0 0 1 16 5.5v5a2.5 2.5 0 0 1-2.5 2.5H9l-4 3.5V13A2.5 2.5 0 0 1 4 10.5z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>', hint: 'Hlasový chat zvlášť, aby si ho mohol stlmiť pri strihu.' },
     mic: { c: '#30d158', ic: '<svg viewBox="0 0 20 20"><rect x="7.5" y="2.5" width="5" height="9.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>', hint: 'Tvoj mikrofón vo vlastnej stope.' }
   };
-  const VIEWS = { clips: ['Klipy', ''], audio: ['Zvuk', 'Každá stopa ide do clipu zvlášť. Zariadenia hľadám podľa ID, nie podľa poradia.'], settings: ['Nastavenia', ''] };
+  const VIEWS = { clips: ['Klipy', ''], projects: ['Projekty', 'Montáže z advanced editora. Ukladajú sa samé pri každej úprave.'], audio: ['Zvuk', 'Každá stopa ide do clipu zvlášť. Zariadenia hľadám podľa ID, nie podľa poradia.'], settings: ['Nastavenia', ''] };
 
   /* ---------- vzhľad ---------- */
   const mq = matchMedia('(prefers-color-scheme: dark)');
@@ -891,26 +891,75 @@
     });
     return studioP;
   }
-  const studioSaved = () => { try { const p = JSON.parse(localStorage.getItem('studio.project.v1') || 'null'); return p && p.items && p.items.length ? p : null; } catch (e) { return null; } };
-  /* input = { clips, segs?, overlays?, mixer?, aspect?, t? }; keď je rozpracovaná montáž, opýta sa: nová alebo pridať */
+  /* input = { clips, segs?, overlays?, mixer?, aspect?, t? }; opts.projectId = otvoriť / pridať do existujúceho projektu, inak nový */
   async function openStudio(input = {}, opts = {}) {
     try { await loadStudio(); } catch (e) { toast('error', 'Advanced editor', e.message); return; }
-    // jednoduchý editor sa práve zatvára (dialóg sa vyprázdni po 180 ms) → počkaj, inak by zmizla aj otázka nižšie
+    // jednoduchý editor sa práve zatvára (dialóg sa vyprázdni po 180 ms) → počkaj
     if (!$('#modalWrap').hidden) await new Promise(r => setTimeout(r, 220));
     if (Studio.isOpen) return;
-    let mode = input.clips && input.clips.length ? 'new' : 'resume';
-    const prev = studioSaved();
-    if (mode === 'new' && prev) {
-      mode = await new Promise(res => {
-        const m = UI.modal(`<h2>Rozpracovaná montáž</h2><p>Máš rozpracovanú montáž „${UI.esc(prev.name || 'Montáž')}“. Pridať ${input.clips.length === 1 ? 'tento klip' : 'tieto klipy'} na jej koniec, alebo začať novú?</p>
-          <div class="acts"><button class="btn" data-a="x">Zrušiť</button><span class="grow"></span><button class="btn" data-a="new">Nová montáž</button><button class="btn primary" data-a="append">Pridať na koniec</button></div>`, 'small', () => res(null));
-        m.querySelector('[data-a=x]').onclick = () => UI.closeModal();
-        m.querySelector('[data-a=new]').onclick = () => { res('new'); UI.closeModal(true); };
-        m.querySelector('[data-a=append]').onclick = () => { res('append'); UI.closeModal(true); };
-      });
-      if (!mode) return;
+    Studio.open(input, { ...opts, library: () => S.clips, onClose: (id, kept) => {
+      projDirty = true;
+      if (view === 'projects') renderProjects();
+      else if (kept && !opts.projectId) toast('ok', 'Montáž je uložená', 'Nájdeš ju v Projektoch', { action: { label: 'Projekty', run: () => go('projects') } });
+    } });
+  }
+  /* pridať klipy do existujúceho projektu: výber z posledných projektov */
+  async function addToProject(anchor, clips) {
+    let list = [];
+    try { list = await api.action('projList'); } catch (e) { }
+    const items = [{ label: 'Nový projekt', v: '' }, ...(list.length ? [{ sep: true }, { head: 'Pridať na koniec projektu' }] : []), ...list.slice(0, 12).map(p => ({ label: p.name, v: p.id, sub: dur(p.duration) }))];
+    UI.menu(anchor, items, it => openStudio({ clips }, it.v ? { projectId: it.v } : {}));
+  }
+  /* ---------- projekty ---------- */
+  let projDirty = true, projCache = [];
+  async function migrateOldProject() {
+    // 1.0.25 mala jednu montáž v localStorage → presuň ju do súborov projektov
+    try {
+      const old = JSON.parse(localStorage.getItem('studio.project.v1') || 'null');
+      if (old && old.items && old.items.length) await api.action('projSave', { id: Date.now().toString(36) + 'm', data: old });
+      localStorage.removeItem('studio.project.v1');
+    } catch (e) { }
+  }
+  async function renderProjects() {
+    const el = $('#view-projects');
+    if (projDirty) {
+      projDirty = false;
+      await migrateOldProject();
+      try { projCache = await api.action('projList'); } catch (e) { projCache = []; }
     }
-    Studio.open(input, { ...opts, mode, library: () => S.clips });
+    const ago = ms => { const d = (Date.now() - ms) / 1000; if (d < 60) return 'práve teraz'; if (d < 3600) return `pred ${Math.round(d / 60)} min`; if (d < 86400) return `pred ${Math.round(d / 3600)} h`; return `${dayLabel(ms)} ${time(ms)}`; };
+    const thumbOf = p => { const c = p.first && S.clips.find(x => x.path === p.first); return c && c.thumb ? fileUrl(c.thumb) : ''; };
+    el.innerHTML = `<div class="pj-top"><button class="btn primary" id="pjNew">${UI.I.scissors}<span>Nová montáž</span></button></div>
+      ${projCache.length ? `<div class="pj-grid">${projCache.map((p, i) => `
+        <button class="pj" data-id="${esc(p.id)}" style="--i:${i}">
+          <div class="pj-t">${thumbOf(p) ? `<img src="${esc(thumbOf(p))}" alt="" loading="lazy" decoding="async">` : `<div class="pj-ph">${UI.I.film}</div>`}<span class="pj-fmt">${esc(p.fmt)}</span><span class="pj-d">${dur(p.duration)}</span></div>
+          <b>${esc(p.name)}</b><small>${p.clips} ${p.clips === 1 ? 'klip' : p.clips > 1 && p.clips < 5 ? 'klipy' : 'klipov'} · ${esc(ago(p.updated))}</small>
+        </button>`).join('')}</div>`
+      : `<div class="pj-empty"><div class="pj-ph big">${UI.I.film}</div><h3>Zatiaľ žiadna montáž</h3><p>Montáž začneš tlačidlom „Nová montáž“, pravým klikom na klip v knižnici, alebo v jednoduchom editore cez „Advanced“.</p></div>`}`;
+    $('#pjNew').onclick = () => openStudio({ name: 'Montáž' }, {});
+    $$('.pj', el).forEach(b => {
+      b.onclick = () => openStudio({}, { projectId: b.dataset.id });
+      b.oncontextmenu = e => {
+        e.preventDefault();
+        const id = b.dataset.id, p = projCache.find(x => x.id === id);
+        const at = { getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY, width: 0, height: 0 }), contains: () => false, classList: { contains: () => false, add() { }, remove() { } } };
+        UI.menu(at, [{ label: 'Otvoriť', v: 'open' }, { label: 'Premenovať…', v: 'ren' }, { label: 'Duplikovať', v: 'dup' }, { sep: true }, { label: 'Vymazať…', v: 'del' }], async it => {
+          if (it.v === 'open') openStudio({}, { projectId: id });
+          if (it.v === 'dup') { await api.action('projDuplicate', { id }); projDirty = true; renderProjects(); }
+          if (it.v === 'ren') {
+            const m = UI.modal(`<h2>Premenovať montáž</h2><input class="pj-in" id="pjName" value="${esc(p.name)}" spellcheck="false"><div class="acts"><button class="btn" data-a="no">Zrušiť</button><button class="btn primary" data-a="ok">Uložiť</button></div>`, 'small');
+            const inp = m.querySelector('#pjName'); setTimeout(() => { inp.focus(); inp.select(); }, 40);
+            const ok = async () => { const n = inp.value.trim(); UI.closeModal(true); if (n && n !== p.name) { await api.action('projRename', { id, name: n }); projDirty = true; renderProjects(); } };
+            m.querySelector('[data-a=ok]').onclick = ok; m.querySelector('[data-a=no]').onclick = () => UI.closeModal();
+            inp.onkeydown = ev => { if (ev.key === 'Enter') ok(); };
+          }
+          if (it.v === 'del') {
+            if (!(await UI.confirm('Vymazať montáž?', `„${p.name}“ sa vymaže. Klipy v knižnici ostanú, aj už exportované videá.`, 'Vymazať', true))) return;
+            await api.action('projDelete', { id }); projDirty = true; renderProjects();
+          }
+        });
+      };
+    });
   }
   window.openStudio = openStudio;
   const openEditor = list => (Date.now() - lastOpenEd < 600 ? null : (lastOpenEd = Date.now(), Player.open(list.map(c => ({ ...c })), { library: () => S.clips, autoWin: !!S.settings.autoWinCrop })));
@@ -991,18 +1040,20 @@
     // pravý klik na vybraný klip = akcie pre celý výber
     const group = picked.has(p) && picked.size > 1;
     const items = group
-      ? [{ label: `Spojiť ${picked.size} v editore`, v: 'edit' }, { label: `Otvoriť ${picked.size} v advanced editore`, v: 'studioAll' }, { label: `Zmenšiť ${picked.size}…`, v: 'zipAll' }, { label: 'Zmeniť hru…', v: 'gameAll' }, { label: 'Presunúť do priečinka…', v: 'moveAll' }, { sep: true }, { label: `Vymazať ${picked.size}…`, v: 'delAll' }]
-      : [{ label: 'Otvoriť v editore', v: 'play' }, { label: 'Otvoriť v advanced editore', v: 'studio' }, ...(studioSaved() ? [{ label: 'Pokračovať v montáži', v: 'resume' }] : []), { label: picked.has(p) ? 'Odznačiť' : 'Vybrať', v: 'pick' },
+      ? [{ label: `Spojiť ${picked.size} v editore`, v: 'edit' }, { label: `Nová montáž z ${picked.size} klipov`, v: 'studioAll' }, { label: 'Pridať do montáže…', v: 'addProjAll' }, { label: `Zmenšiť ${picked.size}…`, v: 'zipAll' }, { label: 'Zmeniť hru…', v: 'gameAll' }, { label: 'Presunúť do priečinka…', v: 'moveAll' }, { sep: true }, { label: `Vymazať ${picked.size}…`, v: 'delAll' }]
+      : [{ label: 'Otvoriť v editore', v: 'play' }, { label: 'Nová montáž z klipu', v: 'studio' }, { label: 'Pridať do montáže…', v: 'addProj' }, { label: picked.has(p) ? 'Odznačiť' : 'Vybrať', v: 'pick' },
         { label: 'Zmenšiť…', v: 'zip' }, { label: 'Kopírovať súbor', v: 'copy' },
         { sep: true }, { label: (S.clips.find(x => x.path === p) || {}).fav ? 'Odobrať z obľúbených' : 'Pridať do obľúbených', v: 'fav' }, { label: 'Zmeniť hru…', v: 'game' }, { label: 'Presunúť do priečinka…', v: 'move' },
         { sep: true }, { label: 'Ukázať v priečinku', v: 'reveal' }, { label: 'Otvoriť v prehrávači', v: 'ext' }, { sep: true }, { label: 'Vymazať…', v: 'trash' }];
-    UI.menu({ getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY, width: 0, height: 0 }), contains: () => false, classList: { contains: () => false, add() { }, remove() { } } },
+    const at0 = { getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY, width: 0, height: 0 }), contains: () => false, classList: { contains: () => false, add() { }, remove() { } } };
+    UI.menu(at0,
       items,
       async it => {
         const clip = S.clips.find(x => x.path === p);
         if (it.v === 'play' && clip) openEditor([clip]);
         if (it.v === 'studio' && clip) openStudio({ clips: [{ ...clip }] });
-        if (it.v === 'resume') openStudio({});
+        if (it.v === 'addProj' && clip) addToProject(at0, [{ ...clip }]);
+        if (it.v === 'addProjAll') { const l = pickedClips().sort((x, y) => x.mtime - y.mtime).map(c => ({ ...c })); picked.clear(); updPicked(); addToProject(at0, l); }
         if (it.v === 'studioAll') { const l = pickedClips().sort((x, y) => x.mtime - y.mtime).map(c => ({ ...c })); picked.clear(); updPicked(); openStudio({ clips: l }); }
         if (it.v === 'pick') { if (picked.has(p)) picked.delete(p); else picked.add(p); anchor = p; updPicked(); }
         if (it.v === 'edit') { const l = pickedClips().sort((x, y) => x.mtime - y.mtime); picked.clear(); updPicked(); openEditor(l); }
@@ -1438,6 +1489,7 @@
     if (!S) return;
     renderChrome();
     if (view === 'clips') renderClips();
+    else if (view === 'projects') { if (!$('#view-projects').childElementCount || projDirty) renderProjects(); }
     else if (view === 'audio') renderAudio();
     else renderSettings();
   }

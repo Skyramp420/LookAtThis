@@ -11,6 +11,7 @@ const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressC
 const { Obs, findObs, killStaleOurs } = require('./obs');
 const { mergeObsWithTracks } = require('./obs-merge');
 const { exportProject } = require('./project-export');
+const { Proxies } = require('./proxy');
 const ObsConfig = require('./obs-config');
 const Compress = require('../shared/compress');
 const GameScan = require('./games-scan');
@@ -42,6 +43,8 @@ const GAME_ICONS = path.join(USER, 'gameicons');
 const TMP = path.join(app.getPath('temp'), 'LookAtThis-buffer');
 const LOGF = path.join(USER, 'lookatthis.log');
 const EDIT = path.join(app.getPath('temp'), 'LookAtThis-edit');
+const PROJ = path.join(USER, 'projects');
+const projFile = id => { if (!/^[a-z0-9]{4,40}$/i.test(String(id))) throw new Error('Neplatný projekt'); return path.join(PROJ, id + '.json'); };
 
 /* ---------- log ---------- */
 function logw(level, args) {
@@ -56,7 +59,7 @@ process.on('uncaughtException', err => { log.error('uncaught', err); });
 process.on('unhandledRejection', err => { log.error('unhandledRejection', err instanceof Error ? err : new Error(String(err))); });
 app.on('render-process-gone', (e, wc, d) => log.error('render-process-gone', d));
 app.on('child-process-gone', (e, d) => log.error('child-process-gone', d));
-let store, engine, obs, win, tray, quitting = false;
+let store, engine, obs, proxies, win, tray, quitting = false;
 let devices = { render: [], capture: [] }, sessions = [], hotkeyErrors = [];
 
 /* ---------- pomocník fxaudio ---------- */
@@ -936,6 +939,38 @@ async function runAction(type, p = {}) {
       store.setMeta(out, { game: m.game, duration: p.segments.reduce((a, x) => a + (x.out - x.in) / (Number(x.speed) || 1), 0), kind: multi ? 'cut' : 'edit' });
       pushState(); return out;
     }
+    case 'proxy': return proxies.get(p.path);
+    /* ---------- projekty advanced editora (JSON v AppData\Roaming\LookAtThis\projects) ---------- */
+    case 'projList': {
+      fs.mkdirSync(PROJ, { recursive: true });
+      const out = [];
+      for (const f of fs.readdirSync(PROJ)) {
+        if (!/^[a-z0-9]+\.json$/i.test(f)) continue;
+        try {
+          const d = JSON.parse(fs.readFileSync(path.join(PROJ, f), 'utf8'));
+          const items = d.items || [];
+          const firstV = items.filter(i => i.kind === 'video').sort((a, b) => a.start - b.start)[0];
+          out.push({ id: f.replace(/\.json$/, ''), name: d.name || 'Montáž', fmt: d.fmt || '16:9', updated: d.at || fs.statSync(path.join(PROJ, f)).mtimeMs,
+            duration: Math.max(0, ...items.map(i => i.kind === 'text' ? i.end : i.start + (i.out - i.in) / (i.speed || 1))), clips: new Set(items.filter(i => i.kind === 'video').map(i => i.src)).size, first: firstV ? firstV.src : null });
+        } catch (e) { }
+      }
+      return out.sort((a, b) => b.updated - a.updated);
+    }
+    case 'projLoad': return JSON.parse(fs.readFileSync(projFile(p.id), 'utf8'));
+    case 'projSave': {
+      fs.mkdirSync(PROJ, { recursive: true });
+      const f = projFile(p.id);
+      fs.writeFileSync(f + '.tmp', JSON.stringify(p.data)); fs.renameSync(f + '.tmp', f);
+      return true;
+    }
+    case 'projDelete': { try { fs.unlinkSync(projFile(p.id)); } catch (e) { } return true; }
+    case 'projRename': { const f = projFile(p.id); const d = JSON.parse(fs.readFileSync(f, 'utf8')); d.name = String(p.name || '').trim().slice(0, 80) || d.name; fs.writeFileSync(f, JSON.stringify(d)); return true; }
+    case 'projDuplicate': {
+      const d = JSON.parse(fs.readFileSync(projFile(p.id), 'utf8'));
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      d.name = (d.name || 'Montáž') + ' (kópia)'; d.at = Date.now();
+      fs.writeFileSync(projFile(id), JSON.stringify(d)); return id;
+    }
     case 'pickFiles': {
       // výber súborov pre advanced editor (hudba, klipy mimo knižnice)
       const filters = p.kind === 'audio' ? [{ name: 'Zvuk', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus'] }]
@@ -1272,6 +1307,7 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = s.appearance === 'auto' ? 'system' : s.appearance;
   engine = new Engine({ ffmpeg: FFMPEG, fxaudio: FXAUDIO, tmpRoot: TMP, log });
   obs = new Obs({ log });
+  proxies = new Proxies({ ffmpeg: FFMPEG, dir: path.join(EDIT, 'proxy'), log, pickFam: () => engine.pickEncoder(store.get()).fam });
   setInterval(() => obsWatch().catch(() => {}), 5000);
   // skutočné rozlíšenie monitora v pixeloch (enkodéry majú strop šírky, napr. H.264 do 4096 px)
   engine.monitorPx = idx => { try { return monitors().find(m => m.idx === (Number(idx) || 0)) || null; } catch (e) { return null; } };

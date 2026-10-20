@@ -216,6 +216,7 @@ window.Player = (function () {
       v.preload = 'auto'; v.muted = true; v.src = fileUrl(clip.path);
       vids.appendChild(v);
       src.video = v;
+      UI.useProxy(v, clip.path); // náhľadová kópia s častými kľúčovými snímkami → okamžitý skok
       sources.set(clip.path, src);
       const meta = new Promise(res => {
         v.addEventListener('loadedmetadata', () => { src.duration = v.duration || src.duration; src.width = v.videoWidth; src.height = v.videoHeight; res(); }, { once: true });
@@ -474,7 +475,7 @@ window.Player = (function () {
       placeCanvas();
       src.video.playbackRate = sp(seg);
       src.audios.forEach(a => { a.playbackRate = sp(seg); });
-      if (Math.abs(src.video.currentTime - local) > 0.04) src.video.currentTime = local;
+      if (Math.abs(src.video.currentTime - local) > 0.04) UI.smoothSeek(src.video, local); // pri ťahaní sa skoky nezhromažďujú
       src.video.muted = src.ready && src.audios.length > 0; // bez vytiahnutých stôp hrá zvuk priamo z videa
       syncAudio(true);
       if (autoplay) src.video.play().catch(() => { });
@@ -488,7 +489,8 @@ window.Player = (function () {
         const mx = mixer[i];
         a.volume = mx && mx.on ? Math.min(1, mx.vol) * ff : 0;
         // posun stopy voči obrazu (kladný = stopa meškala → hrá sa zvuk o kúsok neskôr)
-        const target = Math.max(0, v.currentTime + ((mx && mx.off) || 0) / 1000);
+        const vt = v.seeking && v._want != null ? v._want : v.currentTime; // video ešte hľadá → zvuk podľa cieľa
+        const target = Math.max(0, vt + ((mx && mx.off) || 0) / 1000);
         if (force || Math.abs(a.currentTime - target) > 0.12) { try { a.currentTime = target; } catch (e) { } }
         if (playing && a.paused && a.volume > 0) a.play().catch(() => { });
         if (!playing && !a.paused) a.pause();

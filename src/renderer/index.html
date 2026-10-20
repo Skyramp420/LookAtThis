@@ -33,6 +33,7 @@
     <nav class="nav" id="nav">
       <i class="nav-ind" id="navInd"></i>
       <button data-view="clips" class="active"><svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 7.8v4.4l3.8-2.2z" fill="currentColor"/></svg><span>Klipy</span><i class="nav-badge" id="clipCount"></i></button>
+      <button data-view="projects"><svg viewBox="0 0 20 20"><rect x="2.5" y="6" width="15" height="10.5" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 3.5h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6 10h3M6 13h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Projekty</span></button>
       <button data-view="audio"><svg viewBox="0 0 20 20"><path d="M3 8v4M6.5 5v10M10 7.5v5M13.5 3.5v13M17 8v4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" fill="none"/></svg><span>Zvuk</span><i class="nav-dot" id="audioWarn" hidden></i></button>
       <button data-view="settings"><svg viewBox="0 0 20 20"><path d="M3 6h8M15 6h2M3 14h2M9 14h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="13" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7" cy="14" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Nastavenia</span></button>
     </nav>
@@ -73,6 +74,7 @@
     <div class="rw" id="recWarn" hidden></div>
 
     <section class="view" id="view-clips"></section>
+    <section class="view" id="view-projects" hidden></section>
     <section class="view" id="view-audio" hidden></section>
     <section class="view" id="view-settings" hidden></section>
   </main>

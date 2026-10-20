@@ -1,6 +1,13 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.26', items: [
+      'Plynulejšie editory: ku každému klipu sa na grafike vyrobí ľahká náhľadová kópia. Skok na iné miesto je hneď a posúvanie po osi skoro nezaťaží procesor. Export stále berie pôvodnú kvalitu.',
+      'Pri ťahaní po časovej osi sa video už nesnaží dobehnúť každý pohyb myši, ide rovno na posledné miesto.',
+      'Nová karta Projekty: montáže z advanced editora sa ukladajú samé, môžeš ich otvoriť, premenovať, duplikovať alebo vymazať. Nová montáž jedným klikom.',
+      'Advanced editor: médiá sa dajú filtrovať (text, dátum, hra, zoradenie), pravý klik na položku na osi (rozdeliť, duplikovať, odpojiť/pripojiť zvuk, rýchlosť, roztmievanie, vymazať).',
+      'Opravené: tlačidlo Späť (a ďalšie hore) v editore nereagovalo. Opravený aj zoom časovej osi. Pribudli tlačidlá okna.'
+    ] },
     { v: '1.0.25', items: [
       'Nové: advanced editor. V jednoduchom editore daj „Advanced“ (alebo pravý klik na klip → Otvoriť v advanced editore) a video plynulo prejde do väčšieho editora.',
       'Každá zvuková stopa (systém, hra, Discord, mikrofón) má na časovej osi vlastný riadok: stlmíš ju, zosilníš alebo ostrihneš zvlášť. Pridáš aj hudbu zo súboru.',

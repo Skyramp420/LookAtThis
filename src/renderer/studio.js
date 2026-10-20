@@ -9,12 +9,6 @@
    Projekt sa priebežne ukladá (localStorage), takže zatvorenie nič nezahodí. */
 window.Studio = (function () {
   const { $, $$, esc, I, toast, fileUrl, menu } = UI;
-  const KEY = 'studio.project.v1';
-  const saved = {
-    get() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } },
-    set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { } },
-    clear() { try { localStorage.removeItem(KEY); } catch (e) { } }
-  };
   const FMT = {
     '16:9': { r: 16 / 9, sub: 'YouTube' },
     '9:16': { r: 9 / 16, sub: 'Shorts, TikTok, Reels' },
@@ -114,10 +108,9 @@ window.Studio = (function () {
 
   /* ---------- načítanie modulu ---------- */
   let editorOpen = false;
-  function hasSaved() { const p = saved.get(); return !!(p && p.items && p.items.length); }
 
-  /* input: { clips: [klip z knižnice], segs?, overlays?, mixer?, aspect? } z jednoduchého editora alebo knižnice;
-     opts: { library: () => klipy, fromRect: DOMRect (odkiaľ „preletí“ video), mode: 'new'|'append'|'resume' } */
+  /* input: { clips: [klip z knižnice], segs?, overlays?, mixer?, aspect?, t? } z jednoduchého editora alebo knižnice;
+     opts: { projectId (otvoriť/pridať do existujúceho, inak nový projekt), library: () => klipy, fromRect, fromImage, onClose } */
   async function open(input = {}, opts = {}) {
     if (editorOpen) return;
     editorOpen = true;
@@ -143,6 +136,10 @@ window.Studio = (function () {
           <input class="st-name" id="stName" spellcheck="false" aria-label="Názov projektu">
           <div class="seg st-fmt" id="stFmt" role="group" aria-label="Formát videa">${Object.keys(FMT).map(f => `<button type="button" data-v="${f}" title="${FMT[f].sub}">${f}</button>`).join('')}</div>
           <button class="btn primary" id="stExport">${IC.exp}<span>Exportovať</span></button>
+          <div class="st-win">
+            <button class="st-ico" id="stMin" aria-label="Minimalizovať" title="Minimalizovať"><svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+            <button class="st-ico" id="stMax" aria-label="Maximalizovať" title="Maximalizovať"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+          </div>
         </header>
         <div class="st-mid">
           <aside class="st-media" id="stMedia"></aside>
@@ -188,6 +185,7 @@ window.Studio = (function () {
         <div class="st-layer" id="stLayer" hidden></div>
       </div>`;
     document.body.appendChild(root);
+    document.body.classList.add('st-open'); // ťahacia lišta okna pod editorom inak zhltne kliky (Electron app-region)
     const q = s => root.querySelector(s);
     const frame = q('#stFrame'), vids = q('#stVids'), txtCv = q('#stTxt'), stage = q('#stStage');
     const scroll = q('#stScroll'), canvas = q('#stCanvas'), lanesEl = q('#stLanes'), heads = q('#stHeads'), ruler = q('#stRuler');
@@ -254,7 +252,9 @@ window.Studio = (function () {
         v.preload = 'auto'; v.muted = true; v.playsInline = true; v.src = fileUrl(s.path);
         v.addEventListener('loadedmetadata', () => { if (!s.width) { s.width = v.videoWidth; s.height = v.videoHeight; } if (!s.duration) s.duration = v.duration; }, { once: true });
         vids.appendChild(v); s.video = v;
-        makeThumbs(s);
+        // náhľadová kópia (720p, kľúčová snímka každých 0,25 s, kóduje grafika): okamžité skoky a nízka záťaž;
+        // náhľady na časovej osi sa robia z nej (rýchlejšie)
+        UI.useProxy(v, s.path).then(() => makeThumbs(s)).catch(() => makeThumbs(s));
       }
       for (const tr of s.tracks) { const a = new Audio(fileUrl(tr.file)); a.preload = 'auto'; s.audio.set(tr.i, a); }
       s.ready = true;
@@ -264,15 +264,15 @@ window.Studio = (function () {
       if (!s.duration) await new Promise(r => setTimeout(r, 300));
       const D = s.duration; if (!D) return;
       const n = Math.max(4, Math.min(80, Math.ceil(D / 2)));
-      const fv = document.createElement('video'); fv.muted = true; fv.preload = 'auto'; fv.src = fileUrl(s.path);
+      const fv = document.createElement('video'); fv.muted = true; fv.preload = 'auto'; fv.src = fileUrl((s.video && s.video._proxy) || s.path);
       try { await new Promise((res, rej) => { fv.addEventListener('loadeddata', res, { once: true }); fv.addEventListener('error', rej, { once: true }); }); } catch (e) { return; }
       const th = 54, tw = Math.round(th * (fv.videoWidth || 16) / (fv.videoHeight || 9));
-      s.thumbW = tw;
+      s.thumbW = tw; s.thumbN = n;
       for (let k = 0; k < n && !closed; k++) {
         await new Promise(res => { const done = () => res(); fv.addEventListener('seeked', done, { once: true }); setTimeout(done, 1200); fv.currentTime = Math.min(D - 0.05, (k + 0.5) * D / n); });
         const c = document.createElement('canvas'); c.width = tw; c.height = th;
-        try { c.getContext('2d').drawImage(fv, 0, 0, tw, th); s.thumbs[k] = c.toDataURL('image/jpeg', 0.7); } catch (e) { }
-        if (k % 8 === 7 || k === n - 1) renderItemsOf(s.path);
+        try { c.getContext('2d').drawImage(fv, 0, 0, tw, th); s.thumbs[k] = c; } catch (e) { }
+        if (k % 8 === 7 || k === n - 1) requestDraw();
       }
       s.thumbN = n;
       fv.removeAttribute('src'); fv.load();
@@ -319,39 +319,46 @@ window.Studio = (function () {
     function doRedo() { if (!redo.length) return; undo.push(lastSnap); restore(redo.pop()); updHist(); }
     function updHist() { q('#stUndo').disabled = !undo.length; q('#stRedo').disabled = !redo.length; }
     let persistT = 0;
-    function persist() {
-      clearTimeout(persistT);
-      persistT = setTimeout(() => {
-        const sources = {};
-        for (const s of src.values()) if (P.items.some(i => i.src === s.path)) sources[s.path] = { path: s.path, name: s.name, duration: s.duration, music: s.music };
-        saved.set({ v: 1, name: P.name, fmt: P.fmt, fps: P.fps, lanes: P.lanes, items: P.items, sources, t, at: Date.now() });
-      }, 250);
+    const projectId = opts.projectId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+    function projData() {
+      const sources = {};
+      for (const sr of src.values()) if (P.items.some(i => i.src === sr.path)) sources[sr.path] = { path: sr.path, name: sr.name, duration: sr.duration, music: sr.music };
+      return { v: 1, name: P.name, fmt: P.fmt, fps: P.fps, lanes: P.lanes, items: P.items, sources, t, at: Date.now() };
     }
+    /* projekt sa ukladá sám (súbor v AppData), pri zatvorení hneď */
+    function persist(now) {
+      clearTimeout(persistT);
+      const go = () => { if (!P.items.length && !opts.projectId && !savedOnce) return; savedOnce = true; api.action('projSave', { id: projectId, data: projData() }).catch(e => console.warn('projSave', e)); };
+      if (now) go(); else persistT = setTimeout(go, 600);
+    }
+    let savedOnce = false;
 
     /* ---------- vstup: z jednoduchého editora, z knižnice alebo uložený projekt ---------- */
     async function init() {
-      const prev = saved.get();
-      const mode = opts.mode || (input.clips && input.clips.length ? 'new' : 'resume');
-      if ((mode === 'resume' || mode === 'append') && prev && prev.items && prev.items.length) {
-        P = { ...P, ...prev, sources: {} };
-        const missing = [];
-        for (const m of Object.values(prev.sources || {})) {
-          try { await loadSource(m, m.music); } catch (e) { missing.push(m.name || m.path); P.items = P.items.filter(i => i.src !== m.path); }
-        }
-        if (missing.length) toast('warn', 'Niektoré klipy chýbajú', missing.join(', '));
-        t = clamp(prev.t || 0, 0, duration());
+      if (opts.projectId) {
+        try {
+          const prev = await api.action('projLoad', { id: opts.projectId });
+          P = { ...P, ...prev, sources: {} };
+          savedOnce = true;
+          const missing = [];
+          for (const m of Object.values(prev.sources || {})) {
+            try { await loadSource(m, m.music); } catch (e) { missing.push(m.name || m.path); P.items = P.items.filter(i => i.src !== m.path); }
+          }
+          if (missing.length) toast('warn', 'Niektoré klipy chýbajú', missing.join(', '));
+          t = clamp(prev.t || 0, 0, duration());
+        } catch (e) { toast('error', 'Projekt sa nepodarilo otvoriť', e.message); }
       }
       baseLanes();
-      if (mode !== 'resume' && input.clips && input.clips.length) {
-        if (mode === 'new') { P.items = []; P.lanes = P.lanes.filter(l => l.kind !== 'audio'); P.name = input.name || 'Montáž'; }
-        if (input.aspect && FMT[input.aspect]) P.fmt = input.aspect;
-        let at = mode === 'append' ? Math.max(0, ...itemsOn('v').map(end)) : 0;
+      if (input.clips && input.clips.length) {
+        if (!opts.projectId) P.name = input.name || 'Montáž';
+        if (!opts.projectId && input.aspect && FMT[input.aspect]) P.fmt = input.aspect;
+        let at = Math.max(0, ...itemsOn('v').map(end));
         for (const c of input.clips) { try { await loadSource(c); } catch (e) { toast('error', 'Klip sa nepodarilo otvoriť', `${c.name || ''} ${e.message}`); } }
         const segs = input.segs && input.segs.length ? input.segs : input.clips.map(c => ({ src: c.path }));
         const base = at;
         for (const sg of segs) {
-          const s = src.get(sg.src); if (!s) continue;
-          const v = addClipAt(s, at, sg);
+          const sr = src.get(sg.src); if (!sr) continue;
+          const v = addClipAt(sr, at, sg);
           at = end(v);
         }
         // nastavenie stôp z jednoduchého editora (hlasitosť, vypnuté stopy)
@@ -366,8 +373,9 @@ window.Studio = (function () {
           P.items.push({ id: uid(), lane: 't', kind: 'text', start: base + o.start, end: base + o.end, text: o.text, style: o.box ? 'caption' : o.font === 'impact' ? 'meme' : o.glow ? 'neon' : 'gamer', color: o.color || '#ffffff', size: clamp((o.size || 80) / (o.H || 1080), 0.03, 0.3), x: clamp01(o.x / (o.W || 1920)), y: clamp01(o.y / (o.H || 1080)), animIn: o.animIn || 'none', animOut: o.animOut || 'none' });
         }
         if (input.overlays && input.overlays.some(o => o.type === 'arrow')) toast('info', 'Šípky sa neprenášajú', 'Advanced editor zatiaľ šípky nemá, text áno.');
+        if (opts.projectId) toast('ok', 'Pridané do projektu', `${input.clips.length} ${input.clips.length === 1 ? 'klip' : 'klipy'} na koniec`);
       }
-      lastSnap = snapshot(); persist();
+      lastSnap = snapshot(); persist(true);
       [W, H] = outSize();
       renderAll();
       fitZoom();
@@ -386,31 +394,86 @@ window.Studio = (function () {
     }
 
     /* ---------- médiá (knižnica) ---------- */
-    let mediaQ = '';
+    /* médiá: rovnaké filtre ako pri pridávaní klipu v jednoduchom editore (text, dátum, hra, zoradenie) */
+    let mediaQ = '', mediaSort = 'new', mediaRange = null, mediaGame = '';
+    const SORT = { new: 'Najnovšie', old: 'Najstaršie', long: 'Najdlhšie', name: 'Podľa názvu' };
+    const CMP = { new: (x, y) => (y.mtime || 0) - (x.mtime || 0), old: (x, y) => (x.mtime || 0) - (y.mtime || 0), long: (x, y) => (y.duration || 0) - (x.duration || 0), name: (x, y) => String(x.name).localeCompare(String(y.name), 'sk', { numeric: true }) };
+    const nz = v => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    function mediaList() {
+      const words = nz(mediaQ).trim().split(/\s+/).filter(Boolean);
+      return lib().filter(c => !/\.mkv$/i.test(c.path)).filter(c => {
+        if (mediaGame && (c.game || '') !== mediaGame) return false;
+        if (mediaRange && window.Cal && !Cal.inRange(c.mtime, mediaRange)) return false;
+        if (!words.length) return true;
+        const d = new Date(c.mtime || 0);
+        const hay = nz([c.name, c.game, UI.dayLabel ? UI.dayLabel(c.mtime) : '', `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`].join(' '));
+        return words.every(w => hay.includes(w));
+      }).sort(CMP[mediaSort]);
+    }
     function renderMedia() {
       const el = q('#stMedia');
+      if (!el.querySelector('.st-mlist')) {
+        el.innerHTML = `<div class="st-mh"><b>Médiá</b><button class="btn ghost small" id="stImport" title="Pridať video zo súboru">${IC.plus}<span>Zo súboru</span></button></div>
+          <label class="st-sq">${I.search}<input id="stMq" placeholder="Hľadať názov, hru, dátum…" spellcheck="false" autocomplete="off" aria-label="Hľadať klip"><button class="st-qx" id="stMqx" aria-label="Vymazať" hidden>${I.x}</button></label>
+          <div class="st-mf">
+            <button class="st-chipb" id="stMDate" type="button">${I.cal}<span>Dátum</span></button>
+            <button class="st-chipb" id="stMGame" type="button"><span>Hra</span></button>
+            <button class="st-chipb" id="stMSort" type="button"><span>${SORT[mediaSort]}</span></button>
+          </div>
+          <div class="st-mcount" id="stMCount"></div>
+          <div class="st-mlist" id="stMList"></div>
+          <div id="stMusicList"></div>`;
+        const qi = q('#stMq'), qx = q('#stMqx');
+        qi.oninput = () => { mediaQ = qi.value; qx.hidden = !qi.value; paintMedia(); };
+        qi.onkeydown = e => { if (e.key === 'Escape' && qi.value) { e.stopPropagation(); qx.click(); } };
+        qx.onclick = () => { qi.value = ''; mediaQ = ''; qx.hidden = true; paintMedia(); qi.focus(); };
+        q('#stImport').onclick = async () => {
+          const files = await api.action('pickFiles', { kind: 'video' }).catch(() => []);
+          for (const f of files) await addFromPath({ path: f }, Math.max(0, ...itemsOn('v').map(end)));
+        };
+        const dBtn = q('#stMDate');
+        dBtn.onclick = e => {
+          if (!window.Cal) return;
+          if (e.target.closest('.dx')) { mediaRange = null; paintMedia(); return; }
+          Cal.open(dBtn, { range: mediaRange, counts: () => Cal.countsOf(lib()) }, r => { mediaRange = r; paintMedia(); });
+        };
+        q('#stMGame').onclick = e => {
+          const games = [...new Set(lib().map(c => c.game).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'sk'));
+          menu(e.currentTarget, [{ label: 'Všetky hry', v: '', checked: !mediaGame }, ...(games.length ? [{ sep: true }] : []), ...games.map(g => ({ label: g, v: g, checked: g === mediaGame }))], it => { mediaGame = it.v; paintMedia(); });
+        };
+        q('#stMSort').onclick = e => menu(e.currentTarget, Object.entries(SORT).map(([v, l]) => ({ label: l, v, checked: v === mediaSort })), it => { mediaSort = it.v; paintMedia(); });
+        const list = q('#stMList');
+        list.addEventListener('click', e => {
+          const b = e.target.closest('[data-add]'); if (!b) return;
+          e.stopPropagation(); const c = lib().find(x => x.path === b.dataset.add); if (c) addFromPath(c, Math.max(0, ...itemsOn('v').map(end)));
+        });
+        list.addEventListener('dblclick', e => { const m = e.target.closest('.st-mi'); if (!m) return; const c = lib().find(x => x.path === m.dataset.path); if (c) addFromPath(c, t); });
+        list.addEventListener('dragstart', e => { const m = e.target.closest('.st-mi'); if (!m) return; e.dataTransfer.setData('text/x-lat-clip', m.dataset.path); e.dataTransfer.effectAllowed = 'copy'; });
+      }
+      paintMedia();
+    }
+    let mediaSig = '';
+    function paintMedia() {
       const used = new Set(P.items.map(i => i.src));
-      const clips = lib().slice().sort((a, b) => (b.mtime || 0) - (a.mtime || 0)).filter(c => !mediaQ || (c.name || '').toLowerCase().includes(mediaQ)).slice(0, 120);
-      const music = [...src.values()].filter(s => s.music);
-      el.innerHTML = `<div class="st-mh"><b>Médiá</b><button class="btn ghost small" id="stImport" title="Pridať video zo súboru">${IC.plus}<span>Zo súboru</span></button></div>
-        <input class="st-search" id="stMq" placeholder="Hľadať klip" value="${esc(mediaQ)}" aria-label="Hľadať klip">
-        <div class="st-mlist">${clips.map(c => `
-          <div class="st-mi${used.has(c.path) ? ' used' : ''}" draggable="true" data-path="${esc(c.path)}" title="${esc(c.name)} · pretiahni na časovú os">
-            <div class="st-mt">${c.thumb ? `<img src="${esc(fileUrl(c.thumb))}" alt="" draggable="false">` : ''}<span>${tShort(c.duration || 0)}</span></div>
+      // prekresli len keď sa niečo zmenilo (inak by náhľady blikali pri každej úprave)
+      const sig = [mediaQ, mediaSort, JSON.stringify(mediaRange), mediaGame, [...used].sort().join('|'), lib().length, [...src.values()].filter(m => m.music).length].join('§');
+      if (sig === mediaSig) return; mediaSig = sig;
+      const all = lib().filter(c => !/\.mkv$/i.test(c.path)).length;
+      const clips = mediaList();
+      const dBtn = q('#stMDate');
+      dBtn.classList.toggle('on', !!mediaRange);
+      dBtn.innerHTML = `${I.cal}<span>${mediaRange && window.Cal ? esc(Cal.label(mediaRange)) : 'Dátum'}</span>${mediaRange ? `<i class="dx" title="Zrušiť">${I.x}</i>` : ''}`;
+      const gB = q('#stMGame'); gB.classList.toggle('on', !!mediaGame); gB.querySelector('span').textContent = mediaGame || 'Hra';
+      q('#stMSort span').textContent = SORT[mediaSort];
+      q('#stMCount').textContent = clips.length === all ? `${all} ${all === 1 ? 'klip' : all < 5 ? 'klipy' : 'klipov'}` : `${clips.length} z ${all}`;
+      q('#stMList').innerHTML = clips.slice(0, 300).map(c => `
+          <div class="st-mi${used.has(c.path) ? ' used' : ''}" draggable="true" data-path="${esc(c.path)}" title="${esc(c.name)}${c.game ? ' · ' + esc(c.game) : ''} · pretiahni na časovú os">
+            <div class="st-mt">${c.thumb ? `<img src="${esc(fileUrl(c.thumb))}" alt="" draggable="false" loading="lazy" decoding="async">` : ''}<span>${tShort(c.duration || 0)}</span></div>
             <div class="st-mn">${esc(c.name)}</div>
             <button class="st-madd" data-add="${esc(c.path)}" aria-label="Pridať na koniec" title="Pridať na koniec">${IC.plus}</button>
-          </div>`).join('') || '<p class="st-note">Knižnica je prázdna.</p>'}</div>
-        ${music.length ? `<div class="st-mh sub"><b>Hudba v projekte</b></div>${music.map(m => `<div class="st-mu">${IC.music}<span>${esc(m.name)}</span></div>`).join('')}` : ''}`;
-      q('#stMq').oninput = e => { mediaQ = e.target.value.toLowerCase(); const pos = e.target.selectionStart; renderMedia(); const n = q('#stMq'); n.focus(); n.setSelectionRange(pos, pos); };
-      q('#stImport').onclick = async () => {
-        const files = await api.action('pickFiles', { kind: 'video' }).catch(() => []);
-        for (const f of files) await addFromPath({ path: f }, Math.max(0, ...itemsOn('v').map(end)));
-      };
-      $$('.st-madd', el).forEach(b => b.onclick = e => { e.stopPropagation(); const c = lib().find(x => x.path === b.dataset.add); if (c) addFromPath(c, Math.max(0, ...itemsOn('v').map(end))); });
-      $$('.st-mi', el).forEach(m => {
-        m.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-lat-clip', m.dataset.path); e.dataTransfer.effectAllowed = 'copy'; });
-        m.addEventListener('dblclick', () => { const c = lib().find(x => x.path === m.dataset.path); if (c) addFromPath(c, t); });
-      });
+          </div>`).join('') || `<p class="st-note">${all ? 'Nič sa nenašlo. Skús iné slovo alebo zruš filter.' : 'Knižnica je prázdna.'}</p>`;
+      const music = [...src.values()].filter(m => m.music);
+      q('#stMusicList').innerHTML = music.length ? `<div class="st-mh sub"><b>Hudba v projekte</b></div>${music.map(m => `<div class="st-mu">${IC.music}<span>${esc(m.name)}</span></div>`).join('')}` : '';
     }
     async function addFromPath(c, at) {
       let s;
@@ -455,7 +518,13 @@ window.Studio = (function () {
       if (it.fadeOut && D - tt < F2) return 1 - (D - tt) / F2;
       return 0;
     }
+    let txtDrawn = false;
     function drawFrame() {
+      const blk = String(fadeBlack(activeVideo(), t));
+      if (q('#stBlack').style.opacity !== blk) q('#stBlack').style.opacity = blk;
+      const anyText = P.items.some(it => it.kind === 'text' && t >= it.start && t < it.end);
+      if (!anyText && !txtDrawn) return; // nič na kreslenie → plátno netreba čistiť každú snímku
+      txtDrawn = anyText;
       const g = txtCv.getContext('2d');
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, txtCv.width, txtCv.height);
       const k = txtCv.width / W;
@@ -473,7 +542,6 @@ window.Studio = (function () {
           g.save(); g.strokeStyle = '#ff9f0a'; g.lineWidth = 2 / k; g.setLineDash([6 / k, 4 / k]); g.strokeRect(cx - bw / 2, cy - bh / 2, bw, bh); g.restore();
         }
       }
-      q('#stBlack').style.opacity = String(fadeBlack(activeVideo(), t));
     }
 
     /* prehrávanie: hodiny editora riadia video aj všetky zvukové prvky */
@@ -491,11 +559,12 @@ window.Studio = (function () {
           const want = vIt.in + (t - vIt.start) * sp(vIt);
           if (playing) {
             if (v.playbackRate !== sp(vIt)) v.playbackRate = sp(vIt);
-            if (v.paused) { v.currentTime = want; v.play().catch(() => { }); }
-            else if (Math.abs(v.currentTime - want) > 0.25) v.currentTime = want;
+            if (v.paused) { UI.smoothSeek(v, want); v.play().catch(() => { }); }
+            else if (Math.abs(v.currentTime - want) > 0.25 && !v.seeking) v.currentTime = want;
           } else {
             if (!v.paused) v.pause();
-            if (force || Math.abs(v.currentTime - want) > 0.02) v.currentTime = want;
+            // pri ťahaní hlavy sa skoky nezhromažďujú: video hľadá vždy len posledný cieľ
+            if (force || Math.abs((v.seeking && v._want != null ? v._want : v.currentTime) - want) > 0.02) UI.smoothSeek(v, want);
           }
         } else if (!v.paused) v.pause();
       }
@@ -578,7 +647,8 @@ window.Studio = (function () {
       canvas.style.width = Math.ceil(D * pps) + 'px';
       const step = rulerStep();
       let r = '';
-      for (let x = 0; x <= D; x += step) r += `<span style="left:${x * pps}px">${tShort(x)}</span>`;
+      const lbl = x => step < 1 ? `${Math.floor(x / 60)}:${(x % 60).toFixed(1).padStart(4, '0')}` : tShort(x);
+      for (let x = 0; x <= D + 1e-6; x += step) r += `<span style="left:${x * pps}px">${lbl(x)}</span>`;
       ruler.innerHTML = r;
       heads.innerHTML = `<div class="st-hr"></div>` + P.lanes.map(l => {
         const h = LANE_H[l.kind];
@@ -589,63 +659,86 @@ window.Studio = (function () {
           <button class="st-ms solo${l.solo ? ' on' : ''}" data-solo="${esc(l.id)}" title="Počúvať len túto stopu" aria-label="Sólo ${esc(l.name)}">S</button>
         </div>`;
       }).join('');
-      lanesEl.innerHTML = P.lanes.map(l => `<div class="st-lane ${l.kind}${l.kind === 'audio' && !audible(l) ? ' off' : ''}" style="height:${LANE_H[l.kind]}px" data-lane="${esc(l.id)}">${itemsOn(l.id).map(itemHtml).join('')}</div>`).join('');
-      $$('.st-item.audio', lanesEl).forEach(drawWave);
+      // položky sú ľahké DOM prvky (výber, ťahanie, popis); obsah (náhľady, priebeh zvuku) kreslí plátno stopy
+      lanesEl.innerHTML = P.lanes.map(l => `<div class="st-lane ${l.kind}${l.kind === 'audio' && !audible(l) ? ' off' : ''}" style="height:${LANE_H[l.kind]}px" data-lane="${esc(l.id)}"><canvas class="st-lc"></canvas>${itemsOn(l.id).map(itemHtml).join('')}</div>`).join('');
       $$('[data-mute]', heads).forEach(b => b.onclick = () => { const l = lane(b.dataset.mute); l.mute = !l.mute; commit(); renderTimeline(); renderInsp(); syncMedia(true); });
       $$('[data-solo]', heads).forEach(b => b.onclick = () => { const l = lane(b.dataset.solo); l.solo = !l.solo; commit(); renderTimeline(); renderInsp(); syncMedia(true); });
       updHead(false);
       q('#stDur').textContent = tc(duration());
+      drawLanes();
     }
     function itemHtml(it) {
       const x = it.start * pps, w = Math.max(3, len(it) * pps);
-      const s = src.get(it.src);
-      const on = sel.has(it.id) ? ' sel' : '';
-      const l = lane(it.lane);
-      let inner = '', label = '';
-      if (it.kind === 'video') {
-        label = (s ? s.name : '') + (sp(it) !== 1 ? ` · ${String(sp(it)).replace('.', ',')}×` : '');
-        if (s && s.thumbs.length && s.thumbW) {
-          const n = Math.min(160, Math.ceil(w / s.thumbW));
-          for (let k = 0; k < n; k++) {
-            const tt = it.in + (k * s.thumbW / pps) * sp(it);
-            const fi = clamp(Math.floor(tt / s.duration * (s.thumbN || s.thumbs.length)), 0, s.thumbs.length - 1);
-            const im = s.thumbs[fi];
-            inner += im ? `<img src="${im}" alt="" draggable="false" style="width:${s.thumbW}px">` : `<span class="ph" style="width:${s.thumbW}px"></span>`;
-          }
-        }
-        inner = `<div class="st-film">${inner}</div>`;
-      } else if (it.kind === 'audio') {
-        label = l && l.music ? (s ? s.name : 'Hudba') : '';
-        inner = `<canvas class="st-wave"></canvas>`;
-      } else {
-        label = String(it.text || '').replace(/\n/g, ' ') || 'Text';
-      }
-      const style = `left:${x}px;width:${w}px;${l && l.c ? `--c:${l.c};` : ''}`;
+      const s = src.get(it.src), l = lane(it.lane);
+      let label = '';
+      if (it.kind === 'video') label = (s ? s.name : '') + (sp(it) !== 1 ? ` · ${String(sp(it)).replace('.', ',')}×` : '');
+      else if (it.kind === 'audio') label = l && l.music ? (s ? s.name : 'Hudba') : '';
+      else label = String(it.text || '').replace(/\n/g, ' ') || 'Text';
       const fades = `${it.fadeIn ? '<i class="fi"></i>' : ''}${it.fadeOut ? '<i class="fo"></i>' : ''}`;
-      return `<div class="st-item ${it.kind}${on}" data-id="${it.id}" style="${style}">${inner}${fades}<span class="st-il">${esc(label)}</span><b class="st-e l"></b><b class="st-e r"></b></div>`;
+      return `<div class="st-item ${it.kind}${sel.has(it.id) ? ' sel' : ''}" data-id="${it.id}" style="left:${x}px;width:${w}px">${fades}<span class="st-il">${esc(label)}</span><b class="st-e l"></b><b class="st-e r"></b></div>`;
     }
-    function drawWave(el) {
-      const it = P.items.find(i => i.id === el.dataset.id); if (!it) return;
-      const s = src.get(it.src), lv = s && s.levels[s.tracks.findIndex(x => x.i === it.ti)];
-      const cv = el.querySelector('canvas'); if (!cv) return;
-      const w = Math.min(6000, Math.max(2, Math.round(el.clientWidth || len(it) * pps))), h = LANE_H.audio - 6;
-      cv.width = w; cv.height = h; cv.style.width = w + 'px';
-      const g = cv.getContext('2d');
-      g.fillStyle = (getComputedStyle(el).getPropertyValue('--c') || '').trim() || '#30d158';
-      g.globalAlpha = 0.55;
-      if (!lv) { g.fillRect(0, h / 2 - 1, w, 2); return; }
-      for (let x = 0; x < w; x += 3) {
-        const tt = it.in + (x / pps) * sp(it), i = Math.floor(tt * 20);
-        let pk = 0; for (let j = i; j < i + Math.max(1, Math.ceil(3 / pps * 20 * sp(it))); j++) pk = Math.max(pk, lv[j] || 0);
-        const bh = Math.max(1, pk / 255 * (h - 4));
-        g.fillRect(x, (h - bh) / 2, 2, bh);
-      }
+    /* kreslenie obsahu stôp: len viditeľná časť (šírka okna), takže zoom ani dĺžka nič nestoja */
+    let drawQ = 0;
+    function requestDraw() { if (!drawQ && !closed) drawQ = requestAnimationFrame(() => { drawQ = 0; drawLanes(); }); }
+    const themeC = {};
+    function readTheme() {
+      const cs = getComputedStyle(root);
+      for (const k of ['--blue', '--lilac', '--ink', '--well']) themeC[k] = cs.getPropertyValue(k).trim();
     }
-    function renderItemsOf(path) {
+    function mixHex(a, b, f) { // a*f + b*(1-f), hex #rrggbb
+      const p = h => { h = (h || '#000').replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) || 0); };
+      const A = p(a), B = p(b); return `rgb(${A.map((v, i) => Math.round(v * f + B[i] * (1 - f))).join(',')})`;
+    }
+    function drawLanes() {
       if (closed) return;
-      for (const it of P.items) if (it.src === path && it.kind === 'video') {
-        const el = lanesEl.querySelector(`[data-id="${it.id}"]`);
-        if (el) { const tmp = document.createElement('div'); tmp.innerHTML = itemHtml(it); el.replaceWith(tmp.firstChild); }
+      readTheme();
+      const x0 = scroll.scrollLeft, vw = Math.max(1, scroll.clientWidth - 16), dpr = devicePixelRatio || 1;
+      const t0v = x0 / pps, t1v = (x0 + vw) / pps;
+      for (const laneEl of lanesEl.children) {
+        const l = lane(laneEl.dataset.lane); if (!l) continue;
+        const cv = laneEl.querySelector('.st-lc'); if (!cv) continue;
+        const h = LANE_H[l.kind];
+        if (cv.width !== Math.round(vw * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(vw * dpr); cv.height = Math.round(h * dpr); cv.style.width = vw + 'px'; cv.style.height = h + 'px'; }
+        cv.style.transform = `translateX(${x0}px)`;
+        const g = cv.getContext('2d');
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g.clearRect(0, 0, vw, h);
+        const base = l.kind === 'video' ? themeC['--blue'] : l.kind === 'text' ? themeC['--lilac'] : l.c;
+        const body = mixHex(base, themeC['--ink'], l.kind === 'audio' ? 0.22 : 0.32);
+        for (const it of itemsOn(l.id)) {
+          const e = end(it); if (e < t0v || it.start > t1v) continue;
+          const X = it.start * pps - x0, Wd = Math.max(3, len(it) * pps), y = 2, H2 = h - 4;
+          g.save();
+          g.beginPath(); g.roundRect(X, y, Wd, H2, 6); g.clip();
+          g.fillStyle = body; g.fillRect(X, y, Wd, H2);
+          const vx0 = Math.max(X, 0), vx1 = Math.min(X + Wd, vw);
+          const s = src.get(it.src);
+          if (it.kind === 'video' && s && s.thumbs.length && s.thumbW) {
+            const tw = s.thumbW * H2 / 54;
+            const k0 = Math.max(0, Math.floor((vx0 - X) / tw)), k1 = Math.ceil((vx1 - X) / tw);
+            g.globalAlpha = 0.9;
+            for (let k = k0; k < k1; k++) {
+              const tt = it.in + (k * tw / pps) * sp(it);
+              const fi = clamp(Math.floor(tt / (s.duration || 1) * (s.thumbN || s.thumbs.length)), 0, s.thumbs.length - 1);
+              const im = s.thumbs[fi] || s.thumbs.find(Boolean);
+              if (im) g.drawImage(im, X + k * tw, y, tw, H2);
+            }
+          } else if (it.kind === 'audio' && s) {
+            const lv = s.levels[s.tracks.findIndex(x => x.i === it.ti)];
+            g.fillStyle = base; g.globalAlpha = 0.6;
+            if (!lv) g.fillRect(vx0, y + H2 / 2 - 1, vx1 - vx0, 2);
+            else {
+              const per = Math.max(1, Math.ceil(3 / pps * 20 * sp(it)));
+              for (let px = Math.floor(vx0 - X); px < vx1 - X; px += 3) {
+                const i = Math.floor((it.in + (px / pps) * sp(it)) * 20);
+                let pk = 0; for (let j = i; j < i + per; j++) pk = Math.max(pk, lv[j] || 0);
+                const bh = Math.max(1, pk / 255 * (H2 - 6));
+                g.fillRect(X + px, y + (H2 - bh) / 2, 2, bh);
+              }
+            }
+          }
+          g.restore();
+        }
       }
     }
     function flashItem(id) { const el = lanesEl.querySelector(`[data-id="${id}"]`); if (el) { el.classList.add('land'); setTimeout(() => el.classList.remove('land'), 600); } }
@@ -734,6 +827,7 @@ window.Studio = (function () {
         }
         // rýchly prekreslenie: len pozície prvkov
         for (const m of moving) { const n = lanesEl.querySelector(`[data-id="${m.id}"]`); if (n) { n.style.left = m.start * pps + 'px'; n.style.width = Math.max(3, len(m) * pps) + 'px'; } }
+        requestDraw();
         if (!playing) { syncMedia(true); drawFrame(); }
       };
       const up = () => {
@@ -779,7 +873,7 @@ window.Studio = (function () {
       if (e.ctrlKey) { e.preventDefault(); const z = Number(q('#stZoom').value) - Math.sign(e.deltaY) * 6; q('#stZoom').value = String(clamp(z, 0, 100)); setZoom(clamp(z, 0, 100), e.clientX - scroll.getBoundingClientRect().left); }
       else if (!e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { scroll.scrollLeft += e.deltaY; e.preventDefault(); }
     }, { passive: false });
-    scroll.addEventListener('scroll', () => { heads.scrollTop = scroll.scrollTop; });
+    scroll.addEventListener('scroll', () => { heads.scrollTop = scroll.scrollTop; requestDraw(); });
     q('#stZoom').oninput = e => setZoom(Number(e.target.value));
 
     /* ---------- úpravy ---------- */
@@ -854,6 +948,64 @@ window.Studio = (function () {
     }
     let hintT = 0;
     function hint(msg) { const h = q('#stHint'); h.textContent = msg; h.classList.add('on'); clearTimeout(hintT); hintT = setTimeout(() => h.classList.remove('on'), 2200); }
+
+    /* duplikát položky (aj s prepojeným zvukom) hneď za ňou; čo je za ňou, sa odsunie */
+    function duplicateSel() {
+      const base = P.items.filter(i => sel.has(i.id)); if (!base.length) return;
+      const set = new Set(); for (const b of base) for (const m of (b.kind === 'video' ? group(b) : [b])) set.add(m);
+      const items = [...set];
+      const s0 = Math.min(...items.map(i => i.start)), e0 = Math.max(...items.map(end)), L = e0 - s0;
+      const lanesHit = new Set(items.map(i => i.lane));
+      const clash = P.items.some(o => !set.has(o) && lanesHit.has(o.lane) && o.start < e0 + L - 1e-3 && end(o) > e0 + 1e-3);
+      if (clash) for (const o of P.items) if (o.start >= e0 - 1e-3) { o.start += L; if (o.kind === 'text') o.end += L; }
+      const gmap = new Map(), added = [];
+      for (const it of items) {
+        const c = { ...it, id: uid(), start: it.start + L };
+        if (it.kind === 'text') c.end = it.end + L;
+        if (it.g) { if (!gmap.has(it.g)) gmap.set(it.g, uid()); c.g = gmap.get(it.g); }
+        P.items.push(c); added.push(c);
+      }
+      sel = new Set(added.filter(x => x.kind !== 'audio' || !added.some(y => y.g === x.g && y.kind === 'video')).map(x => x.id));
+      commit(); renderTimeline(); renderInsp();
+    }
+    /* zvuk, ktorý patrí k videu (rovnaký klip, rovnaký čas), ale bol odpojený */
+    const orphanAudio = v => P.items.filter(a => a.kind === 'audio' && a.src === v.src && a.g !== v.g && Math.abs(a.start - v.start) < 0.02 && Math.abs(a.in - v.in) < 0.02);
+    function relink(v) { for (const a of orphanAudio(v)) a.g = v.g; }
+    lanesEl.addEventListener('contextmenu', e => {
+      const el = e.target.closest('.st-item'); if (!el) return;
+      e.preventDefault();
+      const it = P.items.find(i => i.id === el.dataset.id); if (!it) return;
+      if (!sel.has(it.id)) { sel = new Set([it.id]); renderTimelineSel(); renderInsp(); }
+      const under = t > it.start + 0.05 && t < end(it) - 0.05;
+      const l = lane(it.lane);
+      const items = [];
+      if (it.kind === 'text') items.push({ label: 'Upraviť text', v: 'edit' });
+      items.push({ label: 'Rozdeliť na prehrávacej hlave', v: 'split', sub: 'S', disabled: !under });
+      items.push({ label: 'Duplikovať', v: 'dup', sub: 'Ctrl+D' });
+      if (it.kind === 'video') {
+        if (group(it).length > 1) items.push({ label: 'Odpojiť zvuk od videa', v: 'unlink' });
+        else if (orphanAudio(it).length) items.push({ label: 'Pripojiť zvuk späť k videu', v: 'link' });
+        items.push({ sep: true }, { head: 'Rýchlosť' }, ...SPEEDS.map(r => ({ label: String(r).replace('.', ',') + '×', v: 'spd:' + r, checked: sp(it) === r })));
+      }
+      if (it.kind === 'audio' && group(it).length > 1) items.push({ label: 'Odpojiť od videa', v: 'unlinkA' });
+      if (it.kind !== 'text') items.push({ sep: true }, { label: it.kind === 'audio' ? 'Zosilnenie na začiatku' : 'Roztmievanie na začiatku', v: 'fadeIn', checked: !!it.fadeIn }, { label: it.kind === 'audio' ? 'Stíšenie na konci' : 'Stmievanie na konci', v: 'fadeOut', checked: !!it.fadeOut });
+      if (it.kind === 'audio' && l) items.push({ label: `${l.mute ? 'Zapnúť' : 'Stlmiť'} stopu ${l.name}`, v: 'mute' });
+      items.push({ sep: true }, { label: 'Odstrániť', v: 'del', sub: 'Delete' }, { label: 'Odstrániť a zavrieť medzeru', v: 'ripple', sub: 'Shift+Del' });
+      const at = { getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY, width: 0, height: 0 }), contains: () => false, classList: { contains: () => false, add() { }, remove() { } } };
+      menu(at, items, pick => {
+        const v = pick.v;
+        if (v === 'edit') { tab = 'text'; renderInsp(); setTimeout(() => { const ta = q('#stTxtIn'); if (ta) { ta.focus(); ta.select(); } }, 30); }
+        else if (v === 'split') splitAt(t);
+        else if (v === 'dup') duplicateSel();
+        else if (v === 'unlink' || v === 'unlinkA') { const gid = it.g; for (const m of P.items.filter(x => x.g === gid)) m.g = uid(); commit(); renderInsp(); hint('Zvuk je odpojený, môžeš ho strihať a posúvať zvlášť'); }
+        else if (v === 'link') { relink(it); commit(); renderInsp(); hint('Zvuk je zase spojený s videom'); }
+        else if (v.startsWith('spd:')) { setSpeed(it, Number(v.slice(4))); commit(); renderAll(); }
+        else if (v === 'fadeIn' || v === 'fadeOut') { const nv = !it[v]; for (const m of (it.kind === 'video' ? group(it) : [it])) m[v] = nv; commit(); renderTimeline(); renderInsp(); drawFrame(); }
+        else if (v === 'mute') { l.mute = !l.mute; commit(); renderTimeline(); renderInsp(); syncMedia(true); }
+        else if (v === 'del') deleteSel(false);
+        else if (v === 'ripple') deleteSel(true);
+      });
+    });
 
     /* ---------- inšpektor ---------- */
     function renderInsp() {
@@ -1058,6 +1210,7 @@ window.Studio = (function () {
       if (e.key === ' ') { e.preventDefault(); playing ? pause() : play(); return; }
       if (k === 's' && !e.ctrlKey) { e.preventDefault(); splitAt(t); return; }
       if (k === 't' && !e.ctrlKey) { e.preventDefault(); addText(); return; }
+      if (k === 'd' && e.ctrlKey) { e.preventDefault(); duplicateSel(); return; }
       if (k === 'n' && !e.ctrlKey) { toggleSnap(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSel(e.shiftKey); return; }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); const st = e.shiftKey ? 1 : 1 / (P.fps || 60); seek(t + (e.key === 'ArrowLeft' ? -st : st)); return; }
@@ -1069,7 +1222,7 @@ window.Studio = (function () {
     }
     function toggleSnap() { snapOn = !snapOn; q('#stSnap').classList.toggle('on', snapOn); hint(snapOn ? 'Prichytávanie zapnuté' : 'Prichytávanie vypnuté'); }
     document.addEventListener('keydown', onKey, true);
-    const ro = new ResizeObserver(() => { layoutFrame(); drawFrame(); });
+    const ro = new ResizeObserver(() => { layoutFrame(); txtDrawn = true; drawFrame(); requestDraw(); });
     ro.observe(stage);
 
     q('#stPlay').onclick = () => playing ? pause() : play();
@@ -1084,6 +1237,8 @@ window.Studio = (function () {
     q('#stRedo').onclick = doRedo;
     q('#stExport').onclick = exportDialog;
     q('#stClose').onclick = () => close();
+    q('#stMin').onclick = () => api.action('win', { do: 'min' }).catch(() => { });
+    q('#stMax').onclick = () => api.action('win', { do: 'max' }).catch(() => { });
     q('#stName').addEventListener('change', e => { P.name = e.target.value.trim() || 'Montáž'; commit(); });
     q('#stName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
     UI.onSeg(q('#stFmt').parentElement, (k, val) => { if (!FMT[val] || val === P.fmt) return; P.fmt = val; commit(); renderAll(); seek(t); });
@@ -1117,15 +1272,15 @@ window.Studio = (function () {
 
     function close() {
       if (exporting || closed) return;
-      pause(); persist();
+      pause(); persist(true);
       closed = true;
       document.removeEventListener('keydown', onKey, true);
       ro.disconnect();
       root.classList.add('out');
       setTimeout(() => {
         for (const s of src.values()) { if (s.video) { s.video.removeAttribute('src'); s.video.load(); } for (const a of s.audio.values()) { a.pause(); a.removeAttribute('src'); } }
-        root.remove(); editorOpen = false;
-        if (opts.onClose) opts.onClose();
+        root.remove(); editorOpen = false; document.body.classList.remove('st-open');
+        if (opts.onClose) opts.onClose(projectId, P.items.length > 0 || savedOnce);
       }, 260);
     }
 
@@ -1140,5 +1295,5 @@ window.Studio = (function () {
   }
 
   /* lazy načítanie: CSS a JS sa pridajú až pri prvom otvorení */
-  return { open, hasSaved, clearSaved: () => saved.clear(), get isOpen() { return editorOpen; }, _onEvent: null, textPng, drawText };
+  return { open, get isOpen() { return editorOpen; }, _onEvent: null, textPng, drawText };
 })();

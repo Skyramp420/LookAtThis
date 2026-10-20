@@ -69,6 +69,9 @@ kbd { font: 560 11px var(--body); background: var(--fill2); color: var(--muted);
 
 /* ---------- titulok ---------- */
 .titlebar { grid-column: 1 / -1; -webkit-app-region: drag; display: flex; justify-content: flex-end; }
+/* otvorený dialóg/editor prekrýva lištu: Electron by inak bral kliky na jeho tlačidlá ako ťahanie okna */
+.modal-wrap { -webkit-app-region: no-drag; }
+body:has(.modal-wrap:not([hidden])) .titlebar, body:has(.modal-wrap:not([hidden])) .brand { -webkit-app-region: no-drag; }
 .win-ctl { display: flex; height: 100%; -webkit-app-region: no-drag; }
 .win-ctl button { width: 46px; height: 100%; border: 0; background: none; color: var(--muted); display: grid; place-items: center; transition: background .12s, color .12s; }
 .win-ctl button:hover { background: var(--fill); color: var(--text); }
@@ -1183,3 +1186,23 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .tlx-ruler .fgm { position: absolute; top: 3px; margin-left: -9px; width: 18px; height: 16px; border-radius: 5px; display: grid; place-items: center; font-style: normal; background: var(--panel); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, .3); color: var(--muted); pointer-events: auto; cursor: default; z-index: 2; }
 .tlx-ruler .fgm.game { color: var(--accent); }
 .tlx-ruler .fgm svg { width: 12px; height: 12px; }
+
+/* ---------- projekty (advanced editor) ---------- */
+.pj-top { display: flex; justify-content: flex-end; margin: -6px 0 16px; }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px 16px; }
+.pj { display: flex; flex-direction: column; gap: 6px; border: 0; background: none; padding: 0; text-align: left; color: var(--text); animation: land .42s var(--spring) both; animation-delay: calc(var(--i) * 25ms); }
+.pj-t { position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: var(--raise); box-shadow: var(--card-shadow); transition: box-shadow .2s, transform .3s var(--spring); }
+.pj:hover .pj-t { box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+.pj-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pj-ph { width: 100%; height: 100%; display: grid; place-items: center; color: var(--faint); }
+.pj-ph svg { width: 30px; height: 30px; }
+.pj-ph.big { width: 64px; height: 64px; margin: 0 auto 4px; border-radius: 16px; background: var(--well); }
+.pj-fmt, .pj-d { position: absolute; bottom: 7px; font: 600 10.5px/1 var(--tc); color: #fff; background: rgba(0, 0, 0, .6); padding: 3px 6px; border-radius: 5px; }
+.pj-fmt { left: 7px; } .pj-d { right: 7px; }
+.pj b { font: 600 13.5px/1.25 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pj small { font-size: 12px; color: var(--muted); margin-top: -3px; }
+.pj-empty { max-width: 380px; margin: 60px auto; text-align: center; }
+.pj-empty h3 { margin: 6px 0 4px; font: 650 17px/1.3 var(--display); }
+.pj-empty p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.pj-in { width: 100%; height: 34px; border: 0; border-radius: 8px; background: var(--field); box-shadow: 0 0 0 .5px var(--line); padding: 0 10px; color: var(--text); margin: 4px 0 14px; }
+.pj-in:focus { outline: none; box-shadow: 0 0 0 .5px var(--accent), 0 0 0 3.5px color-mix(in srgb, var(--accent) 35%, transparent); }

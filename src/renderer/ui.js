@@ -281,5 +281,28 @@ window.UI = (function () {
   function time(ts) { const d = new Date(ts); return `${d.getHours()}:${pad(d.getMinutes())}`; }
   const fileUrl = p => 'file:///' + String(p).replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:');
 
-  return { $, $$, esc, I, menu, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
+  /* ---------- plynulé prehrávanie v editoroch ----------
+     smoothSeek: pri ťahaní po osi sa skoky nezhromažďujú — kým video hľadá, pamätá si len posledný cieľ.
+     useProxy: keď je hotová náhľadová kópia (720p, kľúčová snímka každých 0,25 s), video sa na ňu potichu prepne. */
+  function smoothSeek(v, time) {
+    if (!v) return;
+    v._want = time;
+    if (!v._sk) {
+      v._sk = true;
+      v.addEventListener('seeked', () => { if (v._want != null && Math.abs(v.currentTime - v._want) > 0.015) { try { v.currentTime = v._want; } catch (e) { } } });
+    }
+    if (!v.seeking) { try { v.currentTime = time; } catch (e) { } }
+  }
+  function useProxy(v, file) {
+    if (!v || !file || !window.api) return Promise.resolve(false);
+    return api.action('proxy', { path: file }).then(px => {
+      if (!px || !v.isConnected || v._proxy) return false;
+      const keep = v.currentTime, wasPlaying = !v.paused, rate = v.playbackRate;
+      v._proxy = px;
+      v.src = fileUrl(px);
+      v.addEventListener('loadedmetadata', () => { try { v.currentTime = keep; } catch (e) { } v.playbackRate = rate; if (wasPlaying) v.play().catch(() => { }); }, { once: true });
+      return true;
+    }).catch(() => false);
+  }
+  return { $, $$, esc, I, menu, smoothSeek, useProxy, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
 })();
