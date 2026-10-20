@@ -18,7 +18,8 @@ window.KF = (function () {
       { k: 'scale', l: 'Priblíženie', def: 1, min: 0.1, max: 5, step: 0.01, fmt: v => Math.round(v * 100) + ' %' },
       { k: 'x', l: 'Poloha X', def: 0, min: -1, max: 1, step: 0.001, fmt: v => Math.round(v * 100) + ' %' },
       { k: 'y', l: 'Poloha Y', def: 0, min: -1, max: 1, step: 0.001, fmt: v => Math.round(v * 100) + ' %' },
-      { k: 'rot', l: 'Otočenie', def: 0, min: -360, max: 360, step: 1, fmt: v => Math.round(v) + '°' }
+      { k: 'rot', l: 'Otočenie', def: 0, min: -360, max: 360, step: 1, fmt: v => Math.round(v) + '°' },
+      { k: 'speed', l: 'Rýchlosť', def: 1, min: 0.1, max: 4, step: 0.01, fmt: v => v.toFixed(2).replace('.', ',') + '×' }
     ],
     text: [
       { k: 'x', l: 'Poloha X', def: 0.5, min: 0, max: 1, step: 0.001, fmt: v => Math.round(v * 100) + ' %' },
@@ -73,11 +74,13 @@ window.KF = (function () {
   function getStatic(it, k) {
     if (it.kind === 'text' && (k === 'x' || k === 'y')) return it[k] != null ? it[k] : propDef(it, k);
     if (it.kind === 'audio' && k === 'vol') return it.vol != null ? it.vol : 1;
+    if (k === 'speed') return it.speed || 1;
     return it.tf && it.tf[k] != null ? it.tf[k] : propDef(it, k);
   }
   function setStatic(it, k, v) {
     if (it.kind === 'text' && (k === 'x' || k === 'y')) it[k] = v;
     else if (it.kind === 'audio' && k === 'vol') it.vol = v;
+    else if (k === 'speed') it.speed = v;
     else { it.tf = it.tf || {}; it.tf[k] = v; }
   }
   function at(it, k, T) {

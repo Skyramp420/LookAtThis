@@ -1,6 +1,11 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.29', items: [
+      'Prechody medzi klipmi: prelínanie, cez čiernu, záblesk, posun doľava/doprava/hore a priblíženie. Klikni na kruh na strihu medzi dvoma klipmi (alebo Efekty → Prechody), dĺžku nastavíš posuvníkom.',
+      'Speed ramp: plynulá zmena rýchlosti v klipe. Predvoľby Spomalenie na hlave, Hrdina, Montáž, Zrýchlenie, Spomalenie, a krivku doladíš ako keyframy (riadok Rýchlosť v sekcii Pohyb). Zvuk sa spomalí s obrazom.',
+      'Náhľad aj export počítajú prechody a ramp rovnako, takže to, čo vidíš, je to, čo dostaneš.'
+    ] },
     { v: '1.0.28', items: [
       'Opravené: video v náhľade po čase stále preblikávalo (skákalo dookola na to isté miesto).',
       'Časová os sa posúva plynulo: priebehy zvuku a náhľady už nezaostávajú. Pribudol posuvník dole, koliesko posúva v čase, Ctrl + koliesko približuje.',
