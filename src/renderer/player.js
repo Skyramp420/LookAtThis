@@ -138,6 +138,7 @@ window.Player = (function () {
           <span id="srcActions"></span>
           <span class="save-size" id="fmtPb"></span>
           <span class="save-size" id="saveSize"></span>
+          <button class="btn ed-adv" id="bAdv" title="Preniesť do advanced editora (viac stôp, hudba, shorty)"><svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 14.5h6M3 17h9M12 14.5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Advanced</span></button>
           <button class="btn primary ed-save" id="plSave">${IC.save}<span>Uložiť</span></button>
           <button class="ed-ico ed-x" id="plClose" aria-label="Zavrieť" title="Zavrieť">${I.x}</button>
         </header>
@@ -1683,6 +1684,29 @@ window.Player = (function () {
       Player._onEvent = null;
     }
     $('#plSave', m).onclick = save;
+    /* prenos do advanced editora: úseky, text, nastavenie stôp; video „preletí“ z tohto rámu */
+    $('#bAdv', m).onclick = () => {
+      if (!segs.length || !window.openStudio) return;
+      pause();
+      let img = null;
+      try {
+        const v = active && active.src && active.src.video;
+        if (v && v.videoWidth) { const c = document.createElement('canvas'); c.width = Math.min(960, v.videoWidth); c.height = Math.round(c.width * v.videoHeight / v.videoWidth); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); img = c.toDataURL('image/jpeg', 0.8); }
+      } catch (e) { }
+      const fromRect = frame.getBoundingClientRect();
+      const input = {
+        clips: [...sources.values()].map(sr => ({ path: sr.path, name: sr.name, duration: sr.duration, width: sr.width, height: sr.height, fps: sr.fps })),
+        // výrez na výšku: stred výrezu (cx) prepočítaný na polohu 0–1 ako v advanced editore
+        segs: segs.map(sg => ({ src: sg.src, in: sg.in, out: sg.out, speed: sp(sg), fadeIn: !!sg.fadeIn, fadeOut: !!sg.fadeOut, cx: OW < W ? cropLeft(sg) / Math.max(1, W - OW) : 0.5 })),
+        overlays: overlays.map(o => ({ ...o, W: OW, H })),
+        mixer: mixer.map(x => ({ title: x.title, on: x.on, vol: x.vol })),
+        aspect: aspect === '9:16' || aspect === '1:1' ? aspect : '16:9',
+        name: single() ? [...sources.values()][0].name : 'Montáž',
+        t
+      };
+      closeModal(true);
+      window.openStudio(input, { fromRect, fromImage: img });
+    };
     // voľba veľkosti pri uložení (Pôvodná / 20 MB pre Discord …)
     function renderSaveSize() {
       $('#saveSize', m).innerHTML = UI.pb(sizeLabel(), () => SAVE_SIZES.map(x => ({ label: x.l, v: x.v, checked: x.v === saveMB })), it => { saveMB = it.v; LS.set('saveMB', saveMB); renderSaveSize(); }, 'title="Veľkosť uloženého klipu"');

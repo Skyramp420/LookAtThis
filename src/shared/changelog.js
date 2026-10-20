@@ -1,6 +1,13 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.25', items: [
+      'Nové: advanced editor. V jednoduchom editore daj „Advanced“ (alebo pravý klik na klip → Otvoriť v advanced editore) a video plynulo prejde do väčšieho editora.',
+      'Každá zvuková stopa (systém, hra, Discord, mikrofón) má na časovej osi vlastný riadok: stlmíš ju, zosilníš alebo ostrihneš zvlášť. Pridáš aj hudbu zo súboru.',
+      'Viac klipov za sebou, rozdelenie (S), presúvanie a orezávanie ťahaním, prichytávanie, späť/znova.',
+      'Text so štýlmi a animáciami, posúvaš ho priamo v náhľade. Formáty 16:9, 9:16 (Shorts, TikTok) a 1:1 s posúvaním výrezu.',
+      'Export do knižnice, aj na 20 MB pre Discord, alebo so samostatnými stopami pre DaVinci. Rozpracovaná montáž sa priebežne ukladá.'
+    ] },
     { v: '1.0.24', items: [
       'Opravené: klip uložený cez OBS ukázal „bez hry“, hoci hra v ňom bola.'
     ] },

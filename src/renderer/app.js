@@ -879,6 +879,40 @@
   /* ---------- výber viacerých klipov ---------- */
   const PICK = '<svg viewBox="0 0 16 16"><path d="M4 8.4 6.8 11 12 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   let lastOpenEd = 0;
+  /* advanced editor: CSS a JS sa načítajú až pri prvom otvorení */
+  let studioP = null;
+  function loadStudio() {
+    if (window.Studio) return Promise.resolve();
+    if (!studioP) studioP = new Promise((res, rej) => {
+      const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'studio.css'; document.head.appendChild(l);
+      const sc = document.createElement('script'); sc.src = 'studio.js';
+      sc.onload = () => res(); sc.onerror = () => { studioP = null; rej(new Error('Advanced editor sa nepodarilo načítať')); };
+      document.body.appendChild(sc);
+    });
+    return studioP;
+  }
+  const studioSaved = () => { try { const p = JSON.parse(localStorage.getItem('studio.project.v1') || 'null'); return p && p.items && p.items.length ? p : null; } catch (e) { return null; } };
+  /* input = { clips, segs?, overlays?, mixer?, aspect?, t? }; keď je rozpracovaná montáž, opýta sa: nová alebo pridať */
+  async function openStudio(input = {}, opts = {}) {
+    try { await loadStudio(); } catch (e) { toast('error', 'Advanced editor', e.message); return; }
+    // jednoduchý editor sa práve zatvára (dialóg sa vyprázdni po 180 ms) → počkaj, inak by zmizla aj otázka nižšie
+    if (!$('#modalWrap').hidden) await new Promise(r => setTimeout(r, 220));
+    if (Studio.isOpen) return;
+    let mode = input.clips && input.clips.length ? 'new' : 'resume';
+    const prev = studioSaved();
+    if (mode === 'new' && prev) {
+      mode = await new Promise(res => {
+        const m = UI.modal(`<h2>Rozpracovaná montáž</h2><p>Máš rozpracovanú montáž „${UI.esc(prev.name || 'Montáž')}“. Pridať ${input.clips.length === 1 ? 'tento klip' : 'tieto klipy'} na jej koniec, alebo začať novú?</p>
+          <div class="acts"><button class="btn" data-a="x">Zrušiť</button><span class="grow"></span><button class="btn" data-a="new">Nová montáž</button><button class="btn primary" data-a="append">Pridať na koniec</button></div>`, 'small', () => res(null));
+        m.querySelector('[data-a=x]').onclick = () => UI.closeModal();
+        m.querySelector('[data-a=new]').onclick = () => { res('new'); UI.closeModal(true); };
+        m.querySelector('[data-a=append]').onclick = () => { res('append'); UI.closeModal(true); };
+      });
+      if (!mode) return;
+    }
+    Studio.open(input, { ...opts, mode, library: () => S.clips });
+  }
+  window.openStudio = openStudio;
   const openEditor = list => (Date.now() - lastOpenEd < 600 ? null : (lastOpenEd = Date.now(), Player.open(list.map(c => ({ ...c })), { library: () => S.clips, autoWin: !!S.settings.autoWinCrop })));
   const pickedClips = () => S.clips.filter(c => picked.has(c.path));
   function updPicked() {
@@ -895,6 +929,7 @@
         if (a.dataset.a === 'all') { visible.forEach(p => picked.add(p)); updPicked(); }
         if (a.dataset.a === 'none') { picked.clear(); updPicked(); }
         if (a.dataset.a === 'edit') { const l = pickedClips().sort((x, y) => x.mtime - y.mtime); picked.clear(); updPicked(); openEditor(l); }
+        if (a.dataset.a === 'studio') { const l = pickedClips().sort((x, y) => x.mtime - y.mtime).map(c => ({ ...c })); picked.clear(); updPicked(); openStudio({ clips: l }); }
         if (a.dataset.a === 'del') deletePicked();
         if (a.dataset.a === 'fav') { const l = pickedClips(), on = !l.every(c => c.fav); api.action('setClipMeta', { paths: l.map(c => c.path), patch: { fav: on } }); toast('ok', on ? 'Pridané do obľúbených' : 'Odobrané z obľúbených', `${l.length} ${l.length === 1 ? 'klip' : 'klipov'}`); }
         if (a.dataset.a === 'game') setGameFor([...picked]);
@@ -913,6 +948,7 @@
       <button class="btn small" data-a="move" title="Presunúť do priečinka">${FOLDER_IC}<span>Priečinok…</span></button>
       <button class="btn small" data-a="zip" title="Zmenšiť (napr. na 20 MB pre Discord)">${ZIP}<span>Zmenšiť</span></button>
       <button class="btn small" data-a="edit">${UI.I.scissors}<span>${n > 1 ? 'Spojiť v editore' : 'Otvoriť v editore'}</span></button>
+      <button class="btn small" data-a="studio" title="Otvoriť v advanced editore">Advanced</button>
       <button class="btn small danger" data-a="del">${UI.I.trash}<span>Vymazať</span></button>
       <button class="btn small icon ghost" data-a="none" title="Zrušiť výber (Esc)">${UI.I.x}</button>`;
   }
@@ -955,8 +991,8 @@
     // pravý klik na vybraný klip = akcie pre celý výber
     const group = picked.has(p) && picked.size > 1;
     const items = group
-      ? [{ label: `Spojiť ${picked.size} v editore`, v: 'edit' }, { label: `Zmenšiť ${picked.size}…`, v: 'zipAll' }, { label: 'Zmeniť hru…', v: 'gameAll' }, { label: 'Presunúť do priečinka…', v: 'moveAll' }, { sep: true }, { label: `Vymazať ${picked.size}…`, v: 'delAll' }]
-      : [{ label: 'Otvoriť v editore', v: 'play' }, { label: picked.has(p) ? 'Odznačiť' : 'Vybrať', v: 'pick' },
+      ? [{ label: `Spojiť ${picked.size} v editore`, v: 'edit' }, { label: `Otvoriť ${picked.size} v advanced editore`, v: 'studioAll' }, { label: `Zmenšiť ${picked.size}…`, v: 'zipAll' }, { label: 'Zmeniť hru…', v: 'gameAll' }, { label: 'Presunúť do priečinka…', v: 'moveAll' }, { sep: true }, { label: `Vymazať ${picked.size}…`, v: 'delAll' }]
+      : [{ label: 'Otvoriť v editore', v: 'play' }, { label: 'Otvoriť v advanced editore', v: 'studio' }, ...(studioSaved() ? [{ label: 'Pokračovať v montáži', v: 'resume' }] : []), { label: picked.has(p) ? 'Odznačiť' : 'Vybrať', v: 'pick' },
         { label: 'Zmenšiť…', v: 'zip' }, { label: 'Kopírovať súbor', v: 'copy' },
         { sep: true }, { label: (S.clips.find(x => x.path === p) || {}).fav ? 'Odobrať z obľúbených' : 'Pridať do obľúbených', v: 'fav' }, { label: 'Zmeniť hru…', v: 'game' }, { label: 'Presunúť do priečinka…', v: 'move' },
         { sep: true }, { label: 'Ukázať v priečinku', v: 'reveal' }, { label: 'Otvoriť v prehrávači', v: 'ext' }, { sep: true }, { label: 'Vymazať…', v: 'trash' }];
@@ -965,6 +1001,9 @@
       async it => {
         const clip = S.clips.find(x => x.path === p);
         if (it.v === 'play' && clip) openEditor([clip]);
+        if (it.v === 'studio' && clip) openStudio({ clips: [{ ...clip }] });
+        if (it.v === 'resume') openStudio({});
+        if (it.v === 'studioAll') { const l = pickedClips().sort((x, y) => x.mtime - y.mtime).map(c => ({ ...c })); picked.clear(); updPicked(); openStudio({ clips: l }); }
         if (it.v === 'pick') { if (picked.has(p)) picked.delete(p); else picked.add(p); anchor = p; updPicked(); }
         if (it.v === 'edit') { const l = pickedClips().sort((x, y) => x.mtime - y.mtime); picked.clear(); updPicked(); openEditor(l); }
         if (it.v === 'delAll') deletePicked();
@@ -1465,6 +1504,7 @@
   });
   api.on('event', ev => {
     if (Player._onEvent) Player._onEvent(ev);
+    if (window.Studio && Studio._onEvent) Studio._onEvent(ev);
     if (window.__compressProg) window.__compressProg(ev);
     if (ev.type === 'toast') toast(ev.kind, ev.title, ev.body, ev.path ? { action: { label: 'Prehrať', run: () => { const c = S.clips.find(x => x.path === ev.path); if (c) openEditor([c]); } } } : {});
     if (ev.type === 'sound' && ev.name === 'saved') { eyeAnim('wink'); window.dispatchEvent(new Event('lat-saved')); }

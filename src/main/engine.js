@@ -812,4 +812,4 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
   return { out: job.out, size: size(), encoder: 'libx264', over: true };
 }
 
-module.exports = { compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, detectBars, SEG, stamp };
+module.exports = { compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, detectBars, SEG, stamp, videoEncArgs };

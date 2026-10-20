@@ -7,9 +7,10 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
-const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars } = require('./engine');
+const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars, videoEncArgs } = require('./engine');
 const { Obs, findObs, killStaleOurs } = require('./obs');
 const { mergeObsWithTracks } = require('./obs-merge');
+const { exportProject } = require('./project-export');
 const ObsConfig = require('./obs-config');
 const Compress = require('../shared/compress');
 const GameScan = require('./games-scan');
@@ -933,6 +934,47 @@ async function runAction(type, p = {}) {
       } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { } }
       const m = store.meta()[first] || {};
       store.setMeta(out, { game: m.game, duration: p.segments.reduce((a, x) => a + (x.out - x.in) / (Number(x.speed) || 1), 0), kind: multi ? 'cut' : 'edit' });
+      pushState(); return out;
+    }
+    case 'pickFiles': {
+      // výber súborov pre advanced editor (hudba, klipy mimo knižnice)
+      const filters = p.kind === 'audio' ? [{ name: 'Zvuk', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus'] }]
+        : [{ name: 'Video', extensions: ['mp4', 'mkv', 'mov', 'webm', 'avi'] }];
+      const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters });
+      return r.canceled ? [] : r.filePaths;
+    }
+    case 'exportProject': {
+      // advanced editor: časová os → nové video v knižnici
+      const name = String(p.name || 'Montáž').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim().slice(0, 80) || 'Montáž';
+      const dir = store.get().clipsDir;
+      fs.mkdirSync(dir, { recursive: true });
+      const target = Number(p.targetMB) || 0;
+      const base = path.join(dir, name + (target ? ` (${target} MB)` : ''));
+      let out = base + '.mp4', k = 2;
+      while (fs.existsSync(out)) out = `${base} (${k++}).mp4`;
+      const tmp = path.join(EDIT, 'px-' + Date.now());
+      fs.mkdirSync(tmp, { recursive: true });
+      const overlays = (p.overlays || []).map((o, i) => {
+        const f = path.join(tmp, `t${i}.png`);
+        fs.writeFileSync(f, Buffer.from(String(o.png).replace(/^data:image\/png;base64,/, ''), 'base64'));
+        return { png: f, start: Number(o.start), end: Number(o.end), cx: Number(o.cx), cy: Number(o.cy), animIn: o.animIn || 'none', animOut: o.animOut || 'none' };
+      });
+      const enc = engine.pickEncoder(store.get());
+      try {
+        const prog = f => send('event', { type: 'exportProgress', value: target ? f * 0.55 : f });
+        if (!target) await exportProject(FFMPEG, { ...p, out, overlays }, enc, videoEncArgs, prog);
+        else {
+          const mid = path.join(tmp, 'montaz.mp4');
+          await exportProject(FFMPEG, { ...p, out: mid, overlays, keepTracks: false }, enc, videoEncArgs, prog);
+          const info = await probe(FFMPEG, mid);
+          const plan = Compress.plan({ duration: info.duration, width: info.width, height: info.height, fps: info.fps, targetMB: target });
+          if (!plan.ok) throw new Error(`Video je na ${target} MB pridlhé (max ${Math.floor(plan.maxSeconds / 60)} min ${plan.maxSeconds % 60} s). Exportuj v pôvodnej kvalite alebo ho skráť.`);
+          await compressClip(FFMPEG, { file: mid, out, targetMB: target, plan, tmpDir: path.join(tmp, 'pass') }, enc, f => send('event', { type: 'exportProgress', value: 0.55 + f * 0.45 }));
+        }
+      } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { } }
+      const first = (p.video || [])[0];
+      const m = first ? (store.meta()[first.file] || {}) : {};
+      store.setMeta(out, { game: m.game, duration: Number(p.duration) || 0, kind: 'edit' });
       pushState(); return out;
     }
     case 'rename': {
