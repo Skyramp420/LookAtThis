@@ -1,6 +1,9 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.24', items: [
+      'Opravené: klip uložený cez OBS ukázal „bez hry“, hoci hra v ňom bola.'
+    ] },
     { v: '1.0.23', items: [
       'Most do OBS: OBS dodá len obraz hry, zvuk je z LookAtThis, takže klip má zase oddelené stopy (systém, hra, Discord, mikrofón, mix). Obraz so zvukom sa zosynchronizuje automaticky podľa zvuku.',
       'Opravené: skryté OBS sa niekedy nespustilo (zaseklo sa na neviditeľnom okne a Windows len pípol). LookAtThis teraz také OBS ukončí a spustí znova.'

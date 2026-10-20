@@ -717,7 +717,7 @@ function announce(r, title) {
   const body = `${path.basename(r.path)}`;
   send('event', { type: 'sound', name: 'saved' }); playSound('saved');
   const g = r.game ? Games.pretty(r.game, store.get().gameNames, engine.detectedMap) : '';
-  if (badgeOn) { showOverlay({ kind: 'error', title: title + ', ale bez hry', sub: `${badgeOn} sa skryl, v klipe je plocha`, ms: 3500 }); }
+  if (badgeOn && !r.viaObs) { showOverlay({ kind: 'error', title: title + ', ale bez hry', sub: `${badgeOn} sa skryl, v klipe je plocha`, ms: 3500 }); }
   else showOverlay({ kind: title.startsWith('Nahrávka') ? 'recStop' : 'clip', title, game: g, sub: r.seconds ? (r.seconds >= 60 ? `${Math.floor(r.seconds / 60)}:${String(r.seconds % 60).padStart(2, '0')}` : `${r.seconds} s`) : '' });
   toast('ok', title, body, { path: r.path });
   if (wantNotify() && (!win || !win.isVisible() || !win.isFocused())) notify(title, body, () => showWindow(() => send('event', { type: 'open', path: r.path })));
