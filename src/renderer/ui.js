@@ -293,16 +293,33 @@ window.UI = (function () {
     }
     if (!v.seeking) { try { v.currentTime = time; } catch (e) { } }
   }
+  /* náhľad v plnej kvalite (bez proxy) — voľba si pamätá */
+  const previewFull = () => { try { return localStorage.getItem('previewFull') === '1'; } catch (e) { return false; } };
+  function swapSrc(v, file) {
+    const keep = v.currentTime, wasPlaying = !v.paused, rate = v.playbackRate;
+    v.src = fileUrl(file);
+    v.addEventListener('loadedmetadata', () => { try { v.currentTime = keep; } catch (e) { } v.playbackRate = rate; if (wasPlaying) v.play().catch(() => { }); }, { once: true });
+  }
   function useProxy(v, file) {
     if (!v || !file || !window.api) return Promise.resolve(false);
-    return api.action('proxy', { path: file }).then(px => {
-      if (!px || !v.isConnected || v._proxy) return false;
-      const keep = v.currentTime, wasPlaying = !v.paused, rate = v.playbackRate;
+    v._orig = file;
+    // najprv nech sa načíta originál (jeho rozmery a dĺžka), až potom prepínaj — inak by editor prevzal rozmery kópie
+    const ready = v.readyState >= 1 ? Promise.resolve() : new Promise(r => { v.addEventListener('loadedmetadata', r, { once: true }); v.addEventListener('error', r, { once: true }); });
+    return Promise.all([api.action('proxy', { path: file }), ready]).then(([px]) => {
+      if (!px || !v.isConnected) return false;
       v._proxy = px;
-      v.src = fileUrl(px);
-      v.addEventListener('loadedmetadata', () => { try { v.currentTime = keep; } catch (e) { } v.playbackRate = rate; if (wasPlaying) v.play().catch(() => { }); }, { once: true });
+      if (!previewFull()) { swapSrc(v, px); v._usingProxy = true; }
       return true;
     }).catch(() => false);
   }
-  return { $, $$, esc, I, menu, smoothSeek, useProxy, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
+  /* prepnutie náhľadu všetkých videí medzi rýchlou kópiou a plnou kvalitou */
+  function setPreviewFull(videos, full) {
+    try { localStorage.setItem('previewFull', full ? '1' : '0'); } catch (e) { }
+    for (const v of videos) {
+      if (!v || !v._proxy || !v._orig) continue;
+      if (full && v._usingProxy) { swapSrc(v, v._orig); v._usingProxy = false; }
+      else if (!full && !v._usingProxy) { swapSrc(v, v._proxy); v._usingProxy = true; }
+    }
+  }
+  return { $, $$, esc, I, menu, smoothSeek, useProxy, setPreviewFull, previewFull, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
 })();

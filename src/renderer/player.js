@@ -173,6 +173,7 @@ window.Player = (function () {
         <div class="ed-bar">
           <button class="pl-play" id="plPlay" aria-label="Prehrať (medzerník)">${I.play}</button>
           <span class="pl-time" id="plTime">0:00.00 <i>/ 0:00</i></span>
+          <button class="ed-tb ed-hq${UI.previewFull() ? ' on' : ''}" id="hqBtn" title="Náhľad v plnej kvalite (inak rýchla kópia v 720p). Na uložené video to nemá vplyv."><svg viewBox="0 0 16 16"><rect x="1.8" y="3.5" width="12.4" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.6 6.2v3.6M7 6.2v3.6M4.6 8h2.4M9.2 6.2v3.6h1.2a1.8 1.8 0 0 0 0-3.6z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Plná kvalita</span></button>
           <button class="ed-tb ed-fsb2" id="fsBtn" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Celá obrazovka</span></button>
           <span class="ed-sep"></span>
           <div class="ed-tools">
@@ -227,6 +228,9 @@ window.Player = (function () {
         src.tracks = r.tracks || [];
         src.fps = r.fps || 60;
         if (!src.duration) src.duration = r.duration;
+        // rozmery a dĺžka vždy z pôvodného súboru (video v náhľade môže byť menšia náhľadová kópia)
+        if (r.width && r.height) { src.width = r.width; src.height = r.height; }
+        if (r.duration) src.duration = r.duration;
         src.audios = src.tracks.map(tr => { const a = new Audio(fileUrl(tr.file)); a.preload = 'auto'; return a; });
         // obálka hlasitosti (20 hodnôt za sekundu) pre metre v mixéri a priebeh zvuku na osi
         src.levels = src.tracks.map(tr => { try { return tr.levels ? Uint8Array.from(atob(tr.levels), c => c.charCodeAt(0)) : null; } catch (e) { return null; } });
@@ -1686,6 +1690,7 @@ window.Player = (function () {
       Player._onEvent = null;
     }
     $('#plSave', m).onclick = save;
+    $('#hqBtn', m).onclick = e => { const on = !UI.previewFull(); UI.setPreviewFull([...sources.values()].map(x => x.video), on); e.currentTarget.classList.toggle('on', on); toast('info', on ? 'Náhľad v plnej kvalite' : 'Rýchly náhľad', on ? 'Skákanie po klipe bude pomalšie.' : 'Náhľad z ľahkej kópie, uložené video je stále v plnej kvalite.'); };
     /* prenos do advanced editora: úseky, text, nastavenie stôp; video „preletí“ z tohto rámu */
     $('#bAdv', m).onclick = () => {
       if (!segs.length || !window.openStudio) return;

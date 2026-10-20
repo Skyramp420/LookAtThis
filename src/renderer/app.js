@@ -885,9 +885,9 @@
     if (window.Studio) return Promise.resolve();
     if (!studioP) studioP = new Promise((res, rej) => {
       const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'studio.css'; document.head.appendChild(l);
-      const sc = document.createElement('script'); sc.src = 'studio.js';
-      sc.onload = () => res(); sc.onerror = () => { studioP = null; rej(new Error('Advanced editor sa nepodarilo načítať')); };
-      document.body.appendChild(sc);
+      // najprv keyframy (kf.js), potom samotný editor
+      const load = f => new Promise((ok, ko) => { const sc = document.createElement('script'); sc.src = f; sc.onload = ok; sc.onerror = ko; document.body.appendChild(sc); });
+      (window.KF ? Promise.resolve() : load('kf.js')).then(() => load('studio.js')).then(() => res()).catch(() => { studioP = null; rej(new Error('Advanced editor sa nepodarilo načítať')); });
     });
     return studioP;
   }
@@ -929,13 +929,14 @@
     }
     const ago = ms => { const d = (Date.now() - ms) / 1000; if (d < 60) return 'práve teraz'; if (d < 3600) return `pred ${Math.round(d / 60)} min`; if (d < 86400) return `pred ${Math.round(d / 3600)} h`; return `${dayLabel(ms)} ${time(ms)}`; };
     const thumbOf = p => { const c = p.first && S.clips.find(x => x.path === p.first); return c && c.thumb ? fileUrl(c.thumb) : ''; };
-    el.innerHTML = `<div class="pj-top"><button class="btn primary" id="pjNew">${UI.I.scissors}<span>Nová montáž</span></button></div>
-      ${projCache.length ? `<div class="pj-grid">${projCache.map((p, i) => `
+    const n = projCache.length;
+    el.innerHTML = n ? `<div class="tools"><span class="pj-count">${n} ${n === 1 ? 'montáž' : n < 5 ? 'montáže' : 'montáží'}</span><span class="grow"></span><button class="btn primary" id="pjNew">${UI.I.scissors}<span>Nová montáž</span></button></div>
+      <div class="pj-grid">${projCache.map((p, i) => `
         <button class="pj" data-id="${esc(p.id)}" style="--i:${i}">
           <div class="pj-t">${thumbOf(p) ? `<img src="${esc(thumbOf(p))}" alt="" loading="lazy" decoding="async">` : `<div class="pj-ph">${UI.I.film}</div>`}<span class="pj-fmt">${esc(p.fmt)}</span><span class="pj-d">${dur(p.duration)}</span></div>
           <b>${esc(p.name)}</b><small>${p.clips} ${p.clips === 1 ? 'klip' : p.clips > 1 && p.clips < 5 ? 'klipy' : 'klipov'} · ${esc(ago(p.updated))}</small>
         </button>`).join('')}</div>`
-      : `<div class="pj-empty"><div class="pj-ph big">${UI.I.film}</div><h3>Zatiaľ žiadna montáž</h3><p>Montáž začneš tlačidlom „Nová montáž“, pravým klikom na klip v knižnici, alebo v jednoduchom editore cez „Advanced“.</p></div>`}`;
+      : `<div class="empty pj-empty"><div class="pj-ph big">${UI.I.film}</div><h2>Zatiaľ žiadna montáž</h2><p>Montáž začneš tu, pravým klikom na klip v knižnici, alebo v jednoduchom editore cez „Advanced“.</p><button class="btn primary" id="pjNew">${UI.I.scissors}<span>Nová montáž</span></button></div>`;
     $('#pjNew').onclick = () => openStudio({ name: 'Montáž' }, {});
     $$('.pj', el).forEach(b => {
       b.onclick = () => openStudio({}, { projectId: b.dataset.id });

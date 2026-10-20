@@ -5,16 +5,16 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-wrap { position: fixed; inset: 0; z-index: 120; padding: 10px; display: grid; background: var(--scrim); backdrop-filter: blur(4px); opacity: 0; transition: opacity .22s var(--ease); }
 .st-wrap.in { opacity: 1; }
 .st-wrap.out { opacity: 0; transition-duration: .2s; }
-.st { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr) 42px minmax(190px, 38%); background: var(--win); border-radius: 14px; box-shadow: var(--pop-shadow); overflow: hidden; }
+.st { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr) 42px var(--th, minmax(190px, 38%)); background: var(--win); border-radius: 14px; box-shadow: var(--pop-shadow); overflow: hidden; }
 
 /* nábeh: okolie pricestuje, časová os vyskočí zdola, stopy sa rozbalia jedna po druhej */
-.st-wrap .st-top, .st-wrap .st-media, .st-wrap .st-insp, .st-wrap .st-tlbar, .st-wrap .st-tl, .st-wrap .st-trans { transition: transform .5s var(--spring), opacity .3s var(--ease); }
-.st-wrap.enter:not(.in) .st-media { transform: translateX(-28px); opacity: 0; }
+.st-wrap .st-top, .st-wrap .st-left, .st-wrap .st-insp, .st-wrap .st-tlbar, .st-wrap .st-tl, .st-wrap .st-trans { transition: transform .5s var(--spring), opacity .3s var(--ease); }
+.st-wrap.enter:not(.in) .st-left { transform: translateX(-28px); opacity: 0; }
 .st-wrap.enter:not(.in) .st-insp { transform: translateX(28px); opacity: 0; }
 .st-wrap.enter:not(.in) .st-top { transform: translateY(-10px); opacity: 0; }
 .st-wrap.enter:not(.in) .st-tlbar, .st-wrap.enter:not(.in) .st-tl { transform: translateY(46px); opacity: 0; }
 .st-wrap.enter:not(.in) .st-trans { opacity: 0; }
-.st-wrap.in .st-media, .st-wrap.in .st-insp { transition-delay: .12s; }
+.st-wrap.in .st-left, .st-wrap.in .st-insp { transition-delay: .12s; }
 .st-wrap.in .st-tlbar, .st-wrap.in .st-tl { transition-delay: .2s; }
 .st-wrap.in:not(.settled) .st-lane.audio, .st-wrap.in:not(.settled) .st-lh { animation: stUnfold .42s var(--spring) both; }
 .st-wrap.in:not(.settled) .st-lane:nth-child(3), .st-wrap.in:not(.settled) .st-lh:nth-child(4) { animation-delay: .52s; }
@@ -44,8 +44,14 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-fmt button { min-width: 48px; }
 
 /* stred: médiá · náhľad · inšpektor */
-.st-mid { display: grid; grid-template-columns: 236px minmax(0, 1fr) 292px; min-height: 0; background: var(--ink); border-top-left-radius: 12px; border-top-right-radius: 12px; box-shadow: 0 0 0 .5px var(--line-soft); }
-.st-media { min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; box-shadow: .5px 0 0 var(--line-soft); overflow: hidden; }
+.st-mid { position: relative; display: grid; grid-template-columns: var(--mw, 236px) minmax(0, 1fr) var(--iw, 292px); min-height: 0; background: var(--ink); border-top-left-radius: 12px; border-top-right-radius: 12px; box-shadow: 0 0 0 .5px var(--line-soft); }
+.st-left { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px; box-shadow: .5px 0 0 var(--line-soft); overflow: hidden; }
+.st-ltabs { display: flex; flex: none; }
+.st-ltabs button { flex: 1; }
+.st-lpane { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.st-lpane[hidden] { display: none; }
+.st-lpane.in { animation: stPane .32s var(--glide) both; }
+@keyframes stPane { from { opacity: 0; transform: translateY(8px); } }
 .st-mh { display: flex; align-items: center; justify-content: space-between; }
 .st-mh b { font: 650 13.5px/1 var(--display); }
 .st-mh.sub { margin-top: 6px; }
@@ -88,6 +94,7 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-stage { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
 .st-frame { position: relative; background: #000; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 .5px var(--line), 0 12px 32px var(--shadow); flex: none; transition: box-shadow .2s; }
 .st-frame.drop { box-shadow: 0 0 0 2px var(--accent), 0 12px 32px var(--shadow); }
+.st-vids { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; }
 .st-vids video { position: absolute; display: block; max-width: none; }
 .st-black { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
 .st-txt { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -213,5 +220,100 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 @keyframes stDraw { to { stroke-dashoffset: 0; } }
 .st-wrap.playing .st-item { transition: none; }
 
-@media (max-width: 1180px) { .st-mid { grid-template-columns: 200px minmax(0, 1fr) 260px; } }
-@media (max-width: 980px) { .st-mid { grid-template-columns: minmax(0, 1fr) 260px; } .st-media { display: none; } }
+@media (max-width: 980px) { .st-mid { grid-template-columns: minmax(0, 1fr) var(--iw, 260px); } .st-left, .st-split.v:not(.r) { display: none; } }
+
+/* ---------- rozdeľovače panelov ---------- */
+.st-split { position: absolute; z-index: 6; touch-action: none; }
+.st-split.v { top: 0; bottom: 0; width: 8px; cursor: col-resize; left: calc(var(--mw, 236px) - 4px); }
+.st-split.v.r { left: auto; right: calc(var(--iw, 292px) - 4px); }
+.st-split.h { left: 0; right: 0; top: -4px; height: 8px; cursor: row-resize; }
+.st-split::after { content: ''; position: absolute; border-radius: 2px; background: var(--accent); opacity: 0; transform: scale(.4); transition: opacity .18s var(--ease), transform .32s var(--spring); }
+.st-split.v::after { left: 3px; width: 2px; top: 30%; bottom: 30%; }
+.st-split.h::after { top: 3px; height: 2px; left: 40%; right: 40%; }
+.st-split:hover::after, .st-split.on::after { opacity: .9; transform: none; }
+.st-split.on.v::after { top: 0; bottom: 0; } .st-split.on.h::after { left: 0; right: 0; }
+.st-wrap.resizing, .st-wrap.resizing * { cursor: inherit; user-select: none; }
+.st.relayout .st-mid, .st.relayout { transition: grid-template-columns .35s var(--spring), grid-template-rows .35s var(--spring); }
+.st-tlbar { position: relative; }
+
+/* ---------- presúvanie a vkladanie ---------- */
+.st-item.dragging { z-index: 6; box-shadow: 0 0 0 1.5px var(--accent), 0 10px 24px rgba(0, 0, 0, .45); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.st-drop { transition: transform .12s var(--ease); }
+
+/* ---------- keyframy na osi ---------- */
+.st-kfd { position: absolute; bottom: 3px; width: 11px; height: 11px; margin-left: -5.5px; transform: rotate(45deg); border-radius: 2px; background: #fff; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .55); z-index: 3; cursor: ew-resize; animation: stKfIn .34s var(--spring) both; transition: background .15s, transform .2s var(--spring); }
+.st-item.text .st-kfd { bottom: 50%; margin-bottom: -5.5px; }
+.st-kfd:hover { transform: rotate(45deg) scale(1.25); }
+.st-kfd.on { background: var(--accent); transform: rotate(45deg) scale(1.2); }
+@keyframes stKfIn { from { transform: rotate(45deg) scale(0); } }
+
+/* ---------- sekcia Pohyb ---------- */
+.st-ib > * { animation: stIn .26s var(--glide) both; }
+@keyframes stIn { from { opacity: 0; transform: translateY(4px); } }
+.st-mo { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin: 0 -4px; border-radius: 12px; background: var(--well); }
+.st-moh b { font: 650 13px/1 var(--display); }
+.st-kn { display: inline-flex; align-items: center; gap: 2px; }
+.st-kc { font-size: 11.5px; color: var(--muted); min-width: 76px; text-align: center; }
+.st-ico.sm { width: 24px; height: 24px; }
+.st-ico.sm svg { width: 13px; height: 13px; }
+.st-kr { display: flex; flex-direction: column; gap: 4px; }
+.st-kr .st-row { gap: 6px; }
+.st-kr .st-row .lbl { flex: 1; }
+.st-kr.anim .lbl { color: var(--accent); }
+.st-kb { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); display: grid; place-items: center; padding: 0; transition: color .15s, background .15s, transform .25s var(--spring); }
+.st-kb svg { width: 13px; height: 13px; }
+.st-kb:hover { background: var(--hover); color: var(--text); }
+.st-kb.on { color: var(--accent); animation: stKbOn .4s var(--spring); }
+.st-kr.anim .st-kb:not(.on) { color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+@keyframes stKbOn { 0% { transform: scale(.5) rotate(-45deg); } 100% { transform: none; } }
+.st-kclear { align-self: flex-start; padding-left: 0; }
+.st-cv { display: flex; flex-direction: column; gap: 8px; }
+.st-cchips { display: flex; flex-wrap: wrap; gap: 5px; }
+.st-cchip { border: 0; border-radius: 20px; padding: 5px 9px; background: var(--fill2); color: var(--text); font: 560 11px/1 var(--body); transition: background .15s, color .15s, box-shadow .2s; }
+.st-cchip:hover { background: var(--fill); }
+.st-cchip.on { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.st-csvg { width: 100%; height: auto; border-radius: 10px; background: var(--ink); box-shadow: 0 0 0 .5px var(--line-soft); overflow: visible; touch-action: none; }
+.st-csvg .g { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+.st-csvg .h { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+.st-csvg .c { stroke: var(--accent); stroke-width: 2.4; fill: none; stroke-linecap: round; transition: d .2s var(--ease); }
+.st-csvg .p { fill: var(--panel); stroke: var(--accent); stroke-width: 2; cursor: grab; transition: r .2s var(--spring); }
+.st-csvg .p:hover { r: 7.5; }
+.st-cprev { position: relative; height: 14px; border-radius: 7px; background: var(--fill2); overflow: hidden; }
+.st-cprev i { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 3px; background: var(--accent); animation: stCPrev 1.4s infinite alternate; }
+@keyframes stCPrev { to { left: calc(100% - 12px); } }
+.st-wrap:not(:hover) .st-cprev i { animation-play-state: paused; }
+.st input[type=range] { --p: 50%; }
+
+/* ---------- ľavý panel: Text a Efekty ---------- */
+.st-tlib { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; overflow-y: auto; }
+.st-tcard { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 76px; padding: 10px 6px; border: 0; border-radius: 10px; background: #2a2a2e linear-gradient(135deg, #3a4b5c, #2b2e38); color: #fff; box-shadow: var(--card-shadow); transition: transform .3s var(--spring), box-shadow .2s; }
+.st-tcard:hover { transform: translateY(-2px) scale(1.02); box-shadow: var(--card-shadow-hover); }
+.st-tcard:active { transform: scale(.97); }
+.st-tprev { font-size: 15px; line-height: 1.1; }
+.st-tcard small { font: 560 10.5px/1 var(--body); color: rgba(255, 255, 255, .7); }
+.st-tpos { display: flex; gap: 6px; }
+.st-fxl { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; padding: 2px; margin: -2px; }
+.st-fx { display: flex; align-items: center; gap: 10px; border: 0; border-radius: 10px; padding: 7px 8px; background: transparent; color: var(--text); text-align: left; transition: background .15s, transform .25s var(--spring); }
+.st-fx:hover:not(:disabled) { background: var(--hover); }
+.st-fx:active:not(:disabled) { transform: scale(.98); }
+.st-fx:disabled { opacity: .45; }
+.st-fx > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.st-fx b { font: 600 12.5px/1.2 var(--body); }
+.st-fx small { font-size: 11px; color: var(--muted); line-height: 1.3; }
+.st-fxp { position: relative; flex: none; width: 46px; height: 32px; border-radius: 7px; overflow: hidden; background: linear-gradient(135deg, #2f6fd0, #6a3fd1); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .15); }
+.st-fxp b { position: absolute; inset: 7px 13px; border-radius: 3px; background: rgba(255, 255, 255, .9); }
+.st-fx:hover .st-fxp b { animation-duration: 1.2s; animation-iteration-count: infinite; animation-timing-function: cubic-bezier(.42, 0, .58, 1); }
+.st-fx:hover .fx-zoomIn b { animation-name: fxZoomIn; } @keyframes fxZoomIn { to { transform: scale(1.6); } }
+.st-fx:hover .fx-zoomOut b { animation-name: fxZoomOut; } @keyframes fxZoomOut { from { transform: scale(1.6); } }
+.st-fx:hover .fx-kenburns b { animation-name: fxKen; } @keyframes fxKen { from { transform: scale(1.1) translateX(-5px); } to { transform: scale(1.4) translateX(5px); } }
+.st-fx:hover .fx-punch b { animation-name: fxPunch; animation-duration: .8s; } @keyframes fxPunch { 0%, 100% { transform: none; } 18% { transform: scale(1.5); } }
+.st-fx:hover .fx-zoomKill b { animation-name: fxKill; } @keyframes fxKill { 0%, 100% { transform: none; } 25%, 70% { transform: scale(1.9); } }
+.st-fx:hover .fx-shake b { animation-name: fxShake; animation-duration: .5s; animation-timing-function: linear; } @keyframes fxShake { 20% { transform: translate(3px, -2px); } 40% { transform: translate(-3px, 2px); } 60% { transform: translate(2px, 1px); } 80% { transform: translate(-1px, -1px); } }
+.st-fx:hover .fx-spin b { animation-name: fxSpin; } @keyframes fxSpin { to { transform: rotate(360deg); } }
+.st-fx:hover .fx-slideIn b { animation-name: fxSlide; animation-timing-function: cubic-bezier(0, 0, .58, 1); } @keyframes fxSlide { from { transform: translateX(-40px); } }
+@media (prefers-reduced-motion: reduce) { .st-fx:hover .st-fxp b, .st-cprev i { animation: none !important; } }
+
+.st-hq { margin-left: 6px; border: 0; border-radius: 6px; padding: 4px 7px; background: var(--fill2); color: var(--muted); font: 700 10.5px/1 var(--tc); letter-spacing: .03em; transition: background .15s, color .15s, transform .25s var(--spring); }
+.st-hq:hover { background: var(--fill); color: var(--text); }
+.st-hq.on { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.st-hq:active { transform: scale(.92); }

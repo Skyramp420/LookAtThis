@@ -1,6 +1,13 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.27', items: [
+      'Opravené: po otvorení klipu, ktorý už mal náhľadovú kópiu, sa uložil v nižšom rozlíšení. Uložené video je teraz vždy v plnej kvalite. V editoroch pribudol prepínač náhľadu v plnej kvalite (HD).',
+      'Keyframy v advanced editore: priblíženie, poloha, otočenie (video aj text) a hlasitosť úseku. Kosoštvorce na osi sa dajú ťahať, ku každému nastavíš krivku (plynulo, rozbeh, dobeh, s prekmitom, skok alebo vlastnú).',
+      'Efekty: pomalý nájazd, oddialenie, Ken Burns, úder, nájazd na moment, zatrasenie, otočka a prílet zboku. Pridajú sa ako keyframy, takže sa dajú doladiť.',
+      'Klipy na osi presunieš pred alebo za iné klipy, ostatné plynulo uhnú. Zvuk pripojíš späť k videu aj po posunutí (pravý klik).',
+      'Panely editora si zväčšíš ťahaním za okraj, vľavo pribudli karty Text a Efekty. Priebeh zvuku je v decibeloch, takže sú vidieť aj tiché stopy.'
+    ] },
     { v: '1.0.26', items: [
       'Plynulejšie editory: ku každému klipu sa na grafike vyrobí ľahká náhľadová kópia. Skok na iné miesto je hneď a posúvanie po osi skoro nezaťaží procesor. Export stále berie pôvodnú kvalitu.',
       'Pri ťahaní po časovej osi sa video už nesnaží dobehnúť každý pohyb myši, ide rovno na posledné miesto.',

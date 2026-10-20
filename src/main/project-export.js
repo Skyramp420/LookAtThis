@@ -17,6 +17,9 @@ const even = x => Math.max(2, Math.round(x / 2) * 2);
 const clamp01 = x => Math.max(0, Math.min(1, Number(x)));
 const spd = x => Math.max(0.25, Math.min(4, Number(x) || 1));
 const n3 = x => Number(x).toFixed(3);
+/* výrazy z editora (keyframy): len čísla, t, operátory a funkcie ffmpeg (if, lt, gte, …) — nič iné do filtra nepustíme */
+const safeE = (e, def) => { const s = String(e == null ? def : e).trim(); return /^[0-9a-z_.+\-*/(),\s]*$/i.test(s) && s.length < 60000 ? s : String(def); };
+const isConst = (e, v) => { const n = Number(e); return Number.isFinite(n) && Math.abs(n - v) < 1e-6; };
 function atempo(r) {
   const f = [];
   while (r < 0.5) { f.push('atempo=0.5'); r /= 0.5; }
@@ -69,8 +72,16 @@ function buildArgs(job, encArgs) {
   video.forEach((it, k) => {
     args.push('-ss', n3(it.in), '-t', n3(it.out - it.in), '-i', it.file);
     const idx = nIn++;
-    fc.push(`[${idx}:v]${videoChain(it, W, H, F).join(',')}[vi${k}]`);
-    fc.push(`[${v}][vi${k}]overlay=eof_action=pass:repeatlast=0[vb${k}]`);
+    const f = videoChain(it, W, H, F);
+    // pohyb z keyframov: otočenie a priblíženie okolo stredu, potom posun (rovnako ako náhľad)
+    const m = it.motion || {}, S = safeE(m.s, 1), X = safeE(m.x, 0), Y = safeE(m.y, 0), R = safeE(m.r, 0);
+    let ov = 'overlay=eof_action=pass:repeatlast=0';
+    if (!isConst(R, 0)) f.push('format=rgba', `rotate=a='(${R})*PI/180':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0`);
+    if (!isConst(S, 1)) f.push(`scale=w='max(2,trunc(iw*(${S})/2)*2)':h='max(2,trunc(ih*(${S})/2)*2)':eval=frame`);
+    if (!isConst(R, 0) || !isConst(S, 1) || !isConst(X, 0) || !isConst(Y, 0))
+      ov = `overlay=x='(main_w-overlay_w)/2+(${X})*main_w':y='(main_h-overlay_h)/2+(${Y})*main_h':eval=frame:eof_action=pass:repeatlast=0`;
+    fc.push(`[${idx}:v]${f.join(',')}[vi${k}]`);
+    fc.push(`[${v}][vi${k}]${ov}[vb${k}]`);
     v = `vb${k}`;
   });
 
@@ -82,14 +93,18 @@ function buildArgs(job, encArgs) {
     const f = ['format=rgba'];
     if (o.animIn && o.animIn !== 'none') f.push(`fade=t=in:st=${S}:d=${o.animIn === 'pop' ? 0.2 : 0.35}:alpha=1`);
     if (o.animOut === 'fade') f.push(`fade=t=out:st=${n3(Math.max(s, e - 0.3))}:d=0.3:alpha=1`);
-    if (o.animIn === 'pop') {
-      const P = `clip((t-${S})/0.35,0,1)`;
-      const sc = `(0.5+0.5*(1+2.70158*pow(${P}-1,3)+1.70158*pow(${P}-1,2)))`;
+    // keyframy textu (poloha ako zlomok obrazu, veľkosť, otočenie); bez nich statická poloha cx/cy
+    const XE = o.xe != null ? safeE(o.xe, 0.5) : null, YE = o.ye != null ? safeE(o.ye, 0.8) : null, SE = safeE(o.se, 1), RE = safeE(o.re, 0);
+    if (!isConst(RE, 0)) f.push(`rotate=a='(${RE})*PI/180':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0`);
+    const pop = o.animIn === 'pop' ? (() => { const P = `clip((t-${S})/0.35,0,1)`; return `(0.5+0.5*(1+2.70158*pow(${P}-1,3)+1.70158*pow(${P}-1,2)))`; })() : null;
+    if (pop || !isConst(SE, 1)) {
+      const sc = [pop, isConst(SE, 1) ? null : `(${SE})`].filter(Boolean).join('*');
       f.push(`scale=w='max(2,trunc(iw*${sc}/2)*2)':h='max(2,trunc(ih*${sc}/2)*2)':eval=frame`);
     }
     const dy = o.animIn === 'slide' ? `+pow(1-clip((t-${S})/0.4,0,1),3)*${(H * 0.05).toFixed(1)}` : '';
+    const ox = XE != null ? `(${XE})*${W}` : Number(o.cx).toFixed(1), oy = YE != null ? `(${YE})*${H}` : Number(o.cy).toFixed(1);
     fc.push(`[${idx}:v]${f.join(',')}[tx${k}]`);
-    fc.push(`[${v}][tx${k}]overlay=x='${Number(o.cx).toFixed(1)}-overlay_w/2':y='${Number(o.cy).toFixed(1)}-overlay_h/2${dy}':eval=frame:enable='between(t,${S},${E})'[to${k}]`);
+    fc.push(`[${v}][tx${k}]overlay=x='${ox}-overlay_w/2':y='${oy}-overlay_h/2${dy}':eval=frame:enable='between(t,${S},${E})'[to${k}]`);
     v = `to${k}`;
   });
   fc.push(`[${v}]format=yuv420p[vout]`);
@@ -102,6 +117,7 @@ function buildArgs(job, encArgs) {
     const r = spd(a.speed), od = (a.out - a.in) / r, F2 = Math.min(0.5, od / 3);
     const f = ['aformat=sample_rates=48000:channel_layouts=stereo', 'asetpts=PTS-STARTPTS', ...atempo(r)];
     if (Math.abs(a.vol - 1) > 1e-3) f.push(`volume=${Number(a.vol).toFixed(3)}`);
+    if (a.volE) f.push(`volume='${safeE(a.volE, 1)}':eval=frame`); // hlasitosť z keyframov (t = čas od začiatku úseku)
     if (a.fadeIn) f.push(`afade=t=in:st=0:d=${n3(F2)}`);
     if (a.fadeOut) f.push(`afade=t=out:st=${n3(od - F2)}:d=${n3(F2)}`);
     if (a.start > 0.0005) f.push(`adelay=${Math.round(a.start * 1000)}:all=1`);
