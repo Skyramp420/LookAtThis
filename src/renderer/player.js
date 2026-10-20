@@ -479,7 +479,8 @@ window.Player = (function () {
       placeCanvas();
       src.video.playbackRate = sp(seg);
       src.audios.forEach(a => { a.playbackRate = sp(seg); });
-      if (Math.abs(src.video.currentTime - local) > 0.04) UI.smoothSeek(src.video, local); // pri ťahaní sa skoky nezhromažďujú
+      const vv = src.video, cur = vv._target != null && (vv.seeking || Math.abs(vv.currentTime - vv._target) < 0.05) ? vv._target : vv.currentTime;
+      if (Math.abs(cur - local) > 0.04) UI.smoothSeek(vv, local); // pri ťahaní sa skoky nezhromažďujú
       src.video.muted = src.ready && src.audios.length > 0; // bez vytiahnutých stôp hrá zvuk priamo z videa
       syncAudio(true);
       if (autoplay) src.video.play().catch(() => { });

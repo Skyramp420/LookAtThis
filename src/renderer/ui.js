@@ -289,9 +289,11 @@ window.UI = (function () {
     v._want = time;
     if (!v._sk) {
       v._sk = true;
-      v.addEventListener('seeked', () => { if (v._want != null && Math.abs(v.currentTime - v._want) > 0.015) { try { v.currentTime = v._want; } catch (e) { } } });
+      // po dokončení skoku choď ďalej len vtedy, keď sa medzitým zmenil CIEĽ (nie keď video pristálo o pár ms vedľa —
+      // snímky nikdy nesedia presne a porovnávanie s currentTime robilo nekonečnú slučku = preblikávanie)
+      v.addEventListener('seeked', () => { if (v._want != null && Math.abs(v._want - v._target) > 1e-4) { v._target = v._want; try { v.currentTime = v._want; } catch (e) { } } });
     }
-    if (!v.seeking) { try { v.currentTime = time; } catch (e) { } }
+    if (!v.seeking) { v._target = time; try { v.currentTime = time; } catch (e) { } }
   }
   /* náhľad v plnej kvalite (bez proxy) — voľba si pamätá */
   const previewFull = () => { try { return localStorage.getItem('previewFull') === '1'; } catch (e) { return false; } };

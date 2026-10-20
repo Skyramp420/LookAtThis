@@ -1,6 +1,13 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.28', items: [
+      'Opravené: video v náhľade po čase stále preblikávalo (skákalo dookola na to isté miesto).',
+      'Časová os sa posúva plynulo: priebehy zvuku a náhľady už nezaostávajú. Pribudol posuvník dole, koliesko posúva v čase, Ctrl + koliesko približuje.',
+      'Posuvníky ukazujú správnu výplň, prepínače sedia aj po zmene veľkosti panelov a inšpektor sa pri úpravách už znova neanimuje.',
+      'Keyframy: klik na kosoštvorec ho vyberie a Delete zmaže len ten jeden. Pravý klik = zmazať alebo zmeniť krivku. V inšpektore je panel vybraného keyframu.',
+      'Menej záťaže pri prehrávaní (video sa neprekresľuje zbytočne každú snímku).'
+    ] },
     { v: '1.0.27', items: [
       'Opravené: po otvorení klipu, ktorý už mal náhľadovú kópiu, sa uložil v nižšom rozlíšení. Uložené video je teraz vždy v plnej kvalite. V editoroch pribudol prepínač náhľadu v plnej kvalite (HD).',
       'Keyframy v advanced editore: priblíženie, poloha, otočenie (video aj text) a hlasitosť úseku. Kosoštvorce na osi sa dajú ťahať, ku každému nastavíš krivku (plynulo, rozbeh, dobeh, s prekmitom, skok alebo vlastnú).',
