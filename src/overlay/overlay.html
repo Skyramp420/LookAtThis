@@ -63,6 +63,21 @@
   @keyframes bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
   .err .bar, .err .burst { display: none; }
   .err .board { fill: #3a2224; }
+  /* ukladanie: točiaci sa prstenec, pulzujúce „play“ a bežiaci prúžok dole, kým sa klip spája */
+  .sav-svg { display: none; }
+  .card.saving .clap-svg, .card.saving .eye-svg { display: none !important; }
+  .card.saving .sav-svg { display: block; }
+  .sav-ring { transform-origin: 30px 27px; animation: savspin .95s linear infinite; }
+  @keyframes savspin { to { transform: rotate(360deg); } }
+  .sav-play { transform-origin: 30px 27px; animation: savpulse 1.1s ease-in-out infinite; }
+  @keyframes savpulse { 50% { transform: scale(.78); opacity: .7; } }
+  .card.saving.in .bar { transform: none; width: 38%; opacity: 1; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: savbar 1.15s ease-in-out infinite; }
+  @keyframes savbar { from { transform: translateX(-100%); } to { transform: translateX(265%); } }
+  .card.saving #t::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: savdots 1.2s steps(1) infinite; }
+  @keyframes savdots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  /* z ukladania plynule na výsledok: karta ostane na mieste, mení sa len ikona a text */
+  .card.keep { opacity: 1; transform: none; }
+  .card.keep.in .tx, .card.saving.in .tx { animation-delay: .08s; }
   /* kontrolka: hra sa skryla pred snímaním, svieti v rohu kým to trvá */
   #badge { position: absolute; top: 6px; right: 14px; display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border-radius: 20px; background: rgba(28, 28, 30, .86); backdrop-filter: blur(24px) saturate(1.8); color: #f5f5f7; font-size: 12.5px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; box-shadow: 0 0 0 .5px rgba(255, 69, 58, .55), 0 6px 18px rgba(0, 0, 0, .4); opacity: 0; transform: translateY(-8px) scale(.94); transition: opacity .3s ease, transform .45s cubic-bezier(.32, 1.25, .5, 1); }
   body.left #badge { right: auto; left: 14px; }
@@ -99,6 +114,11 @@
         <!-- záblesk pri tlesknutí -->
         <g class="burst"><line x1="58" y1="14" x2="66" y2="8"/><line x1="60" y1="21" x2="69" y2="21"/><line x1="58" y1="28" x2="66" y2="33"/></g>
       </svg>
+      <svg class="sav-svg" viewBox="0 0 60 54">
+        <circle cx="30" cy="27" r="19" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="4"/>
+        <circle class="sav-ring" cx="30" cy="27" r="19" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" stroke-dasharray="30 90"/>
+        <path class="sav-play" d="M26.4 20.6v12.8l10.6-6.4z" fill="#f5f5f7" stroke="#f5f5f7" stroke-width="1.6" stroke-linejoin="round"/>
+      </svg>
       <svg class="eye-svg" viewBox="0 0 60 54">
         <defs><clipPath id="ec"><path d="M4 27c6-10 14-15.5 26-15.5S50 17 56 27c-6 10-14 15.5-26 15.5S10 37 4 27z"/></clipPath></defs>
         <g class="lid">
@@ -119,15 +139,18 @@
 <script>
   let hideT = null;
   const esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  /* d = { kind: 'clip'|'rec'|'recStop'|'error', title, sub, game, accent, corner, ms } */
+  /* d = { kind: 'saving'|'clip'|'rec'|'recStop'|'error', title, sub, game, accent, corner, ms } */
   function play(d) {
     const card = document.getElementById('card');
     document.body.classList.toggle('left', /l$/.test(d.corner || 'tr'));
     document.body.classList.toggle('eye', (d.style || 'eye') === 'eye');
     document.documentElement.style.setProperty('--accent', d.accent || '#ff9f0a');
-    card.className = 'card';
+    // práve sa ukladalo a prišiel výsledok → karta zostane na mieste a plynule prejde na „uložené“ / chybu
+    const morph = d.kind !== 'saving' && card.classList.contains('saving') && card.classList.contains('in') && !card.classList.contains('out');
+    card.className = morph ? 'card keep' : 'card';
     void card.offsetWidth;
     card.classList.add('in');
+    if (d.kind === 'saving') card.classList.add('saving');
     if (d.kind === 'clip' || d.kind === 'recStop') card.classList.add('snap');
     if (d.kind === 'rec') card.classList.add('rec');
     if (d.kind === 'error') card.classList.add('err');
@@ -135,7 +158,7 @@
     document.getElementById('s').innerHTML = (d.game ? `<em>${esc(d.game)}</em> · ` : '') + esc(d.sub || '');
     clearTimeout(hideT);
     document.body.classList.add('busy');
-    hideT = setTimeout(() => { card.classList.add('out'); setTimeout(() => document.body.classList.remove('busy'), 350); }, d.ms || 2700);
+    hideT = setTimeout(() => { card.classList.remove('keep'); card.classList.add('out'); setTimeout(() => document.body.classList.remove('busy'), 350); }, d.ms || 2700);
   }
   /* d = { name, corner, accent } alebo null (zhasni) */
   function badge(d) {

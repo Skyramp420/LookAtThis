@@ -127,10 +127,14 @@ window.UI = (function () {
   }
 
   /* ---------- modál ---------- */
-  let onCloseModal = null, beforeCloseModal = null;
+  let onCloseModal = null, beforeCloseModal = null, closeT = 0;
   /* beforeClose: vráti false = nezatváraj (napr. neuložené úpravy v editore); closeModal(true) ho obíde */
   function modal(html, cls = '', onClose, beforeClose) {
     const wrap = $('#modalWrap'), m = $('#modal');
+    // rýchle klikanie: starý modál sa ešte nedozatváral. Najprv ho riadne ukonči (editor tak zastaví zvuk) a zruš jeho
+    // časovač, ktorý by inak o chvíľu zmazal obsah NOVÉHO okna (editor by bežal „naslepo“ a hral na pozadí)
+    clearTimeout(closeT); closeT = 0;
+    if (onCloseModal) { const f = onCloseModal; onCloseModal = null; try { f(); } catch (e) { } }
     m.className = 'modal ' + cls; m.innerHTML = html;
     wrap.hidden = false; wrap.classList.remove('closing');
     onCloseModal = onClose || null; beforeCloseModal = beforeClose || null;
@@ -143,7 +147,8 @@ window.UI = (function () {
     beforeCloseModal = null;
     if (onCloseModal) { try { onCloseModal(); } catch (e) { } onCloseModal = null; }
     wrap.classList.add('closing');
-    setTimeout(() => { wrap.hidden = true; $('#modal').innerHTML = ''; }, 180);
+    clearTimeout(closeT);
+    closeT = setTimeout(() => { closeT = 0; wrap.hidden = true; $('#modal').innerHTML = ''; }, 180);
   }
   $('#modalWrap').addEventListener('mousedown', e => { if (e.target.id === 'modalWrap') closeModal(); });
   // Esc zavrie dialóg; v malých dialógoch aj keď je kurzor v poli (v editore nie, tam Esc ruší výber)
@@ -298,9 +303,10 @@ window.UI = (function () {
   /* náhľad v plnej kvalite (bez proxy) — voľba si pamätá */
   const previewFull = () => { try { return localStorage.getItem('previewFull') === '1'; } catch (e) { return false; } };
   function swapSrc(v, file) {
+    if (v._dead) return; // editor sa medzitým zavrel
     const keep = v.currentTime, wasPlaying = !v.paused, rate = v.playbackRate;
     v.src = fileUrl(file);
-    v.addEventListener('loadedmetadata', () => { try { v.currentTime = keep; } catch (e) { } v.playbackRate = rate; if (wasPlaying) v.play().catch(() => { }); }, { once: true });
+    v.addEventListener('loadedmetadata', () => { if (v._dead) return; try { v.currentTime = keep; } catch (e) { } v.playbackRate = rate; if (wasPlaying) v.play().catch(() => { }); }, { once: true });
   }
   function useProxy(v, file) {
     if (!v || !file || !window.api) return Promise.resolve(false);
@@ -308,7 +314,7 @@ window.UI = (function () {
     // najprv nech sa načíta originál (jeho rozmery a dĺžka), až potom prepínaj — inak by editor prevzal rozmery kópie
     const ready = v.readyState >= 1 ? Promise.resolve() : new Promise(r => { v.addEventListener('loadedmetadata', r, { once: true }); v.addEventListener('error', r, { once: true }); });
     return Promise.all([api.action('proxy', { path: file }), ready]).then(([px]) => {
-      if (!px || !v.isConnected) return false;
+      if (!px || !v.isConnected || v._dead) return false;
       v._proxy = px;
       if (!previewFull()) { swapSrc(v, px); v._usingProxy = true; }
       return true;

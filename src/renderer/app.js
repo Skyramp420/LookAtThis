@@ -18,7 +18,7 @@
     discord: { c: '#bf5af2', ic: '<svg viewBox="0 0 20 20"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h7A2.5 2.5 0 0 1 16 5.5v5a2.5 2.5 0 0 1-2.5 2.5H9l-4 3.5V13A2.5 2.5 0 0 1 4 10.5z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>', hint: 'Hlasový chat zvlášť, aby si ho mohol stlmiť pri strihu.' },
     mic: { c: '#30d158', ic: '<svg viewBox="0 0 20 20"><rect x="7.5" y="2.5" width="5" height="9.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>', hint: 'Tvoj mikrofón vo vlastnej stope.' }
   };
-  const VIEWS = { clips: ['Klipy', ''], projects: ['Projekty', 'Montáže z advanced editora. Ukladajú sa samé pri každej úprave.'], audio: ['Zvuk', 'Každá stopa ide do clipu zvlášť. Zariadenia hľadám podľa ID, nie podľa poradia.'], settings: ['Nastavenia', ''] };
+  const VIEWS = { clips: ['Klipy', ''], projects: ['Projekty', 'Montáže z advanced editora. Ukladajú sa samé pri každej úprave.'], audio: ['Zvuk', 'Každá stopa ide do clipu zvlášť. Zariadenia hľadám podľa ID, nie podľa poradia.'], settings: ['Nastavenia', 'Prispôsob si appku. Hocičo nájdeš cez hľadanie vľavo.'] };
 
   /* ---------- vzhľad ---------- */
   const mq = matchMedia('(prefers-color-scheme: dark)');
@@ -49,6 +49,7 @@
     $$('.view').forEach(s => { s.hidden = s.id !== 'view-' + v; });
     const sec = $('#view-' + v); sec.classList.remove('enter'); void sec.offsetWidth; sec.classList.add('enter');
     render();
+    try { perfWatch(); } catch (e) { }
   }
   function moveInd() {
     const a = $('#nav button.active'), ind = $('#navInd');
@@ -1327,6 +1328,158 @@
     const now = ef ? (ef.save ? `Teraz zapnutý: ${ef.res ? ef.res + 'p' : 'natívne'} · ${ef.fps} fps.` : 'Teraz vypnutý.') : '';
     return `Na slabšom PC zníži fps, rozlíšenie a záťaž enkodéra, aby hra nesekala. ${now}<br><span class="sys-line">${pc}</span>`;
   }
+
+  /* ---------- kategórie nastavení ---------- */
+  const SI = p => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+  const IC = {
+    rec: SI('<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.6" fill="currentColor" stroke="none"/>'),
+    folder: I.folder,
+    keys: SI('<rect x="2.5" y="5.5" width="15" height="9" rx="2.5"/><path d="M5.5 9h.01M8.5 9h.01M11.5 9h.01M14.5 9h.01M6.5 12h7"/>'),
+    shield: SI('<path d="M10 2.8 4.5 5v4.6c0 3.4 2.3 6 5.5 7.6 3.2-1.6 5.5-4.2 5.5-7.6V5z"/><path d="m7.6 10 1.8 1.8 3.2-3.4"/>'),
+    video: SI('<rect x="2.5" y="4" width="15" height="10" rx="2.5"/><path d="M7 17h6M10 14v3"/>'),
+    chip: SI('<rect x="5" y="5" width="10" height="10" rx="2.5"/><path d="M8 2.5v2.5M12 2.5v2.5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5"/>'),
+    bolt: SI('<path d="M11 2.5 4.5 11H10l-1 6.5L15.5 9H10z"/>'),
+    gauge: SI('<path d="M3.2 14a7 7 0 1 1 13.6 0"/><path d="m10 11 3-4.2"/><circle cx="10" cy="11.4" r="1" fill="currentColor"/>'),
+    obs: SI('<circle cx="10" cy="10" r="2"/><path d="M5.6 5.6a6.2 6.2 0 0 0 0 8.8M14.4 5.6a6.2 6.2 0 0 1 0 8.8M3.4 3.4a9.3 9.3 0 0 0 0 13.2M16.6 3.4a9.3 9.3 0 0 1 0 13.2"/>'),
+    pad: SI('<path d="M6 6.5h8a4 4 0 0 1 3.9 4.9l-.6 2.6a2 2 0 0 1-3.3 1l-1.4-1.5H7.4L6 15a2 2 0 0 1-3.3-1l-.6-2.6A4 4 0 0 1 6 6.5z"/><path d="M6.5 9.2v2.6M5.2 10.5h2.6M13.5 10h.01M15 11.3h.01"/>'),
+    target: SI('<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.2"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4"/>'),
+    bell: SI('<path d="M5 8a5 5 0 0 1 10 0c0 4.4 1.6 5.2 1.6 5.2H3.4S5 12.4 5 8z"/><path d="M8.3 16.2a1.9 1.9 0 0 0 3.4 0"/>'),
+    speaker: SI('<path d="M3.5 8.2v3.6h3L10.8 15V5L6.5 8.2z"/><path d="M13.4 7.4a3.6 3.6 0 0 1 0 5.2M15.4 5.4a6.4 6.4 0 0 1 0 9.2"/>'),
+    palette: SI('<path d="M10 2.8a7.2 7.2 0 1 0 0 14.4c1.2 0 1.7-.9 1.4-1.8-.4-1.1.4-2 1.5-2h1.6a2.8 2.8 0 0 0 2.8-2.8C17.3 6.1 14 2.8 10 2.8z"/><path d="M6.4 9.3h.01M9 6.6h.01M12.4 7h.01"/>'),
+    power: SI('<path d="M10 2.8v6.4M5.6 5.4a6.2 6.2 0 1 0 8.8 0"/>'),
+    info: SI('<circle cx="10" cy="10" r="7.2"/><path d="M10 9.2v4.4M10 6.6h.01"/>'),
+    wrench: SI('<path d="M12.3 4.2a3.9 3.9 0 0 0-4.6 5L3.4 13.5a1.6 1.6 0 0 0 2.3 2.3l4.3-4.3a3.9 3.9 0 0 0 5-4.6l-2.3 2.3-1.9-.5-.5-1.9z"/>'),
+  };
+  const SET_CATS = [
+    { id: 'clip', label: 'Clipy', ic: IC.rec },
+    { id: 'keys', label: 'Skratky', ic: IC.keys },
+    { id: 'video', label: 'Video', ic: IC.video },
+    { id: 'perf', label: 'Výkon', ic: IC.gauge },
+    { id: 'obs', label: 'Nahrávanie cez OBS', ic: IC.obs },
+    { id: 'games', label: 'Hry', ic: IC.pad },
+    { id: 'overlay', label: 'Overlay a zvuk', ic: IC.bell },
+    { id: 'look', label: 'Vzhľad', ic: IC.palette },
+    { id: 'system', label: 'Systém', ic: IC.power },
+    { id: 'about', label: 'O appke', ic: IC.info },
+  ];
+  let setCat = 'clip', setQ = '', obsAsked = false;
+  try { const c = localStorage.getItem('lat.setCat'); if (SET_CATS.some(x => x.id === c)) setCat = c; } catch (e) { }
+  function setCard(cat, ic, title, desc, body) {
+    return `<section class="set-card" data-cat="${cat}"><header><div class="set-ic">${IC[ic] || ic}</div><div><h3>${title}</h3>${desc ? `<p>${desc}</p>` : ''}</div></header><div class="box">${body}</div></section>`;
+  }
+
+  /* ---------- OBS: nainštalované alebo nie ---------- */
+  function obsStatusRow() {
+    const o = S.obs || {}, on = !!(S.settings && S.settings.obsBridge);
+    if (!o.checked) return row('OBS Studio', 'Kontrolujem, či je nainštalované…', '');
+    if (o.installed) return row('OBS Studio', `<span class="obs-ok">● Nainštalované</span><span class="path">${esc(o.root)}</span>`, `<button class="btn" id="obsRecheck">${I.refresh}<span>Skontrolovať znova</span></button>`);
+    return row('OBS Studio', `<span class="obs-no">● Nie je nainštalované.</span> Stiahni ho zadarmo z oficiálnej stránky <b style="display:inline">obsproject.com</b> a nainštaluj. ${on ? '<br><span class="obs-no">Nahrávanie cez OBS je zapnuté, ale bez OBS nebude fungovať.</span>' : ''}`,
+      `<div class="btns"><button class="btn primary" id="obsDl">${I.ext}<span>Stiahnuť OBS</span></button><button class="btn" id="obsRecheck">${I.refresh}<span>Skontrolovať znova</span></button></div>`);
+  }
+
+  /* ---------- Výkon: živé meranie ---------- */
+  let perfLast = null, perfOn = false, perfT = 0;
+  const perfHist = { cpu: [], gpu: [] };
+  const PERF_NAMES = { app: 'Okno LookAtThis', enc: 'Nahrávanie (ffmpeg)', audio: 'Zvuk (pomocníci)', keys: 'Skratky', other: 'Ostatné' };
+  function perfPanel() { return `<div class="perf-live rg-keep" id="perfLive">${perfHtml()}</div>`; }
+  function spark(arr, cls) {
+    if (arr.length < 2) return '<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>';
+    const max = Math.max(8, ...arr), n = arr.length;
+    const pts = arr.map((v, i) => `${(i / (n - 1) * 100).toFixed(1)},${(29 - v / max * 27).toFixed(1)}`).join(' ');
+    return `<svg class="spark ${cls}" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+  function perfHtml() {
+    const e = perfLast;
+    if (!e) return `<div class="perf-wait">Meriam… prvé čísla prídu za pár sekúnd.</div><div class="perf-note">Meranie beží len kým je táto karta otvorená, takže hru nezaťažuje.</div>`;
+    const gpuT = e.gpu ? e.gpu.enc + e.gpu.other : null;
+    const fmtP = v => v == null ? '—' : (v < 10 ? v.toFixed(1) : Math.round(v)) + ' %';
+    const mb = b => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + ' GB' : Math.round(b / 1048576) + ' MB';
+    let verdict = '';
+    if (e.cpu != null) {
+      const gs = e.gpu ? e.gpu.enc * 0.4 + e.gpu.other : 0; // video enkodér je samostatný čip, tak ho berieme miernejšie
+      const lvl = e.cpu < 6 && gs < 20 ? ['ok', 'Nízka záťaž'] : e.cpu < 15 && gs < 45 ? ['mid', 'Stredná záťaž'] : ['hi', 'Vyššia záťaž'];
+      verdict = `<span class="perf-pill ${lvl[0]}">${lvl[1]}</span>`;
+    }
+    const off = !e.recording ? '<div class="perf-note">Buffer teraz nebeží, takže vidíš len samotné okno appky. Zapni Replay buffer a uvidíš skutočnú záťaž nahrávania.</div>' : '';
+    const gpuSub = e.gpu ? `enkodér ${fmtP(e.gpu.enc)} · ostatné ${fmtP(e.gpu.other)}` : e.gpuNa ? 'Windows to nehlási' : 'meriam…';
+    const rows = (e.parts || []).filter(p => p.id === 'app' || p.ram > 0 || p.cpu > 0).map(p => `<div class="pb-row"><span>${PERF_NAMES[p.id] || p.id}</span><i>${fmtP(p.cpu)}</i><i>${mb(p.ram)}</i></div>`).join('');
+    return `<div class="perf-head">${verdict}<span class="perf-hint">${e.recording ? 'Aktualizuje sa každé 2 s' : ''}</span></div>
+      <div class="perf-grid">
+        <div class="pm"><label>Procesor</label><b>${fmtP(e.cpu)}</b><small>z celého PC (${e.cores} jadier)</small>${spark(perfHist.cpu, 'c1')}</div>
+        <div class="pm"><label>Grafika</label><b>${fmtP(gpuT)}</b><small>${gpuSub}</small>${spark(perfHist.gpu, 'c2')}</div>
+        <div class="pm"><label>Pamäť</label><b>${mb(e.ram)}</b><small>všetky procesy appky</small></div>
+        <div class="pm"><label>Zápis na disk</label><b>${e.disk == null ? '—' : (e.disk / 1048576).toFixed(1) + ' MB/s'}</b><small>buffer v dočasnom priečinku</small></div>
+      </div>
+      ${rows ? `<div class="perf-break"><div class="pb-row pb-h"><span>Čo presne</span><i>CPU</i><i>RAM</i></div>${rows}</div>` : ''}
+      ${off}${e.warm ? '<div class="perf-note">Prvé číslo procesora bude presné až o chvíľu.</div>' : ''}
+      ${e.psOk === false ? '<div class="perf-note">Meranie ffmpegu sa nepodarilo spustiť, vidíš len okno appky.</div>' : ''}`;
+  }
+  function onPerf(ev) {
+    perfLast = ev;
+    if (ev.cpu != null) perfHist.cpu.push(ev.cpu);
+    const g = ev.gpu ? ev.gpu.enc + ev.gpu.other : null;
+    if (g != null) perfHist.gpu.push(Math.min(100, g));
+    for (const k in perfHist) if (perfHist[k].length > 45) perfHist[k].shift();
+    const el = $('#perfLive');
+    if (el && !el.closest('[hidden]')) el.innerHTML = perfHtml();
+  }
+  /* meranie beží len kým je karta Výkon naozaj vidieť; main ho sám vypne, ak 12 s nepríde ping */
+  function perfWatch() {
+    clearInterval(perfT); perfT = 0;
+    const el = view === 'settings' && !document.hidden && $('#perfLive');
+    const want = !!el && !el.closest('[hidden]');
+    if (!want) { if (perfOn) { perfOn = false; api.action('perfStop').catch(() => { }); } return; }
+    perfOn = true;
+    const ping = () => { if (!perfOn) return; const e2 = view === 'settings' && !document.hidden && $('#perfLive'); if (!e2 || e2.closest('[hidden]')) return perfWatch(); api.action('perfPing').catch(() => { }); };
+    ping(); perfT = setInterval(ping, 4000);
+  }
+  document.addEventListener('visibilitychange', () => { if (view === 'settings') perfWatch(); });
+
+  /* ---------- hľadanie a kategórie ---------- */
+  function wireSettings(root) {
+    // každý riadok (aj s čipmi / mriežkou pod ním) = jedna skupina, ktorú vie hľadanie skryť
+    $$('.set-main .box', root).forEach(box => {
+      let g = null;
+      Array.from(box.children).forEach(ch => {
+        if (ch.matches('.row') || ch.matches('.rg-keep') || !g) { g = document.createElement('div'); g.className = 'rg'; box.insertBefore(g, ch); }
+        g.appendChild(ch);
+      });
+    });
+    $$('.set-main .rg', root).forEach(g => { g._t = norm(g.textContent); });
+    $$('.set-card', root).forEach(c => { c._t = norm($('h3', c).textContent + ' ' + ($('header p', c) || { textContent: '' }).textContent); });
+    const nav = $$('.set-cat', root), empty = $('.set-empty', root);
+    const apply = () => {
+      const q = norm(setQ.trim()), words = q.split(/\s+/).filter(Boolean);
+      let shown = 0;
+      const catHit = {};
+      $$('.set-card', root).forEach(c => {
+        let any = false;
+        const titleHit = words.length && words.every(w => c._t.includes(w));
+        $$('.rg', c).forEach(g => {
+          const hit = !words.length || titleHit || words.every(w => g._t.includes(w) || c._t.includes(w));
+          g.hidden = !hit; if (hit) any = true;
+        });
+        const vis = words.length ? any : c.dataset.cat === setCat;
+        c.hidden = !vis;
+        if (vis) shown++;
+        if (any) catHit[c.dataset.cat] = true;
+      });
+      nav.forEach(b => { b.classList.toggle('active', !words.length && b.dataset.cat === setCat); b.classList.toggle('hit', !!words.length && !!catHit[b.dataset.cat]); b.classList.toggle('dim', !!words.length && !catHit[b.dataset.cat]); });
+      empty.hidden = !(words.length && !shown);
+      perfWatch();
+    };
+    nav.forEach(b => b.addEventListener('click', () => {
+      setCat = b.dataset.cat; setQ = ''; $('#setQ', root).value = '';
+      try { localStorage.setItem('lat.setCat', setCat); } catch (e) { }
+      apply();
+      const v = $('#view-settings'); if (v) v.scrollTo({ top: 0 });
+    }));
+    const inp = $('#setQ', root);
+    inp.addEventListener('input', () => { setQ = inp.value; apply(); });
+    inp.addEventListener('keydown', e => { if (e.key === 'Escape' && inp.value) { inp.value = ''; setQ = ''; apply(); e.stopPropagation(); } });
+    apply();
+  }
+
   function renderSettings() {
     const root = $('#view-settings');
     const s = S.settings, av = S.encoders || {};
@@ -1337,82 +1490,92 @@
     const mons = S.monitors || [];
     const monLabel = (mons.find(m => m.idx === Number(s.monitor)) || { label: `Monitor ${Number(s.monitor) + 1}` }).label;
     const accents = ['#ff9f0a', '#0a84ff', '#bf5af2', '#ff375f', '#ff453a', '#ffd60a', '#30d158', '#40c8e0', '#8e8e93'];
-    root.innerHTML = `<div class="settings-wrap">
-      <div class="sec-title">Clipy</div>
-      <div class="box">
-        ${row('Replay buffer', 'Beží na pozadí a drží posledné sekundy obrazovky.', toggle('bufferEnabled', s.bufferEnabled))}
-        ${row('Dĺžka clipu', 'Koľko sa uloží po stlačení skratky.', seg('bufferSeconds', [15, 30, 60, 120, 180, 300, 600].map(v => ({ v, l: v < 60 ? v + ' s' : v / 60 + ' min' })), s.bufferSeconds))}
-        ${row('Upratovanie', `Keď klipy zaberú viac, najstaršie pôjdu do Koša. Obľúbené a klipy v priečinkoch sa nikdy nemažú. Teraz zaberajú ${esc(size(S.clips.reduce((a, c) => a + c.size, 0)))}.`, seg('cleanupGB', [{ v: 0, l: 'Vypnuté' }, { v: 20, l: '20 GB' }, { v: 50, l: '50 GB' }, { v: 100, l: '100 GB' }, { v: 200, l: '200 GB' }], s.cleanupGB || 0))}
-        ${row('Priečinok', `<span class="path">${esc(s.clipsDir)}</span>`, `<button class="btn" id="pickDir">${I.folder}<span>Zmeniť</span></button>`)}
-      </div>
+    root.innerHTML = `<div class="set-layout">
+      <aside class="set-nav">
+        <label class="set-search">${I.search}<input id="setQ" type="text" placeholder="Hľadať v nastaveniach" value="${esc(setQ)}" autocomplete="off" spellcheck="false"></label>
+        <nav>${SET_CATS.map(c => `<button class="set-cat" data-cat="${c.id}">${c.ic}<span>${c.label}</span></button>`).join('')}</nav>
+      </aside>
+      <div class="set-main">
+        ${setCard('clip', 'rec', 'Nahrávanie na pozadí', 'Čo sa drží v pamäti a koľko sa uloží po skratke.',
+        `${row('Replay buffer', 'Beží na pozadí a drží posledné sekundy obrazovky.', toggle('bufferEnabled', s.bufferEnabled))}
+        ${row('Dĺžka clipu', 'Koľko sa uloží po stlačení skratky.', seg('bufferSeconds', [15, 30, 60, 120, 180, 300, 600].map(v => ({ v, l: v < 60 ? v + ' s' : v / 60 + ' min' })), s.bufferSeconds))}`)}
+        ${setCard('clip', 'folder', 'Ukladanie', 'Kam sa clipy ukladajú a kedy sa najstaršie upratú.',
+        `${row('Upratovanie', `Keď klipy zaberú viac, najstaršie pôjdu do Koša. Obľúbené a klipy v priečinkoch sa nikdy nemažú. Teraz zaberajú ${esc(size(S.clips.reduce((a, c) => a + c.size, 0)))}.`, seg('cleanupGB', [{ v: 0, l: 'Vypnuté' }, { v: 20, l: '20 GB' }, { v: 50, l: '50 GB' }, { v: 100, l: '100 GB' }, { v: 200, l: '200 GB' }], s.cleanupGB || 0))}
+        ${row('Priečinok', `<span class="path">${esc(s.clipsDir)}</span>`, `<button class="btn" id="pickDir">${I.folder}<span>Zmeniť</span></button>`)}`)}
 
-      <div class="sec-title">Skratky</div>
-      <div class="box">
-        ${row('Uložiť clip', S.hotkeyErrors.includes('clip') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Funguje aj v hre na celú obrazovku.', `<button class="hk${S.hotkeyErrors.includes('clip') ? ' bad' : ''}" data-hk="clip">${esc(s.hotkeys.clip || 'Nastaviť')}</button>`)}
+        ${setCard('keys', 'keys', 'Skratky', 'Fungujú aj v hre. Klikni na skratku a stlač novú kombináciu.',
+        `${row('Uložiť clip', S.hotkeyErrors.includes('clip') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Funguje aj v hre na celú obrazovku.', `<button class="hk${S.hotkeyErrors.includes('clip') ? ' bad' : ''}" data-hk="clip">${esc(s.hotkeys.clip || 'Nastaviť')}</button>`)}
         ${row('Krátky clip', S.hotkeyErrors.includes('short') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Druhá skratka, ktorá uloží len posledných pár sekúnd. Backspace ju zruší.', `${seg('shortSeconds', [10, 15, 20, 30].map(v => ({ v, l: v + ' s' })), s.shortSeconds || 15)}<button class="hk${S.hotkeyErrors.includes('short') ? ' bad' : ''}" data-hk="short">${esc(s.hotkeys.short || 'Nastaviť')}</button>`)}
         ${row('Spustiť / zastaviť nahrávanie', S.hotkeyErrors.includes('record') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : '', `<button class="hk${S.hotkeyErrors.includes('record') ? ' bad' : ''}" data-hk="record">${esc(s.hotkeys.record || 'Nastaviť')}</button>`)}
-        ${row('Značka', S.hotkeyErrors.includes('mark') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Označí zaujímavý moment počas hrania alebo nahrávania. V editore naň skočíš klávesou M.', `<button class="hk${S.hotkeyErrors.includes('mark') ? ' bad' : ''}" data-hk="mark">${esc(s.hotkeys.mark || 'Nastaviť')}</button>`)}
-        ${row('Rozšírené zachytávanie kláves', 'Raw Input: skratky prídu aj keď hra drží klávesnicu pre seba. Vypni, ak by hra s anti-cheatom robila problémy.', toggle('rawInput', s.rawInput !== false))}
-        ${row('Skratky v hrách s anti-cheatom', 'LoL, Valorant a podobné hry bežia ako správca a Windows bežným appkám ich klávesy nepustí. Zapni, ak ti skratka v hre nejde. Pri štarte appky sa Windows raz opýta na povolenie.', toggle('hotkeysAdmin', !!s.hotkeysAdmin))}
-      </div>
+        ${row('Značka', S.hotkeyErrors.includes('mark') ? '<span style="color:var(--rec)">Túto skratku už používa iná appka.</span>' : 'Označí zaujímavý moment počas hrania alebo nahrávania. V editore naň skočíš klávesou M.', `<button class="hk${S.hotkeyErrors.includes('mark') ? ' bad' : ''}" data-hk="mark">${esc(s.hotkeys.mark || 'Nastaviť')}</button>`)}`)}
+        ${setCard('keys', 'shield', 'Zachytávanie kláves', 'Ak by ti skratka v nejakej hre nešla.',
+        `${row('Rozšírené zachytávanie kláves', 'Raw Input: skratky prídu aj keď hra drží klávesnicu pre seba. Vypni, ak by hra s anti-cheatom robila problémy.', toggle('rawInput', s.rawInput !== false))}
+        ${row('Skratky v hrách s anti-cheatom', 'LoL, Valorant a podobné hry bežia ako správca a Windows bežným appkám ich klávesy nepustí. Zapni, ak ti skratka v hre nejde. Pri štarte appky sa Windows raz opýta na povolenie.', toggle('hotkeysAdmin', !!s.hotkeysAdmin))}`)}
 
-      <div class="sec-title">Video</div>
-      <div class="box">
-        ${row('Monitor', '', pb(monLabel, () => mons.map(m => ({ label: m.label, v: m.idx, checked: m.idx === Number(s.monitor) })), it => save({ monitor: it.v })))}
+        ${setCard('video', 'video', 'Obraz', 'Čo a ako sa nahráva.',
+        `${row('Monitor', '', pb(monLabel, () => mons.map(m => ({ label: m.label, v: m.idx, checked: m.idx === Number(s.monitor) })), it => save({ monitor: it.v })))}
         ${row('Snímky za sekundu', '', seg('fps', [30, 60, 120, 144].map(v => ({ v, l: String(v) })), s.fps))}
         ${row('Rozlíšenie', 'Natívne ide priamo z grafiky bez kopírovania, preto je najľahšie.', seg('resolution', [{ v: 'native', l: 'Natívne' }, { v: '1440', l: '1440p' }, { v: '1080', l: '1080p' }, { v: '720', l: '720p' }], s.resolution))}
         ${row('Kvalita', '', seg('quality', [{ v: 'high', l: 'Vysoká' }, { v: 'medium', l: 'Stredná' }, { v: 'low', l: 'Nízka' }], s.quality))}
-        ${row('Enkodér', `<span class="enc-tags">${['h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'h264_amf', 'h264_qsv', 'libx264'].map(k => `<span class="${av[k] ? 'ok' : ''}">${k}</span>`).join('')}</span>`, pb(encName[s.encoder] || encName.auto, encItems, it => save({ encoder: it.v })))}
-        ${row('Kodek', 'H.264 otvorí všetko. HEVC a AV1 sú menšie súbory, ale nie každý strihový program ich zvládne.', seg('codec', [{ v: 'h264', l: 'H.264' }, { v: 'hevc', l: 'HEVC', disabled: S.encoders && !codecOk.hevc }, { v: 'av1', l: 'AV1', disabled: S.encoders && !codecOk.av1 }], s.codec))}
         ${row('Kurzor myši', '', toggle('cursor', s.cursor !== false))}
-        ${row('Vyrezať okno hry v editore', 'Keď hráš v okne, editor sa otvorí rovno s výrezom len okna hry (napr. 16:9 zo širokého monitora). Vrátiš to cez Formát → Celá obrazovka.', toggle('autoWinCrop', !!s.autoWinCrop))}
-        ${row('Úsporný režim', perfDesc(s), seg('powerSave', [{ v: 'auto', l: 'Automaticky' }, { v: 'on', l: 'Zapnutý' }, { v: 'off', l: 'Vypnutý' }], s.powerSave || 'auto'))}
-      </div>
+        ${row('Vyrezať okno hry v editore', 'Keď hráš v okne, editor sa otvorí rovno s výrezom len okna hry (napr. 16:9 zo širokého monitora). Vrátiš to cez Formát → Celá obrazovka.', toggle('autoWinCrop', !!s.autoWinCrop))}`)}
+        ${setCard('video', 'chip', 'Enkodér a kodek', 'Kto video stláča a v akom formáte.',
+        `${row('Enkodér', `<span class="enc-tags">${['h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'h264_amf', 'h264_qsv', 'libx264'].map(k => `<span class="${av[k] ? 'ok' : ''}">${k}</span>`).join('')}</span>`, pb(encName[s.encoder] || encName.auto, encItems, it => save({ encoder: it.v })))}
+        ${row('Kodek', 'H.264 otvorí všetko. HEVC a AV1 sú menšie súbory, ale nie každý strihový program ich zvládne.', seg('codec', [{ v: 'h264', l: 'H.264' }, { v: 'hevc', l: 'HEVC', disabled: S.encoders && !codecOk.hevc }, { v: 'av1', l: 'AV1', disabled: S.encoders && !codecOk.av1 }], s.codec))}`)}
 
-      <div class="sec-title">Hry, čo sa skrývajú pred nahrávaním (Valorant)</div>
-      <div class="box">
-        ${row('Nahrávať cez OBS', 'Valorant a niektoré hry zakážu snímanie obrazovky (vo videu je potom len plocha). Keď je toto zapnuté, LookAtThis spustí s takou hrou na pozadí OBS (skrytý v tray). Kým sa hra skrýva, obraz do klipu dodá OBS a zvuk ostane z LookAtThis so všetkými stopami, zosynchronizovaný. Keď hru vypneš, OBS sa samo zavrie. Vyžaduje nainštalovaný OBS a tvoje vlastné OBS musí byť zavreté.', toggle('obsBridge', !!s.obsBridge))}
-      </div>
+        ${setCard('perf', 'bolt', 'Prispôsobenie PC', 'Aby hra nesekala ani na slabšom počítači.',
+        `${row('Úsporný režim', perfDesc(s), seg('powerSave', [{ v: 'auto', l: 'Automaticky' }, { v: 'on', l: 'Zapnutý' }, { v: 'off', l: 'Vypnutý' }], s.powerSave || 'auto'))}`)}
+        ${setCard('perf', 'gauge', 'Záťaž LookAtThis', 'Koľko výkonu appka berie, kým beží nahrávanie.',
+        perfPanel())}
 
-      <div class="sec-title">Hry</div>
-      <div class="box">
-        ${row('Nainštalované hry', S.scanningGames ? 'Hľadám v Steame, Epicu, GOG, Ubisofte, Xboxe, Riote a Minecrafte…' : `${(S.installed || []).length} nájdených. Stopa Hra ich spozná aj v okne a klipy dostanú ich názov a ikonku.`, `<button class="btn" id="scanG"${S.scanningGames ? ' disabled' : ''}>${I.refresh}<span>${S.scanningGames ? 'Hľadám…' : 'Hľadať znova'}</span></button>`)}
-        ${(S.installed || []).length ? `<div class="inst">${S.installed.map(g => `<span class="inst-g" title="${esc(g.name)} · ${esc(g.source)} · ${esc((g.exes || []).join(', '))}">${avatar(g.name, null, 'sm')}${esc(g.name)}</span>`).join('')}</div>` : ''}
-        <div style="height:6px"></div>
-        ${row('Vždy brať ako hru', 'Stopa Hra chytí tieto appky, aj keď nebežia na celú obrazovku.', '')}
+        ${setCard('obs', 'obs', 'OBS Studio', 'Pre hry, ktoré sa skrývajú pred snímaním obrazovky (Valorant a pod.).',
+        obsStatusRow() + `
+        ${row('Nahrávať cez OBS', 'Valorant a niektoré hry zakážu snímanie obrazovky (vo videu je potom len plocha). Keď je toto zapnuté, LookAtThis spustí s takou hrou na pozadí OBS (skrytý v tray). Kým sa hra skrýva, obraz do klipu dodá OBS a zvuk ostane z LookAtThis so všetkými stopami, zosynchronizovaný. Keď hru vypneš, OBS sa samo zavrie. Vyžaduje nainštalovaný OBS a tvoje vlastné OBS musí byť zavreté.', toggle('obsBridge', !!s.obsBridge))}`)}
+
+        ${setCard('games', 'pad', 'Nájdené hry', 'Podľa nich dostanú clipy názov a ikonku.',
+        `${row('Nainštalované hry', S.scanningGames ? 'Hľadám v Steame, Epicu, GOG, Ubisofte, Xboxe, Riote a Minecrafte…' : `${(S.installed || []).length} nájdených. Stopa Hra ich spozná aj v okne a klipy dostanú ich názov a ikonku.`, `<button class="btn" id="scanG"${S.scanningGames ? ' disabled' : ''}>${I.refresh}<span>${S.scanningGames ? 'Hľadám…' : 'Hľadať znova'}</span></button>`)}
+        ${(S.installed || []).length ? `<div class="inst">${S.installed.map(g => `<span class="inst-g" title="${esc(g.name)} · ${esc(g.source)} · ${esc((g.exes || []).join(', '))}">${avatar(g.name, null, 'sm')}${esc(g.name)}</span>`).join('')}</div>` : ''}`)}
+        ${setCard('games', 'target', 'Rozpoznávanie hier', 'Čo sa má brať ako hra a čo nie.',
+        `${row('Vždy brať ako hru', 'Stopa Hra chytí tieto appky, aj keď nebežia na celú obrazovku.', '')}
         ${chipList('games', s.games || [])}
         <div style="height:12px"></div>
         ${row('Nikdy nebrať ako hru', 'Discord, prehliadač na celú obrazovku a podobne.', `<button class="btn ghost small" id="resetEx">Predvolené</button>`)}
-        ${chipList('exclude', s.exclude || [])}
-      </div>
+        ${chipList('exclude', s.exclude || [])}`)}
 
-      <div class="sec-title">Systém</div>
-      <div class="box">
-        ${row('Spustiť s Windowsom', 'Skryto v lište vedľa hodín, ako to máš teraz s OBS.', toggle('launchAtLogin', s.launchAtLogin))}
-        ${row('Zavrieť do lišty', 'Krížik okno len skryje, buffer beží ďalej.', toggle('closeToTray', s.closeToTray))}
-        ${row('Notifikácie Windowsu', s.overlay !== false ? 'Pri uložení clipu stačí overlay, notifikácia príde len pri chybe.' : 'Keď sa clip uloží a okno nie je vpredu, aj pri chybe.', toggle('notify', s.notify))}
-        ${row('Overlay po uložení clipu', 'V rohu obrazovky sa na chvíľu ukáže oko alebo klapka. Vidno ho nad hrou v okne alebo v borderless režime, nie v exkluzívnom fullscreene.', `<button class="btn small ghost" id="ovTest">Ukážka</button>${toggle('overlay', s.overlay !== false)}`)}
+        ${setCard('overlay', 'bell', 'Overlay', 'Ukáže sa v rohu obrazovky pri ukladaní a po uložení clipu.',
+        `${row('Overlay po uložení clipu', 'V rohu obrazovky sa na chvíľu ukáže oko alebo klapka. Vidno ho nad hrou v okne alebo v borderless režime, nie v exkluzívnom fullscreene.', `<button class="btn small ghost" id="ovTest">Ukážka</button>${toggle('overlay', s.overlay !== false)}`)}
         ${s.overlay !== false ? row('Animácia', '', seg('overlayStyle', [{ v: 'eye', l: 'Oko' }, { v: 'clap', l: 'Klapka' }], s.overlayStyle || 'eye')) : ''}
-        ${s.overlay !== false ? row('Roh obrazovky', '', seg('overlayCorner', [{ v: 'tl', l: '↖ Vľavo hore' }, { v: 'tr', l: 'Vpravo hore ↗' }, { v: 'bl', l: '↙ Vľavo dole' }, { v: 'br', l: 'Vpravo dole ↘' }], s.overlayCorner || 'tr')) : ''}
-        ${row('Zvuk po uložení clipu', 'Počuť ho aj v hre.', toggle('sounds', s.sounds))}
+        ${s.overlay !== false ? row('Roh obrazovky', '', seg('overlayCorner', [{ v: 'tl', l: '↖ Vľavo hore' }, { v: 'tr', l: 'Vpravo hore ↗' }, { v: 'bl', l: '↙ Vľavo dole' }, { v: 'br', l: 'Vpravo dole ↘' }], s.overlayCorner || 'tr')) : ''}`)}
+        ${setCard('overlay', 'speaker', 'Zvuk', 'Počuť ho aj v hre.',
+        `${row('Zvuk po uložení clipu', 'Počuť ho aj v hre.', toggle('sounds', s.sounds))}
         ${s.sounds ? `<div class="snd-grid">${UI.SOUNDS.map(x => `<button class="snd${(s.clipSound || 'beep') === x.id ? ' on' : ''}" data-snd="${x.id}">${x.id === 'none' ? '' : '<i>▶</i>'}${esc(x.label)}</button>`).join('')}</div>
-        ${row('Hlasitosť zvuku', '', `<input type="range" id="sndVol" min="0" max="100" value="${Math.round((s.soundVolume ?? 0.6) * 100)}" style="--p:${Math.round((s.soundVolume ?? 0.6) * 100)}%;width:180px">`)}` : ''}
-        ${row('Vzhľad', '', seg('appearance', [{ v: 'auto', l: 'Podľa Windowsu' }, { v: 'light', l: 'Svetlý' }, { v: 'dark', l: 'Tmavý' }], s.appearance))}
-        ${row('Farba', '', `<div class="swatches">${accents.map(a => `<button style="--sw:${a}" data-accent="${a}" class="${a === s.accent ? 'on' : ''}" aria-label="${a}"></button>`).join('')}</div>`)}
-      </div>
+        ${row('Hlasitosť zvuku', '', `<input type="range" id="sndVol" min="0" max="100" value="${Math.round((s.soundVolume ?? 0.6) * 100)}" style="--p:${Math.round((s.soundVolume ?? 0.6) * 100)}%;width:180px">`)}` : ''}`)}
 
-      <div class="sec-title">O appke</div>
-      <div class="box">
-        ${row('LookAtThis ' + esc(S.version), updDesc(), updBtn())}
+        ${setCard('look', 'palette', 'Vzhľad', 'Svetlý, tmavý a farba, ktorá sa ti páči.',
+        `${row('Vzhľad', '', seg('appearance', [{ v: 'auto', l: 'Podľa Windowsu' }, { v: 'light', l: 'Svetlý' }, { v: 'dark', l: 'Tmavý' }], s.appearance))}
+        ${row('Farba', '', `<div class="swatches">${accents.map(a => `<button style="--sw:${a}" data-accent="${a}" class="${a === s.accent ? 'on' : ''}" aria-label="${a}"></button>`).join('')}</div>`)}`)}
+
+        ${setCard('system', 'power', 'Windows', 'Ako sa appka správa so systémom.',
+        `${row('Spustiť s Windowsom', 'Skryto v lište vedľa hodín, ako to máš teraz s OBS.', toggle('launchAtLogin', s.launchAtLogin))}
+        ${row('Zavrieť do lišty', 'Krížik okno len skryje, buffer beží ďalej.', toggle('closeToTray', s.closeToTray))}
+        ${row('Notifikácie Windowsu', s.overlay !== false ? 'Pri uložení clipu stačí overlay, notifikácia príde len pri chybe.' : 'Keď sa clip uloží a okno nie je vpredu, aj pri chybe.', toggle('notify', s.notify))}`)}
+
+        ${setCard('about', 'info', 'LookAtThis', 'Verzia, aktualizácie a novinky.',
+        `${row('LookAtThis ' + esc(S.version), updDesc(), updBtn())}
         ${(S.update || {}).supported ? row('Beta verzie', 'Nové funkcie skôr, ale môžu mať chyby.', seg('updateChannel', [{ v: 'stable', l: 'Nie' }, { v: 'beta', l: 'Áno' }], s.updateChannel || 'stable')) : ''}
-        ${row('Enkodér', `Práve: ${esc(S.engine.encoder || '—')}`, `<button class="btn" id="redetect">${I.refresh}<span>Zistiť enkodéry</span></button>`)}
         ${row('Čo je nové', 'Čo sa zmenilo v posledných verziách.', `<button class="btn" id="whatsNew">Ukázať</button>`)}
-        ${row('Sprievodca nastavením', 'Skratky, zvuk, výkon a ukladanie znova krok za krokom.', `<button class="btn" id="runSetup">Spustiť znova</button>`)}
-        ${row('Log', 'Keď niečo nejde, tu je napísané prečo.', `<button class="btn" id="openLog">Otvoriť log</button>`)}
-        ${row('Ukončiť LookAtThis', 'Vypne buffer aj ikonku v lište.', `<button class="btn danger" id="quit">Ukončiť</button>`)}
+        ${row('Sprievodca nastavením', 'Skratky, zvuk, výkon a ukladanie znova krok za krokom.', `<button class="btn" id="runSetup">Spustiť znova</button>`)}`)}
+        ${setCard('about', 'wrench', 'Diagnostika', 'Keď niečo nejde, tu nájdeš prečo.',
+        `${row('Enkodér', `Práve: ${esc(S.engine.encoder || '—')}`, `<button class="btn" id="redetect">${I.refresh}<span>Zistiť enkodéry</span></button>`)}
+        ${row('Log', 'Keď niečo nejde, tu je napísané prečo.', `<div class="btns"><button class="btn" id="openLogDir">${I.folder}<span>Otvoriť priečinok</span></button><button class="btn" id="openLog">Otvoriť log</button></div>`)}
+        ${row('Ukončiť LookAtThis', 'Vypne buffer aj ikonku v lište.', `<button class="btn danger" id="quit">Ukončiť</button>`)}`)}
+
+        <div class="set-empty" hidden>${I.search}<b>Nič som nenašiel</b><span>Skús iné slovo, napr. „skratka“, „zvuk“ alebo „OBS“.</span></div>
       </div>
     </div>`;
     placeThumbs(root);
+    wireSettings(root);
+    if (!obsAsked) { obsAsked = true; api.action('obsStatus').catch(() => { }); }
     $$('[data-set]', root).forEach(cb => cb.addEventListener('change', () => save({ [cb.dataset.set]: cb.checked })));
     $$('[data-accent]', root).forEach(b => b.addEventListener('click', async () => { await save({ accent: b.dataset.accent }); applyLook(); renderSettings(); }));
     $('#pickDir', root).onclick = () => api.action('pickFolder');
@@ -1428,6 +1591,10 @@
     if (ub) ub.onclick = async () => { ub.disabled = true; try { await api.action(ub.dataset.a); } catch (e) { toast('error', 'Aktualizácia', e.message); } };
     $('#redetect', root).onclick = async e => { const b = e.currentTarget; b.disabled = true; await api.action('detectEncoders'); b.disabled = false; toast('ok', 'Enkodéry zistené'); };
     $('#openLog', root).onclick = () => api.action('openLog');
+    $('#openLogDir', root).onclick = () => api.action('openLogFolder');
+    const od = $('#obsDl', root); if (od) od.onclick = () => api.action('obsDownload');
+    const orc = $('#obsRecheck', root);
+    if (orc) orc.onclick = async () => { orc.disabled = true; try { const r = await api.action('obsStatus'); toast(r && r.installed ? 'ok' : 'warn', r && r.installed ? 'OBS nájdené' : 'OBS stále nie je nainštalované', r && r.installed ? r.root : 'Po inštalácii klikni na Skontrolovať znova.'); } catch (e) { } orc.disabled = false; };
     $('#quit', root).onclick = () => api.action('quit');
     $$('[data-chips]', root).forEach(box => {
       const key = box.dataset.chips;
@@ -1556,10 +1723,12 @@
     window.dispatchEvent(new CustomEvent('lat-levels', { detail: d }));
   });
   api.on('event', ev => {
+    if (ev.type === 'perf') { onPerf(ev); return; }
     if (Player._onEvent) Player._onEvent(ev);
     if (window.Studio && Studio._onEvent) Studio._onEvent(ev);
     if (window.__compressProg) window.__compressProg(ev);
     if (ev.type === 'toast') toast(ev.kind, ev.title, ev.body, ev.path ? { action: { label: 'Prehrať', run: () => { const c = S.clips.find(x => x.path === ev.path); if (c) openEditor([c]); } } } : {});
+    if (ev.type === 'saving') { const b = $('#clipBtn'); b.classList.toggle('busy', !!ev.on); b.querySelector('span').textContent = ev.on ? 'Ukladám…' : 'Uložiť clip'; }
     if (ev.type === 'sound' && ev.name === 'saved') { eyeAnim('wink'); window.dispatchEvent(new Event('lat-saved')); }
     // zvuky hrá hlavný proces cez overlay (fungujú aj so zatvoreným oknom), okno len žmurkne
     if (ev.type === 'update') { S.update = ev.status; renderUpdPill(); if (view === 'settings' && !busy()) renderSettings(); }

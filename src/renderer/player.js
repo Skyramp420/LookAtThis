@@ -124,6 +124,11 @@ window.Player = (function () {
     const meterDisp = [];
     const undoStack = [], redoStack = [];
     const single = () => sources.size === 1 && segs.length > 0;
+    /* všetky <video>/<audio> tohto editora. Pri zatvorení sa zastavia a uvoľnia, aj tie, čo vzniknú až neskôr
+       (zvukové stopy sa dorábajú asynchrónne, a keď editor zavrieš skôr, zostali by hrať na pozadí) */
+    const media = new Set();
+    const killMedia = el => { try { el._dead = true; el.pause(); el.removeAttribute('src'); el.load(); } catch (e) { } };
+    const own = el => { media.add(el); if (closed) killMedia(el); return el; };
 
     const m = modal(`
       <div class="ed">
@@ -216,7 +221,7 @@ window.Player = (function () {
       const v = document.createElement('video');
       v.preload = 'auto'; v.muted = true; v.src = fileUrl(clip.path);
       vids.appendChild(v);
-      src.video = v;
+      src.video = v; own(v);
       UI.useProxy(v, clip.path); // náhľadová kópia s častými kľúčovými snímkami → okamžitý skok
       sources.set(clip.path, src);
       const meta = new Promise(res => {
@@ -225,18 +230,20 @@ window.Player = (function () {
       });
       try {
         const r = await api.action('extractTracks', { path: clip.path });
+        if (closed) return src; // editor sa medzitým zavrel: žiadne nové prehrávače
         src.tracks = r.tracks || [];
         src.fps = r.fps || 60;
         if (!src.duration) src.duration = r.duration;
         // rozmery a dĺžka vždy z pôvodného súboru (video v náhľade môže byť menšia náhľadová kópia)
         if (r.width && r.height) { src.width = r.width; src.height = r.height; }
         if (r.duration) src.duration = r.duration;
-        src.audios = src.tracks.map(tr => { const a = new Audio(fileUrl(tr.file)); a.preload = 'auto'; return a; });
+        src.audios = src.tracks.map(tr => { const a = new Audio(fileUrl(tr.file)); a.preload = 'auto'; return own(a); });
         // obálka hlasitosti (20 hodnôt za sekundu) pre metre v mixéri a priebeh zvuku na osi
         src.levels = src.tracks.map(tr => { try { return tr.levels ? Uint8Array.from(atob(tr.levels), c => c.charCodeAt(0)) : null; } catch (e) { return null; } });
         src.ready = true;
       } catch (e) { src.ready = false; src.trackErr = e.message; }
       await meta;
+      if (closed) return src;
       makeFrames(src);
       return src;
     }
@@ -245,8 +252,9 @@ window.Player = (function () {
       const D = src.duration; if (!D || !src.width) return;
       const n = Math.max(6, Math.min(48, Math.ceil(D / 0.75)));
       const fv = document.createElement('video');
-      fv.muted = true; fv.preload = 'auto'; fv.src = fileUrl(src.path);
-      try { await new Promise((res, rej) => { fv.addEventListener('loadeddata', res, { once: true }); fv.addEventListener('error', rej, { once: true }); }); } catch (e) { return; }
+      fv.muted = true; fv.preload = 'auto'; fv.src = fileUrl(src.path); own(fv);
+      try { await new Promise((res, rej) => { fv.addEventListener('loadeddata', res, { once: true }); fv.addEventListener('error', rej, { once: true }); }); } catch (e) { killMedia(fv); return; }
+      if (closed) { killMedia(fv); return; }
       const fh = 72, fw = Math.round(fh * src.width / src.height);
       src.frames = new Array(n);
       for (let k = 0; k < n && !closed; k++) {
@@ -261,8 +269,10 @@ window.Player = (function () {
     async function init() {
       for (const c of clips) {
         const src = await addSource(c);
+        if (closed) return;
         segs.push({ id: 's' + (++seq), src: src.path, in: 0, out: src.duration || 0.1 });
       }
+      if (closed || !segs.length) return;
       const first = sources.get(segs[0].src);
       SW = (first.width || 1920); SH = (first.height || 1080); FPS = first.fps || 60;
       // automatický výrez okna hry (nastavenie); vráti sa cez Formát → Celá obrazovka
@@ -274,7 +284,7 @@ window.Player = (function () {
       $('#loading', m).classList.add('gone');
       fitZoom(); renderAll(); seek(0);
       savedSnap = snap();
-      if (clips.length === 1) play();
+      if (clips.length === 1 && !closed) play();
     }
 
     /* stopy: berieme podľa poradia; názvy z klipu, ktorý ich má najviac */
@@ -470,6 +480,7 @@ window.Player = (function () {
 
     /* ================= prehrávanie ================= */
     function activate(seg, local, autoplay) {
+      if (closed) return;
       const src = sources.get(seg.src);
       if (!active || active.src !== src) {
         if (active) { active.src.video.pause(); active.src.video.classList.remove('on'); active.src.audios.forEach(a => a.pause()); active.src.video.muted = true; }
@@ -486,7 +497,7 @@ window.Player = (function () {
       if (autoplay) src.video.play().catch(() => { });
     }
     function syncAudio(force) {
-      if (!active) return;
+      if (closed || !active) return;
       const { src } = active, v = src.video;
       const ff = 1 - fadeAt(t);
       if (!v.muted) v.volume = ff;
@@ -502,7 +513,7 @@ window.Player = (function () {
       });
     }
     function play() {
-      if (!segs.length) return;
+      if (closed || !segs.length) return;
       if (t >= total() - 0.05) t = 0;
       playing = true;
       const L = locate(t);
@@ -521,7 +532,7 @@ window.Player = (function () {
     function loop() {
       cancelAnimationFrame(raf);
       const f = () => {
-        if (!playing || !active) return;
+        if (closed || !playing || !active) return;
         const { seg, src } = active, v = src.video;
         if (v.currentTime >= seg.out - 0.02 || v.ended) {
           // koniec úseku → ďalší
@@ -1745,10 +1756,12 @@ window.Player = (function () {
       document.removeEventListener('fullscreenchange', onFs);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
       closed = true;
-      playing = false; cancelAnimationFrame(raf); cancelAnimationFrame(mraf); cancelAnimationFrame(prevRaf);
+      playing = false; active = null; cancelAnimationFrame(raf); cancelAnimationFrame(mraf); cancelAnimationFrame(prevRaf);
+      for (const el of media) killMedia(el);
+      media.clear();
       for (const s of sources.values()) {
-        s.video.pause(); s.video.removeAttribute('src'); s.video.load();
-        s.audios.forEach(a => { a.pause(); a.removeAttribute('src'); a.load(); });
+        killMedia(s.video);
+        s.audios.forEach(killMedia);
       }
       document.removeEventListener('keydown', onKey, true);
       removeEventListener('resize', onResize);

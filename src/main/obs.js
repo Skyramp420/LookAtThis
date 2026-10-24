@@ -17,18 +17,40 @@ const crypto = require('crypto');
 
 const WS = globalThis.WebSocket; // Electron 44 / Node 22: vstavaný WebSocket klient
 
-/* obvyklé miesta inštalácie OBS (64-bit) */
-const OBS_GUESSES = [
-  'C:\\Program Files\\obs-studio',
-  'C:\\Program Files (x86)\\obs-studio',
-];
-function findObs(custom) {
-  const roots = [custom, ...OBS_GUESSES].filter(Boolean);
+/* obvyklé miesta inštalácie OBS (64-bit): klasický inštalátor, Steam, inštalácia len pre používateľa */
+function obsGuesses() {
+  const e = process.env, out = [];
+  for (const b of [e.ProgramW6432, e.ProgramFiles, e['ProgramFiles(x86)'], 'C:\\Program Files', 'C:\\Program Files (x86)']) if (b) out.push(path.join(b, 'obs-studio'));
+  for (const b of [e['ProgramFiles(x86)'], e.ProgramFiles, 'C:\\Program Files (x86)']) if (b) out.push(path.join(b, 'Steam', 'steamapps', 'common', 'OBS Studio'));
+  if (e.LOCALAPPDATA) out.push(path.join(e.LOCALAPPDATA, 'Programs', 'obs-studio'));
+  return [...new Set(out)];
+}
+function findObs(custom, extra) {
+  const roots = [custom, extra, ...obsGuesses()].filter(Boolean);
   for (const r of roots) {
     const exe = path.join(r, 'bin', '64bit', 'obs64.exe');
     if (fs.existsSync(exe)) return { root: r, exe, cwd: path.join(r, 'bin', '64bit') };
   }
   return null;
+}
+/* hlbšie hľadanie: inštalátor OBS si zapíše cestu do registra (aj pri inom disku než C:) */
+function findObsDeep(custom) {
+  return new Promise(resolve => {
+    const quick = findObs(custom);
+    if (quick || process.platform !== 'win32') return resolve(quick);
+    const keys = [['HKLM\\SOFTWARE\\OBS Studio', '/reg:64'], ['HKLM\\SOFTWARE\\WOW6432Node\\OBS Studio', '/reg:64'], ['HKCU\\SOFTWARE\\OBS Studio', '/reg:64']];
+    let i = 0;
+    const next = () => {
+      if (i >= keys.length) return resolve(null);
+      const [k, flag] = keys[i++];
+      execFile('reg', ['query', k, '/ve', flag], { windowsHide: true, timeout: 4000 }, (err, out) => {
+        const m = !err && /REG_SZ\s+(.+?)\s*$/m.exec(String(out || ''));
+        const info = m && findObs(null, m[1].trim());
+        if (info) resolve(info); else next();
+      });
+    };
+    next();
+  });
 }
 
 /* obs-websocket v5 autentifikácia: base64(sha256(base64(sha256(heslo+salt)) + challenge)) */
@@ -268,4 +290,4 @@ async function killStaleOurs(log) {
   return { killed: ours.length, foreign: list.length - ours.length };
 }
 
-module.exports = { Obs, findObs, authString, cleanSentinel, killStaleOurs };
+module.exports = { Obs, findObs, findObsDeep, authString, cleanSentinel, killStaleOurs };

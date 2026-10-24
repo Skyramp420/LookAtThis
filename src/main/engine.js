@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const Games = require('../shared/games');
+const TS = require('./tsprobe');
 const SEG = 2; // dĺžka segmentu v sekundách = aj interval kľúčových snímok
 
 // vysoká = cq 21: vizuálne takmer rovnaké ako 19, ale zhruba polovičný zápis na disk
@@ -266,9 +267,19 @@ class Engine extends EventEmitter {
     // strážca: segment má vznikať každé 2 s. Keď sa snímanie obrazu zasekne (napr. hra prepne režim obrazovky
     // alebo sa skryje pred nahrávaním), segmenty prestanú pribúdať a zvuk by sa lepil do jedného obrovského
     // segmentu → klip by mal desiatky minút „prázdneho“ videa. Po 12 s bez nového segmentu ffmpeg reštartujeme.
-    let lastIdx = -1, lastNew = Date.now();
+    let lastIdx = -1, lastNew = Date.now(), lastTick = Date.now();
     this.watch = setInterval(() => {
-      if (this.proc !== proc || this.state !== 'on') return;
+      const now = Date.now(), jump = now - lastTick; lastTick = now;
+      if (this.proc !== proc) return;
+      // časovač sa dlho nespustil = PC spalo (alebo sa celé zaseklo). Hodiny obrazu a zvuku sa tým rozišli o celý čas spánku
+      // (v bufferi by zostala „diera“ a desiatky minút ticha → obrovský clip), preto buffer začneme nanovo
+      if (jump > 30000 && !this.recording) {
+        this.log.warn(`PC bolo ${Math.round(jump / 1000)} s neaktívne (spánok?), reštartujem buffer`);
+        lastNew = now;
+        try { proc.kill(); } catch (e) { }
+        return;
+      }
+      if (this.state !== 'on') return;
       const sg = this.segments(), idx = sg.length ? sg[sg.length - 1].idx : -1;
       if (idx !== lastIdx) { lastIdx = idx; lastNew = Date.now(); return; }
       if (Date.now() - lastNew > 12000) {
@@ -304,6 +315,14 @@ class Engine extends EventEmitter {
   }
 
   killHelpers() { for (const h of this.helpers) { try { h.kill(); } catch (e) { } } this.helpers = []; }
+
+  /* PC sa prebudilo zo spánku: buffer radšej začni nanovo, aby v ňom nezostala diera v čase.
+     Počas nahrávania sa nič nerobí (nahrávka sa nesmie pretrhnúť). */
+  afterResume() {
+    if (!this.proc || !this.wanted || this.recording) return;
+    this.log.info('PC sa prebudilo, reštartujem buffer');
+    try { this.proc.kill(); } catch (e) { }
+  }
 
   // PC sa odomkol / prebudil: keď čakáme na obrazovku, neskúšaj až o 10 s, ale hneď
   wake() {
@@ -455,30 +474,110 @@ class Engine extends EventEmitter {
     return { path: p, game };
   }
 
+  /* vyber segmenty podľa SKUTOČNÝCH časov v nich (nie len podľa počtu): vezmeme najnovší súvislý úsek a zastavíme sa
+     pri diere v čase (spánok PC) alebo pri zaseknutom segmente (obraz stál, kým zvuk bežal) */
+  selectSegments(segs, want, n) {
+    const cand = segs.slice(-(n + 4));
+    const info = cand.map(sg => TS.range(path.join(this.dir, sg.f)));
+    const res = { pick: segs.slice(-n), seconds: 0, suspicious: false, notes: [] };
+    const bad = r => !r || r.vFirst == null || r.vLast == null;
+    // segment má mať ~2 s obrazu a zvuk len o chvíľu pred ním/za ním; hranice sú voľné (hitch hry nesmie clip zbytočne skrátiť)
+    const stuck = r => r.vLast - r.vFirst > 8 || (r.aLast != null && TS.diff(r.vLast, r.aLast) > 8);
+    // najnovší použiteľný segment. Prázdny čerstvý súbor na konci je normálny. Zaseknutý segment (obraz stál, zvuk bežal
+    // minúty) preskočíme: po zaseknutí už nie je čo nahrať, a keby sme ho vzali, clip by mal desiatky minút
+    let last = cand.length - 1;
+    while (last >= 0 && (bad(info[last]) || stuck(info[last]))) {
+      const r = info[last];
+      if (!(last === cand.length - 1 && (!r || r.size < 65536))) {
+        res.suspicious = true;
+        res.notes.push(bad(r) ? `segment ${cand[last].idx} sa nedá prečítať` : `segment ${cand[last].idx} je zaseknutý (obraz ${(r.vLast - r.vFirst).toFixed(1)} s, zvuk o ${Math.round(TS.diff(r.vLast, r.aLast == null ? r.vLast : r.aLast))} s ďalej)`);
+      }
+      last--;
+    }
+    if (last < 0) { res.suspicious = true; return res; }
+    const L = info[last];
+    const chain = [last];
+    let head = L;
+    for (let i = last - 1; i >= 0 && chain.length < n; i--) {
+      const r = info[i];
+      if (!r || r.vFirst == null || r.vLast == null) { res.suspicious = true; res.notes.push(`segment ${cand[i].idx} sa nedá prečítať`); break; }
+      if (stuck(r)) { res.suspicious = true; res.notes.push(`segment ${cand[i].idx} je zaseknutý (${(r.vLast - r.vFirst).toFixed(1)} s obrazu)`); break; }
+      const gap = TS.diff(r.vLast, head.vFirst);
+      if (gap > 10 || gap < -10) { res.suspicious = true; res.notes.push(`diera v čase ${Math.round(gap)} s pred segmentom ${cand[i + 1].idx}`); break; }
+      chain.unshift(i); head = r;
+    }
+    res.pick = chain.map(i => cand[i]);
+    res.seconds = Math.max(0, TS.diff(head.vFirst, L.vLast)) + 0.04;
+    return res;
+  }
+
+  /* dĺžka obrazu v súbore (sekundy): prejde ho bez prekódovania a prečíta čas z výpisu ffmpeg */
+  async videoSeconds(file) {
+    const r = await run(this.ffmpeg, ['-hide_banner', '-nostdin', '-i', file, '-map', '0:v:0', '-c', 'copy', '-f', 'null', '-']);
+    let m, last = 0; const re = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/g;
+    while ((m = re.exec(r.err))) last = (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]);
+    return last;
+  }
+
+  /* poistka: clip je oveľa dlhší ako buffer → skús ho skrátiť rôznymi spôsobmi a každý výsledok over */
+  async fixLongClip(file, dur, want) {
+    const limit = want + 3 * SEG + 4, tmp = file.replace(/\.mp4$/i, '.tmp.mp4');
+    const vdur = await this.videoSeconds(file).catch(() => 0);
+    this.log.warn(`clip: celkovo ${Math.round(dur)} s, z toho obraz ${Math.round(vdur)} s (buffer ${want} s)`);
+    const tries = [];
+    // obraz je krátky, len zvuk (alebo diera) ho natiahla → nechaj začiatok súboru, kde je obraz
+    if (vdur > 0 && vdur <= limit) tries.push(['-t', String(vdur + 0.5), '-i', file]);
+    tries.push(['-sseof', String(-(want + SEG)), '-i', file]);
+    if (vdur > want + SEG) tries.push(['-ss', String(Math.max(0, vdur - want - SEG)), '-i', file]);
+    for (const a of tries) {
+      const args = ['-hide_banner', '-loglevel', 'error', '-y'];
+      // -t patrí k výstupu (za -i), -ss a -sseof ku vstupu (pred -i)
+      if (a[0] === '-t') args.push('-i', file, '-t', a[1]); else args.push(a[0], a[1], '-i', file);
+      args.push('-map', '0', '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', tmp);
+      const r = await run(this.ffmpeg, args);
+      if (r.code === 0 && fs.existsSync(tmp)) {
+        const i2 = await probe(this.ffmpeg, tmp).catch(() => null);
+        if (i2 && i2.duration > 0 && i2.duration <= limit && i2.width > 0) {
+          try { fs.renameSync(tmp, file); return i2.duration; } catch (e) { }
+        }
+      }
+      try { fs.unlinkSync(tmp); } catch (e) { }
+    }
+    return 0;
+  }
+
   async saveClip(dir, seconds) {
     if (!this.proc || this.state !== 'on') throw new Error(this.state === 'starting' ? 'Buffer sa ešte rozbieha' : this.state === 'waiting' ? 'Buffer čaká na obrazovku (PC bol zamknutý)' : 'Buffer nebeží');
+    const t0 = Date.now();
     // počkaj chvíľu, aby sa do segmentu dostali aj posledné snímky pred stlačením
     await sleep(400);
     const segs = this.segments();
     const want = Math.min(seconds || this.settings.bufferSeconds || 60, this.settings.bufferSeconds || 60);
     const n = Math.ceil(want / SEG) + 1;
-    const pick = segs.slice(-n);
+    const sel = this.selectSegments(segs, want, n);
+    const pick = sel.pick;
     if (!pick.length) throw new Error('Buffer je zatiaľ prázdny');
+    if (sel.notes.length) this.log.warn(`clip: segmenty nenadväzujú (${sel.notes.join('; ')}), beriem len súvislý koniec: ${pick.length} z ${n}`);
     fs.mkdirSync(dir, { recursive: true });
     const o = this.outName(dir, 'Clip');
+    const t1 = Date.now();
     await this.mux(pick, o.path, o);
-    // poistka: keby sa do segmentov dostal zaseknutý úsek (obraz stál, zvuk bežal), klip by bol oveľa dlhší ako buffer → nechaj len koniec
-    let secs = pick.length * SEG;
+    const t2 = Date.now();
+    let secs = sel.seconds ? Math.round(sel.seconds) : pick.length * SEG;
+    // kontrola výsledného súboru: keď sa pri výbere našlo niečo čudné, alebo je súbor podozrivo veľký oproti segmentom
+    let outSize = 0, inSize = 0;
+    try { outSize = fs.statSync(o.path).size; } catch (e) { }
+    for (const sg of pick) { try { inSize += fs.statSync(path.join(this.dir, sg.f)).size; } catch (e) { } }
+    // kontrola výsledného súboru: dĺžka musí sedieť s bufferom (obraz bez zvuku, diera, spánok…), inak ho skrátime
     try {
       const info = await probe(this.ffmpeg, o.path);
       if (info.duration > want + 3 * SEG + 4) {
-        this.log.warn(`klip mal ${Math.round(info.duration)} s namiesto ~${want} s (zaseknutý obraz), skracujem`);
-        const tmp = o.path.replace(/\.mp4$/i, '.tmp.mp4');
-        const r = await run(this.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-sseof', String(-(want + SEG)), '-i', o.path, '-map', '0', '-c', 'copy', '-movflags', '+faststart', tmp]);
-        if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, o.path); secs = want + SEG; }
-        else try { fs.unlinkSync(tmp); } catch (e) { }
+        this.log.warn(`klip mal ${Math.round(info.duration)} s namiesto ~${want} s, skracujem`);
+        const fixed = await this.fixLongClip(o.path, info.duration, want);
+        if (fixed) secs = Math.round(fixed); else this.log.error('clip: dĺžku sa nepodarilo opraviť, súbor ostáva tak, ako je');
       } else if (info.duration) secs = Math.round(info.duration);
-    } catch (e) { }
+    } catch (e) { this.log.warn('kontrola clipu: ' + e.message); }
+    this.log.info(`clip: ${secs} s (${pick.length} segmentov, ${Math.round(outSize / 1e6)} MB), výber ${t1 - t0} ms, skladanie ${t2 - t1} ms, spolu ${Date.now() - t0} ms${sel.suspicious ? ', POZOR: ' + sel.notes.join('; ') : ''}`);
     return { path: o.path, game: o.game, seconds: secs };
   }
 

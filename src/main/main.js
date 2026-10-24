@@ -8,7 +8,8 @@ const { execFile, spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
 const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars, videoEncArgs } = require('./engine');
-const { Obs, findObs, killStaleOurs } = require('./obs');
+const { Obs, findObs, findObsDeep, killStaleOurs } = require('./obs');
+const { Perf } = require('./perf');
 const { mergeObsWithTracks } = require('./obs-merge');
 const { exportProject } = require('./project-export');
 const { Proxies } = require('./proxy');
@@ -278,12 +279,49 @@ async function detectRecorders() {
   } catch (e) { log.warn('detekcia nahrávačov', e.message); }
 }
 
+/* je OBS nainštalované? (zapamätané; hlbšie sa overuje len pri otvorení Nastavení) */
+let obsInst = { installed: false, root: '', checked: false };
+async function checkObs() {
+  let info = null;
+  try { info = await findObsDeep(store.get().obsPath); } catch (e) { }
+  const next = { installed: !!info, root: info ? info.root : '', checked: true };
+  const changed = next.installed !== obsInst.installed || next.root !== obsInst.root || !obsInst.checked;
+  obsInst = next;
+  if (changed) pushState();
+  return next;
+}
+
+/* meranie výkonu (beží len kým je otvorená karta Výkon v Nastaveniach) */
+let perf = null;
+function getPerf() {
+  if (perf) return perf;
+  perf = new Perf({
+    log,
+    metrics: () => app.getAppMetrics(),
+    children: () => {
+      const out = [];
+      if (engine.proc && engine.proc.pid) out.push({ pid: engine.proc.pid, role: 'enc' });
+      for (const h of engine.helpers || []) if (h && h.pid && h.exitCode === null) out.push({ pid: h.pid, role: 'audio' });
+      if (keysProc && keysProc.pid) out.push({ pid: keysProc.pid, role: 'keys' });
+      return out;
+    },
+    disk: () => {
+      // zápis buffra: veľkosť posledného dokončeného 2-s segmentu / 2 s
+      const sg = engine.segments();
+      if (sg.length < 2) return null;
+      try { return fs.statSync(path.join(engine.dir, sg[sg.length - 2].f)).size / 2; } catch (e) { return null; }
+    }
+  });
+  perf.on('sample', d => send('event', { type: 'perf', ...d, recording: !!engine.proc, state: engine.state }));
+  return perf;
+}
+
 function fullState() {
   return {
     system, otherRecorders,
     installed: installed.games || [], scanningGames: scanning, folders: listFolders(), update: U.status(),
     settings: store.get(), engine: engine.status(), clips: listClips(), clipsRev: clipRev, devices, sessions,
-    encoders: engine.available, hotkeyErrors, monitors: monitors(), version: app.getVersion(), userData: USER
+    encoders: engine.available, obs: obsInst, hotkeyErrors, monitors: monitors(), version: app.getVersion(), userData: USER
   };
 }
 function monitors() {
@@ -549,7 +587,40 @@ function stampNow() {
   const d = new Date(), p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
+/* ukladanie clipu: hneď po stlačení skratky sa v rohu ukáže „Ukladám clip…“ (skladanie trvá pár sekúnd, a bez toho
+   nie je vidieť, či sa skratka vôbec zachytila). Overlay potom plynule prejde na „Clip uložený“ alebo na chybu. */
+let savingSince = 0;
+function lenLabel(s) { return s >= 120 ? Math.round(s / 60) + ' min' : s + ' s'; }
 async function saveClip(seconds) {
+  // druhé stlačenie skratky, kým sa prvý clip ešte ukladá, by urobilo duplikát; zaseknuté ukladanie sa po 90 s uvoľní
+  if (savingSince && Date.now() - savingSince < 90000) { log.info('clip: ukladanie ešte beží, ďalšie stlačenie ignorujem'); return; }
+  savingSince = Date.now();
+  send('event', { type: 'saving', on: true });
+  try {
+    if ((engine.proc && engine.state === 'on') || (obsOn() && lastBlockedExe)) {
+      const buf = store.get().bufferSeconds || 60;
+      showOverlay({ kind: 'saving', title: 'Ukladám clip', sub: 'posledných ' + lenLabel(Math.min(seconds || buf, buf)), ms: 60000 });
+    }
+    await saveClipNow(seconds);
+  } finally {
+    savingSince = 0;
+    send('event', { type: 'saving', on: false });
+    hideSavingOverlay();
+  }
+}
+/* poistka: ak by po uložení ostal na obrazovke „Ukladám…“ (napr. overlay sa medzitým vypol), zhasni ho */
+function hideSavingOverlay() {
+  if (ovKind !== 'saving') return;
+  ovKind = '';
+  clearTimeout(ovHide); ovHide = null;
+  try {
+    if (ov && !ov.isDestroyed()) {
+      ov.webContents.executeJavaScript(`document.getElementById('card').classList.remove('keep'); document.getElementById('card').classList.add('out'); document.body.classList.remove('busy')`).catch(() => { });
+      setTimeout(() => { if (ovKind || badgeOn) return; if (ov && !ov.isDestroyed()) ov.hide(); killOverlaySoon(); }, 380);
+    }
+  } catch (e) { }
+}
+async function saveClipNow(seconds) {
   // hra sa práve skrýva pred snímaním obrazovky a most do OBS je zapnutý → ulož klip cez OBS
   if (obsOn() && lastBlockedExe) {
     try {
@@ -586,11 +657,16 @@ async function toggleRecord() {
   try {
     if (engine.recording) {
       const since = engine.recording.since;
-      const r = await engine.stopRecording(store.get().clipsDir);
+      log.info(`nahrávanie: stop po ${fmtSecs((Date.now() - since) / 1000)}`);
+      showOverlay({ kind: 'saving', title: 'Ukladám nahrávku', sub: fmtSecs((Date.now() - since) / 1000), ms: 600000 });
+      let r;
+      try { r = await engine.stopRecording(store.get().clipsDir); } catch (e) { hideSavingOverlay(); throw e; }
+      if (!r) hideSavingOverlay();
       if (r) { const to = since + r.seconds * 1000, mk = marksIn(since, to), fg = fgDuring(since, to); store.setMeta(r.path, { game: r.game, duration: r.seconds, kind: 'rec', ...(fg.win ? { win: fg.win } : {}), ...(mk.length ? { marks: mk } : {}), ...(fg.list.length ? { fg: fg.list } : {}) }); announce(r, 'Nahrávka uložená'); }
       if (!store.get().bufferEnabled) await engine.stop();
     } else {
       await engine.startRecording();
+      log.info('nahrávanie: štart');
       send('event', { type: 'sound', name: 'rec' }); playSound('rec');
       showOverlay({ kind: 'rec', title: 'Nahrávam', sub: `Zastavíš cez ${store.get().hotkeys.record}`, ms: 2200 });
       if (wantNotify() && (!win || !win.isVisible())) notify('Nahrávam', `Zastavíš cez ${store.get().hotkeys.record}`);
@@ -601,7 +677,7 @@ async function toggleRecord() {
 /* ---------- overlay v rohu obrazovky (klapka po uložení clipu) ----------
    Priehľadné okno nad všetkým, myš ním prechádza. Vidno ho nad hrami v okne a v borderless režime;
    v exkluzívnom fullscreene (staré DirectX) ho Windows nad hru nepustí. */
-let ov = null, ovReady = null, ovHide = null;
+let ov = null, ovReady = null, ovHide = null, ovKind = '';
 function ensureOverlay() {
   if (ov && !ov.isDestroyed()) return ovReady;
   ov = new BrowserWindow({
@@ -664,6 +740,7 @@ async function playSound(name) {
 async function showOverlay(d) {
   const s = store.get();
   if (s.overlay === false && !d.test) return;
+  ovKind = d.kind || '';
   try {
     await ensureOverlay();
     const corner = placeOverlay();
@@ -850,6 +927,11 @@ async function runAction(type, p = {}) {
       pushState(); return { moved: out, failed };
     }
     case 'openLog': shell.openPath(LOGF); return true;
+    case 'openLogFolder': shell.showItemInFolder(LOGF); return true;
+    case 'obsStatus': return await checkObs();
+    case 'obsDownload': shell.openExternal('https://obsproject.com/download'); return true;
+    case 'perfPing': getPerf().ping(); return true;
+    case 'perfStop': if (perf) perf.stop(); return true;
     case 'reveal': shell.showItemInFolder(p.path); return true;
     case 'openExternal': shell.openPath(p.path); return true;
     case 'trash': await shell.trashItem(p.path); store.setMeta(p.path, null); pushState(); return true;
@@ -1242,7 +1324,9 @@ function createWindow(show) {
   win.loadFile(path.join(ROOT, 'src', 'renderer', 'index.html'));
   const maxState = () => send('event', { type: 'maximized', value: win.isMaximized() });
   win.on('maximize', maxState); win.on('unmaximize', maxState);
-  win.on('show', () => { pushState(); refreshDevices().then(pushState); });
+  win.on('show', () => { pushState(); refreshDevices().then(pushState); if (!obsInst.installed) checkObs(); });
+  win.on('hide', () => { if (perf) perf.stop(); });
+  win.on('minimize', () => { if (perf) perf.stop(); });
   win.on('focus', () => { if (otherRecorders.length) detectRecorders(); });
   win.on('close', e => {
     if (quitting) return;
@@ -1307,6 +1391,7 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = s.appearance === 'auto' ? 'system' : s.appearance;
   engine = new Engine({ ffmpeg: FFMPEG, fxaudio: FXAUDIO, tmpRoot: TMP, log });
   obs = new Obs({ log });
+  checkObs();
   proxies = new Proxies({ ffmpeg: FFMPEG, dir: path.join(EDIT, 'proxy'), log, pickFam: () => engine.pickEncoder(store.get()).fam });
   setInterval(() => obsWatch().catch(() => {}), 5000);
   // skutočné rozlíšenie monitora v pixeloch (enkodéry majú strop šírky, napr. H.264 do 4096 px)
@@ -1336,6 +1421,8 @@ app.whenReady().then(async () => {
     pushState();
   });
   for (const ev of ['unlock-screen', 'resume', 'user-did-become-active']) powerMonitor.on(ev, () => engine.wake());
+  // po spánku sa hodiny obrazu a zvuku rozídu o celý čas spánku → buffer začni nanovo (inak v ňom ostane diera a nesúvislý zvuk)
+  powerMonitor.on('resume', () => engine.afterResume());
   engine.on('stall', () => toast('warn', 'Obraz sa zasekol', 'Snímanie obrazovky prestalo dodávať snímky (hra asi zmenila režim zobrazenia). Buffer som reštartoval.'));
   engine.on('state', st => { if (st.state === 'error') { toast('error', 'Buffer spadol', st.error); notify('LookAtThis: buffer spadol', st.error); } });
 

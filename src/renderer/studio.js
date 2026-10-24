@@ -301,6 +301,7 @@ window.Studio = (function () {
         try { const pr = await api.action('probe', { path: meta.path }); s.duration = pr.duration || 0; } catch (x) { }
         s.tracks = [{ i: 0, title: 'Hudba', file: meta.path }];
       }
+      if (closed) return s; // editor sa medzitým zavrel: nevyrábaj nové prehrávače (zvuk by hral na pozadí)
       if (music) s.tracks = s.tracks.slice(0, 1).map(x => ({ ...x, title: 'Hudba' }));
       if (!music) {
         const v = document.createElement('video');
@@ -320,7 +321,8 @@ window.Studio = (function () {
       const D = s.duration; if (!D) return;
       const n = Math.max(4, Math.min(80, Math.ceil(D / 2)));
       const fv = document.createElement('video'); fv.muted = true; fv.preload = 'auto'; fv.src = fileUrl((s.video && s.video._proxy) || s.path);
-      try { await new Promise((res, rej) => { fv.addEventListener('loadeddata', res, { once: true }); fv.addEventListener('error', rej, { once: true }); }); } catch (e) { return; }
+      try { await new Promise((res, rej) => { fv.addEventListener('loadeddata', res, { once: true }); fv.addEventListener('error', rej, { once: true }); }); } catch (e) { fv.removeAttribute('src'); fv.load(); return; }
+      if (closed) { fv.removeAttribute('src'); fv.load(); return; }
       const th = 54, tw = Math.round(th * (fv.videoWidth || 16) / (fv.videoHeight || 9));
       s.thumbW = tw; s.thumbN = n;
       for (let k = 0; k < n && !closed; k++) {
@@ -398,6 +400,7 @@ window.Studio = (function () {
           const missing = [];
           for (const m of Object.values(prev.sources || {})) {
             try { await loadSource(m, m.music); } catch (e) { missing.push(m.name || m.path); P.items = P.items.filter(i => i.src !== m.path); }
+            if (closed) return;
           }
           if (missing.length) toast('warn', 'Niektoré klipy chýbajú', missing.join(', '));
           t = clamp(prev.t || 0, 0, duration());
@@ -408,7 +411,7 @@ window.Studio = (function () {
         if (!opts.projectId) P.name = input.name || 'Montáž';
         if (!opts.projectId && input.aspect && FMT[input.aspect]) P.fmt = input.aspect;
         let at = Math.max(0, ...itemsOn('v').map(end));
-        for (const c of input.clips) { try { await loadSource(c); } catch (e) { toast('error', 'Klip sa nepodarilo otvoriť', `${c.name || ''} ${e.message}`); } }
+        for (const c of input.clips) { try { await loadSource(c); } catch (e) { if (!closed) toast('error', 'Klip sa nepodarilo otvoriť', `${c.name || ''} ${e.message}`); } if (closed) return; }
         const segs = input.segs && input.segs.length ? input.segs : input.clips.map(c => ({ src: c.path }));
         const base = at;
         for (const sg of segs) {
@@ -713,6 +716,7 @@ window.Studio = (function () {
       return !l.mute && (!solo || l.solo);
     }
     function syncMedia(force) {
+      if (closed) return;
       composeVideo(force);
       // zvuk: každý prvok (klip × stopa) hrá, keď je jeho položka pod hlavou
       const want = new Map();
@@ -739,6 +743,7 @@ window.Studio = (function () {
       }
     }
     function tick() {
+      if (closed) return;
       raf = requestAnimationFrame(tick);
       t = t0 + (performance.now() - clock0) / 1000;
       const D = duration();
@@ -746,7 +751,7 @@ window.Studio = (function () {
       syncMedia(false); drawFrame(); updHead(true);
     }
     function play() {
-      if (playing || !P.items.length) return;
+      if (closed || playing || !P.items.length) return;
       if (t >= duration() - 0.03) t = 0;
       playing = true; t0 = t; clock0 = performance.now();
       q('#stPlay').innerHTML = I.pause; root.classList.add('playing');
@@ -2048,7 +2053,12 @@ window.Studio = (function () {
       ro.disconnect();
       root.classList.add('out');
       setTimeout(() => {
-        for (const s of src.values()) { if (s.video) { s.video.removeAttribute('src'); s.video.load(); } for (const a of s.audio.values()) { a.pause(); a.removeAttribute('src'); } }
+        for (const s of src.values()) {
+          for (const v of [s.video, s.video2]) if (v) { v._dead = true; v.pause(); v.removeAttribute('src'); v.load(); }
+          for (const a of s.audio.values()) { a._dead = true; a.pause(); a.removeAttribute('src'); a.load(); }
+        }
+        // poistka: čokoľvek, čo sa v okne medzitým ešte objavilo
+        root.querySelectorAll('video, audio').forEach(el => { try { el.pause(); el.removeAttribute('src'); el.load(); } catch (e) { } });
         root.remove(); editorOpen = false; document.body.classList.remove('st-open');
         if (opts.onClose) opts.onClose(projectId, P.items.length > 0 || savedOnce);
       }, 260);
@@ -2060,6 +2070,7 @@ window.Studio = (function () {
     try { await init(); }
     catch (e) { toast('error', 'Advanced editor sa nepodarilo otvoriť', e.message); }
     await entering;
+    if (closed) return;
     if (input.t != null) seek(input.t);
     Studio._state = () => ({ P, sel: [...sel], t, pps });
   }

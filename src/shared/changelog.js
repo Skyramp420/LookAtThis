@@ -1,6 +1,15 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.30', items: [
+      'Nastavenia sú rozdelené do kategórií (Clipy, Skratky, Video, Výkon, OBS, Hry, Overlay a zvuk, Vzhľad, Systém, O appke) s hľadaním vľavo.',
+      'Pri uložení clipu sa hneď ukáže animovaný overlay „Ukladám clip“ a tlačidlo v okne sa zmení na „Ukladám…“. Pri zastavení nahrávania je to tak isto. Druhé stlačenie skratky počas ukladania sa ignoruje.',
+      'Opravené: clip mohol vyjsť oveľa dlhší, než je nastavené (aj desiatky minút). Appka teraz pred skladaním skontroluje časy segmentov, preskočí poškodené, a ak je výsledok aj tak dlhší, orezá ho na nastavenú dĺžku. Po spánku alebo zamknutí PC sa buffer čisto reštartuje. Do logu pribudol riadok o každom uloženom clipe.',
+      'Opravené: zvuk z videa sa už nemôže prehrávať na pozadí po zavretí simple ani advanced editora, ani keď rýchlo klikáš alebo editor zatváraš počas načítavania.',
+      'Výkon: v Nastaveniach → Výkon vidíš naživo, koľko procesora, grafiky (aj video enkodéra), pamäte a disku LookAtThis berie. Meria sa len kým je tá karta otvorená.',
+      'Nahrávanie cez OBS ukáže, či je OBS nainštalované. Ak nie, tlačidlo ťa pošle na oficiálnu stránku obsproject.com.',
+      'Pri logu pribudlo tlačidlo Otvoriť priečinok.'
+    ] },
     { v: '1.0.29', items: [
       'Prechody medzi klipmi: prelínanie, cez čiernu, záblesk, posun doľava/doprava/hore a priblíženie. Klikni na kruh na strihu medzi dvoma klipmi (alebo Efekty → Prechody), dĺžku nastavíš posuvníkom.',
       'Speed ramp: plynulá zmena rýchlosti v klipe. Predvoľby Spomalenie na hlave, Hrdina, Montáž, Zrýchlenie, Spomalenie, a krivku doladíš ako keyframy (riadok Rýchlosť v sekcii Pohyb). Zvuk sa spomalí s obrazom.',
