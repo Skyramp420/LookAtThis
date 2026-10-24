@@ -1,6 +1,10 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.32', items: [
+      'HDR videá (napr. z OBS alebo z telefónu) sa v simple editore označia tlačidlom HDR → SDR. Jedným klikom sa vytvorí SDR kópia s normálnymi farbami (originál ostane) a hneď sa otvorí.',
+      'Opravené: ovládanie hlasitosti v simple editore sa prekrývalo s tlačidlami.'
+    ] },
     { v: '1.0.31', items: [
       'HDR → SDR: keď máš vo Windowse zapnuté HDR, nahrávanie sa automaticky prevedie na normálne farby (už nie je prepálené). Nájdeš v Nastavenia → Video; ak sa ti obraz zdá tmavý alebo svetlý, uprav Jas pri HDR. Prevod beží na procesore, preto max. 1080p a 30 fps.',
       'Kvalita Vlastná: v Nastavenia → Video vyberieš presný dátový tok v Mbps.',

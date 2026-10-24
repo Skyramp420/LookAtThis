@@ -1210,6 +1210,9 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .pj-in:focus { outline: none; box-shadow: 0 0 0 .5px var(--accent), 0 0 0 3.5px color-mix(in srgb, var(--accent) 35%, transparent); }
 
 .ed-tb.ed-hq.on { color: var(--accent); }
+.ed-tb.ed-sdr { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ed-tb.ed-sdr.busy { pointer-events: none; opacity: .8; }
+.ed-tb.ed-sdr[hidden] { display: none; }
 
 /* ---------- Nastavenia: kategórie + hľadanie ---------- */
 .set-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; max-width: 1020px; align-items: start; }
@@ -1291,7 +1294,8 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .vol-b:hover { background: var(--hover); }
 .vol-b:active { transform: scale(.9); }
 .vol-b svg { width: 18px; height: 18px; }
-.vol[data-lvl="1"] .w2, .vol[data-lvl="x"] .w1, .vol[data-lvl="x"] .w2 { display: none; }
-.vol:not([data-lvl="x"]) .wx { display: none; }
+.vol[data-pl="1"] .w2, .vol[data-pl="x"] .w1, .vol[data-pl="x"] .w2 { display: none; }
+.vol:not([data-pl="x"]) .wx { display: none; }
 .vol .vol-r, .st .vol .vol-r { width: 72px; flex: none; }
 .ed-fs .vol, .st-stage.fs .st-trans .vol { color: #fff; }
+.ed-tb.ed-sdr span { display: inline !important; }

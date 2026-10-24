@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
-const { Engine, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars, videoEncArgs } = require('./engine');
+const { Engine, toSdr, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars, videoEncArgs } = require('./engine');
 const { Obs, findObs, findObsDeep, killStaleOurs } = require('./obs');
 const { Perf } = require('./perf');
 const { mergeObsWithTracks } = require('./obs-merge');
@@ -945,6 +945,18 @@ async function runAction(type, p = {}) {
       const st = fs.statSync(p.path);
       const dir = path.join(EDIT, crypto.createHash('sha1').update(p.path + '|' + st.mtimeMs).digest('hex').slice(0, 16));
       return extractTracks(FFMPEG, p.path, dir);
+    }
+    case 'hdrCheck': { try { return !!(await probe(FFMPEG, p.path)).hdr; } catch (e) { return false; } }
+    case 'toSdr': {
+      const base = p.path.replace(/\.[^.]+$/, '').replace(/ \(SDR(?: \d+)?\)$/, '');
+      let out = `${base} (SDR).mp4`, k = 2;
+      while (fs.existsSync(out)) out = `${base} (SDR ${k++}).mp4`;
+      log.info('HDR → SDR: ' + p.path);
+      const r = await toSdr(FFMPEG, { file: p.path, out }, engine.pickEncoder(store.get()), f => send('event', { type: 'sdrProgress', value: f, path: p.path }));
+      const m = store.meta()[p.path] || {};
+      store.setMeta(out, { game: m.game, duration: m.duration });
+      invalidateClips(); pushState();
+      return { out, size: r.size };
     }
     case 'compress': {
       const info = await probe(FFMPEG, p.path);

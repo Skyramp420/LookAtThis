@@ -964,7 +964,7 @@
     });
   }
   window.openStudio = openStudio;
-  const openEditor = list => (Date.now() - lastOpenEd < 600 ? null : (lastOpenEd = Date.now(), Player.open(list.map(c => ({ ...c })), { library: () => S.clips, autoWin: !!S.settings.autoWinCrop })));
+  const openEditor = list => (Date.now() - lastOpenEd < 600 ? null : (lastOpenEd = Date.now(), Player.open(list.map(c => ({ ...c })), { library: () => S.clips, autoWin: !!S.settings.autoWinCrop, reopen: paths => { const find = () => paths.map(p => S.clips.find(c => c.path === p)); const go = n => { const l = find(); if (l.every(Boolean)) openEditor(l); else if (n < 6) setTimeout(() => go(n + 1), 400); }; go(0); } })));
   const pickedClips = () => S.clips.filter(c => picked.has(c.path));
   function updPicked() {
     $$('#view-clips .clip').forEach(el => el.classList.toggle('picked', picked.has(el.dataset.path)));
@@ -1735,6 +1735,7 @@
     if (Player._onEvent) Player._onEvent(ev);
     if (window.Studio && Studio._onEvent) Studio._onEvent(ev);
     if (window.__compressProg) window.__compressProg(ev);
+    if (window.__sdrProg) window.__sdrProg(ev);
     if (ev.type === 'toast') toast(ev.kind, ev.title, ev.body, ev.path ? { action: { label: 'Prehrať', run: () => { const c = S.clips.find(x => x.path === ev.path); if (c) openEditor([c]); } } } : {});
     if (ev.type === 'saving') { const b = $('#clipBtn'); b.classList.toggle('busy', !!ev.on); b.querySelector('span').textContent = ev.on ? 'Ukladám…' : 'Uložiť clip'; }
     if (ev.type === 'sound' && ev.name === 'saved') { eyeAnim('wink'); window.dispatchEvent(new Event('lat-saved')); }

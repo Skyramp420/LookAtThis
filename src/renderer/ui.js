@@ -341,20 +341,20 @@ window.UI = (function () {
   const SPK = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.2v3.6h3L10.8 15V5L6.5 8.2z"/><path class="w1" d="M13.4 7.4a3.6 3.6 0 0 1 0 5.2"/><path class="w2" d="M15.4 5.4a6.4 6.4 0 0 1 0 9.2"/><path class="wx" d="m13.6 7.8 4 4.4M17.6 7.8l-4 4.4"/></svg>';
   function volCtl() {
     pvLoad();
-    return `<div class="vol" data-vol><button type="button" class="vol-b" aria-label="Stlmiť náhľad" title="Stlmiť / zapnúť zvuk náhľadu">${SPK}</button><input type="range" class="vol-r" min="0" max="100" value="${Math.round(PV.vol * 100)}" aria-label="Hlasitosť náhľadu" title="Hlasitosť náhľadu (export sa nemení)"></div>`;
+    return `<div class="vol" data-pvol><button type="button" class="vol-b" aria-label="Stlmiť náhľad" title="Stlmiť / zapnúť zvuk náhľadu">${SPK}</button><input type="range" class="vol-r" min="0" max="100" value="${Math.round(PV.vol * 100)}" aria-label="Hlasitosť náhľadu" title="Hlasitosť náhľadu (export sa nemení)"></div>`;
   }
   /* napojí všetky ovládače hlasitosti v root; onChange sa zavolá po každej zmene (editor prepočíta hlasitosť stôp) */
   function wireVol(root, onChange) {
     pvLoad();
     const sync = () => {
       const lvl = PV.mute || PV.vol === 0 ? 'x' : PV.vol < 0.5 ? '1' : '2';
-      root.querySelectorAll('[data-vol]').forEach(c => {
+      root.querySelectorAll("[data-pvol]").forEach(c => {
         const r = c.querySelector('.vol-r');
         r.value = Math.round(PV.vol * 100); r.style.setProperty('--p', r.value + '%'); r.style.setProperty('--f', String(r.value / 100));
-        c.dataset.lvl = lvl;
+        c.dataset.pl = lvl;
       });
     };
-    root.querySelectorAll('[data-vol]').forEach(c => {
+    root.querySelectorAll("[data-pvol]").forEach(c => {
       const r = c.querySelector('.vol-r'), b = c.querySelector('.vol-b');
       // posuvník nesmie spustiť klik na plátno (vo fullscreene klik = pauza)
       c.addEventListener('pointerdown', e => e.stopPropagation());

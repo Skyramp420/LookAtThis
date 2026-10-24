@@ -180,6 +180,7 @@ window.Player = (function () {
           <span class="pl-time" id="plTime">0:00.00 <i>/ 0:00</i></span>
           <button class="ed-tb ed-hq${UI.previewFull() ? ' on' : ''}" id="hqBtn" title="Náhľad v plnej kvalite (inak rýchla kópia v 720p). Na uložené video to nemá vplyv."><svg viewBox="0 0 16 16"><rect x="1.8" y="3.5" width="12.4" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.6 6.2v3.6M7 6.2v3.6M4.6 8h2.4M9.2 6.2v3.6h1.2a1.8 1.8 0 0 0 0-3.6z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Plná kvalita</span></button>
           <button class="ed-tb ed-fsb2" id="fsBtn" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Celá obrazovka</span></button>
+          <button class="ed-tb ed-sdr" id="sdrBtn" hidden title="Toto video je v HDR, preto vyzerá vyblednuto. Vytvorí SDR kópiu s normálnymi farbami (originál ostane) a otvorí ju."><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>HDR → SDR</span></button>
           ${UI.volCtl()}
           <span class="ed-sep"></span>
           <div class="ed-tools">
@@ -1362,6 +1363,34 @@ window.Player = (function () {
     }
     $('#fsBtn', m).onclick = e => { e.stopPropagation(); toggleFs(); };
     const volApi = UI.wireVol(m, () => { try { syncAudio(false); } catch (e) { } });
+    /* HDR video (napr. z OBS alebo telefónu) sa v SDR prehrávači tvári vyblednuto: ponúkni prevod na SDR kópiu */
+    const sdrBtn = $('#sdrBtn', m);
+    (async () => {
+      const hs = [];
+      for (const c of clips) { try { if (await api.action('hdrCheck', { path: c.path })) hs.push(c.path); } catch (e) { } }
+      if (closed || !hs.length) return;
+      sdrBtn._hs = hs; sdrBtn.hidden = false;
+    })();
+    let sdrBusy = false;
+    sdrBtn.onclick = async e => {
+      e.stopPropagation();
+      if (sdrBusy) return; sdrBusy = true; sdrBtn.classList.add('busy');
+      const label = sdrBtn.querySelector('span'), outs = new Map(), hs = sdrBtn._hs || [];
+      try {
+        for (let i = 0; i < hs.length; i++) {
+          window.__sdrProg = ev => { if (ev.type === 'sdrProgress' && ev.path === hs[i] && label) label.textContent = `Prevádzam ${Math.round(((i + ev.value) / hs.length) * 100)} %`; };
+          if (label) label.textContent = `Prevádzam ${Math.round(i / hs.length * 100)} %`;
+          const r = await api.action('toSdr', { path: hs[i] });
+          outs.set(hs[i], r.out);
+        }
+        toast('ok', 'SDR kópia hotová', 'Uložená vedľa originálu s príponou (SDR).');
+        if (!closed && opts.reopen) { const paths = clips.map(c => outs.get(c.path) || c.path); closeModal(true); setTimeout(() => opts.reopen(paths), 350); }
+        else if (label) label.textContent = 'Hotovo';
+      } catch (er) {
+        toast('error', 'Prevod na SDR zlyhal', er.message);
+        if (label) label.textContent = 'HDR → SDR';
+      } finally { sdrBusy = false; window.__sdrProg = null; sdrBtn.classList.remove('busy'); }
+    };
     $('#fsExit', m).onclick = e => { e.stopPropagation(); toggleFs(); };
     $('#fsPlay', m).onclick = e => { e.stopPropagation(); toggle(); };
     $('#fsProg', m).addEventListener('pointerdown', e => {

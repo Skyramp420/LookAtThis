@@ -671,7 +671,9 @@ async function probe(ffmpeg, file) {
   while ((mm = re.exec(r.err))) { const t = /(?:title|handler_name)\s*:\s*([^\n]+)/.exec(mm[0]); const v = t ? t[1].trim() : ''; titles.push(v === 'SoundHandler' ? '' : v); }
   const vm = /Stream #0:\d+[^\n]*Video:[^\n]*?(\d{2,5})x(\d{2,5})/.exec(r.err);
   const fm = /Stream #0:\d+[^\n]*Video:[^\n]*?(\d+(?:\.\d+)?) fps/.exec(r.err);
-  return { duration: m ? (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]) : 0, audio, titles, width: vm ? +vm[1] : 0, height: vm ? +vm[2] : 0, fps: fm ? Math.round(parseFloat(fm[1])) : 0 };
+  // HDR video: prenosová funkcia PQ (smpte2084) alebo HLG (arib-std-b67), napr. „yuv420p10le(tv, bt2020nc/bt2020/smpte2084)“
+  const hdr = /Stream #0:\d+[^\n]*Video:[^\n]*(smpte2084|arib-std-b67)/.test(r.err);
+  return { hdr, duration: m ? (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]) : 0, audio, titles, width: vm ? +vm[1] : 0, height: vm ? +vm[2] : 0, fps: fm ? Math.round(parseFloat(fm[1])) : 0 };
 }
 /* čierne okraje v zázname (hra na inom pomere strán, napr. 16:9 na širokom monitore): vráti výrez 0–1 alebo null */
 async function detectBars(ffmpeg, file) {
@@ -897,6 +899,38 @@ async function exportSequence(ffmpeg, job, enc, onProgress) {
 /* ---------- kompresia na cieľovú veľkosť (napr. 20 MB pre Discord) ----------
    job = { file, out, targetMB, plan, tmpDir }; HW enkodér + kontrola veľkosti, keď prestrelí, ide znova s menším tokom.
    Bez HW (alebo keď nevyjde) x264 v dvoch prechodoch, ten trafí veľkosť najpresnejšie. */
+/* HDR (PQ / HLG) → SDR (BT.709): tonemap na procesore, kódovanie na grafike ak ide, zvuk sa len skopíruje.
+   Vznikne nový súbor, pôvodný ostane. 203 nit = referenčná „biela“ HDR podľa BT.2408. */
+async function toSdr(ffmpeg, job, enc, onProgress) {
+  const info = await probe(ffmpeg, job.file);
+  const D = info.duration || 1;
+  const vf = 'zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0:peak=5,zscale=t=bt709:m=bt709:r=tv,format=yuv420p';
+  const tags = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709'];
+  const attempt = (v, a) => new Promise(resolve => {
+    let err = '', buf = '';
+    const p = spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-progress', 'pipe:1', '-nostats', '-i', job.file, '-map', '0:v:0', '-map', '0:a?', '-vf', vf, ...v, ...tags, ...a, '-movflags', '+faststart', job.out], { windowsHide: true });
+    p.stdout.on('data', d => {
+      buf += d;
+      const m = buf.match(/out_time_us=(\d+)/g);
+      if (m && onProgress) { onProgress(Math.min(1, Number(m[m.length - 1].split('=')[1]) / 1e6 / D)); buf = buf.slice(-200); }
+    });
+    p.stderr.on('data', d => { err = (err + d).slice(-3000); });
+    p.on('error', e => resolve({ code: -1, err: e.message }));
+    p.on('close', code => resolve({ code, err }));
+  });
+  const tries = [];
+  if (enc && enc.fam !== 'x264' && /264/.test(enc.name)) tries.push([videoEncArgs(enc), ['-c:a', 'copy']]);
+  tries.push([['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18'], ['-c:a', 'copy']], [['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18'], ['-c:a', 'aac', '-b:a', '192k']]);
+  let last = null;
+  for (const [v, a] of tries) {
+    try { fs.rmSync(job.out, { force: true }); } catch (e) { }
+    const r = await attempt(v, a);
+    if (r.code === 0) { let size = 0; try { size = fs.statSync(job.out).size; } catch (e) { } if (size > 0) return { out: job.out, size, encoder: v[1] }; }
+    last = r;
+  }
+  throw new Error(lastLine(last && last.err) || 'Prevod na SDR zlyhal');
+}
+
 async function compressClip(ffmpeg, job, enc, onProgress) {
   const { plan } = job;
   const limit = job.targetMB * 1e6;
@@ -951,4 +985,4 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
   return { out: job.out, size: size(), encoder: 'libx264', over: true };
 }
 
-module.exports = { compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, detectBars, SEG, stamp, videoEncArgs };
+module.exports = { toSdr, compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, detectBars, SEG, stamp, videoEncArgs };
