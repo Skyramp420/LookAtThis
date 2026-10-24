@@ -400,7 +400,7 @@ class Engine extends EventEmitter {
     return {
       state: this.state, error: this.error, encoder: this.encoderUsed,
       recording: this.recording ? { since: this.recording.since } : null,
-      tracks: this.tracks, buffered: this.bufferedSeconds(), effective: this.effective || null
+      tracks: this.tracks, buffered: this.bufferedSeconds(), effective: this.effective || null, hdr: !!this.hdrInfo
     };
   }
 

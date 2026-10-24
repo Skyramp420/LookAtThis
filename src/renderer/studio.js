@@ -1732,7 +1732,7 @@ window.Studio = (function () {
       const v0 = P.items.find(i => i.kind === 'video'), fps0 = Math.min(60, Math.round((v0 && src.get(v0.src) && src.get(v0.src).fps) || 60));
       let o = { res: 0, fps: fps0 >= 50 ? 60 : 30, mb: 0, keep: false };
       try { o = { ...o, ...JSON.parse(localStorage.getItem('studio.export') || '{}'), res: 0 }; } catch (e) { }
-      const sizes = [{ v: 0, l: 'Pôvodná kvalita' }, { v: 20, l: '20 MB · Discord' }, { v: 10, l: '10 MB' }, { v: 50, l: '50 MB · Nitro Basic' }];
+      const sizes = [{ v: 0, l: 'Pôvodná kvalita' }, { v: 20, l: '20 MB · Discord' }, { v: 10, l: '10 MB' }, { v: 50, l: '50 MB · Nitro Basic' }, { v: 100, l: '100 MB · Nitro' }];
       const l = layer(`<div class="st-exp">
         <h3>Exportovať video</h3>
         <p class="st-note">${tc(duration())} · ${P.fmt} · uloží sa do knižnice</p>

@@ -1,6 +1,10 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.33', items: [
+      'Pri ukladaní a exporte pribudla možnosť 100 MB (pri Discorde s Nitrom, v oboch editoroch aj v komprimácii).',
+      'Sprievodca prvým spustením má nový krok Špeciálne situácie: vysvetlí HDR → SDR a nahrávanie cez OBS pre hry ako Valorant (s kontrolou, či je OBS nainštalované a tlačidlom na stiahnutie).'
+    ] },
     { v: '1.0.32', items: [
       'HDR videá (napr. z OBS alebo z telefónu) sa v simple editore označia tlačidlom HDR → SDR. Jedným klikom sa vytvorí SDR kópia s normálnymi farbami (originál ostane) a hneď sa otvorí.',
       'Opravené: ovládanie hlasitosti v simple editore sa prekrývalo s tlačidlami.'

@@ -37,7 +37,7 @@ window.Player = (function () {
     '1:1': { l: 'Štvorec 1:1', short: '1:1', r: 1, sub: 'Instagram, Discord' },
     '4:5': { l: 'Na výšku 4:5', short: '4:5', r: 4 / 5, sub: 'Instagram príspevok' }
   };
-  const SAVE_SIZES = [{ v: 0, l: 'Pôvodná kvalita' }, { v: 20, l: '20 MB · Discord' }, { v: 10, l: '10 MB' }, { v: 50, l: '50 MB · Nitro Basic' }];
+  const SAVE_SIZES = [{ v: 0, l: 'Pôvodná kvalita' }, { v: 20, l: '20 MB · Discord' }, { v: 10, l: '10 MB' }, { v: 50, l: '50 MB · Nitro Basic' }, { v: 100, l: '100 MB · Nitro' }];
   const clamp01 = x => Math.max(0, Math.min(1, x));
   const easeOut = p => 1 - Math.pow(1 - p, 3);
   const backOut = p => 1 + 2.70158 * Math.pow(p - 1, 3) + 1.70158 * Math.pow(p - 1, 2);

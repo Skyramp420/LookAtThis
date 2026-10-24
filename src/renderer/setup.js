@@ -11,7 +11,7 @@ window.Setup = (function () {
     <g class="su-lid"><path d="M12 32c5.5-9 12.5-13.5 20-13.5S46.5 23 52 32c-5.5 9-12.5 13.5-20 13.5S17.5 41 12 32z" fill="#f5f5f7"/>
     <g clip-path="url(#suClip)"><g class="su-iris"><circle cx="32" cy="32" r="10.5" fill="url(#suIris)"/><path d="M29.2 27.2v9.6l8-4.8z" fill="#1c1c1e" stroke="#1c1c1e" stroke-width="1.6" stroke-linejoin="round"/><circle cx="35.6" cy="27.6" r="2" fill="#fff" opacity=".9"/></g></g></g></svg>`;
 
-  const STEPS = ['Vitaj', 'Skratky', 'Zvuk', 'Synchronizácia', 'Výkon', 'Ukladanie', 'Hotovo'];
+  const STEPS = ['Vitaj', 'Skratky', 'Zvuk', 'Synchronizácia', 'Výkon', 'Špeciálne', 'Ukladanie', 'Hotovo'];
   const PRESETS = {
     high: { label: 'Vysoká kvalita', sub: 'Natívne rozlíšenie · 60 fps · vysoká kvalita', s: { resolution: 'native', fps: 60, quality: 'high', powerSave: 'off' } },
     balanced: { label: 'Vyvážená', sub: '1080p · 60 fps · stredná kvalita', s: { resolution: '1080', fps: 60, quality: 'medium', powerSave: 'auto' } },
@@ -19,7 +19,7 @@ window.Setup = (function () {
   };
 
   function open(startAt = 0) {
-    let step = startAt, dir = 1, firstClip = false;
+    let step = startAt, dir = 1, firstClip = false, obsAsk = false;
     const St = () => App.state();
     const m = modal(`<div class="su">
       <div class="su-top"><div class="su-dots" id="suDots"></div><button class="su-skip" id="suSkip">Preskočiť</button></div>
@@ -37,7 +37,7 @@ window.Setup = (function () {
       body.style.setProperty('--dir', dir);
       body.classList.remove('in'); void body.offsetWidth; body.classList.add('in');
       if (clap) { clap.stop(); clap = null; }
-      body.innerHTML = [welcome, keys, audio, sync, perf, saving, done][step]();
+      body.innerHTML = [welcome, keys, audio, sync, perf, special, saving, done][step]();
       placeThumbs(body);
       bind[step] && bind[step](body);
     }
@@ -109,7 +109,7 @@ window.Setup = (function () {
         <div class="su-sys"><div><b>${sys.cores || '?'}</b><span>jadier</span></div><div><b>${sys.ram || '?'} GB</b><span>RAM</span></div><div><b>${esc(sys.gpu || '—')}</b><span>${sys.hw ? 'HW enkodér' : 'bez HW enkodéra'}</span></div></div>
         <p class="su-muted">Tvoj PC: ${hwText}. Odporúčam <b>${PRESETS[rec].label.toLowerCase()}</b>.</p>
         <div class="su-presets">${Object.entries(PRESETS).map(([k, p]) => `<button class="su-pre${k === cur ? ' on' : ''}" data-pre="${k}">${k === rec ? '<em>odporúčané</em>' : ''}<b>${p.label}</b><span>${p.sub}</span></button>`).join('')}</div>
-        <p class="su-muted small">Všetko zmeníš neskôr v Nastavenia → Video. Úsporný režim sa na slabšom PC zapne aj sám.</p>`;
+        <p class="su-muted small">Všetko zmeníš neskôr v Nastavenia → Video (tam nájdeš aj vlastný dátový tok v Mbps). Úsporný režim sa na slabšom PC zapne aj sám.</p>`;
     }
     function saving() {
       const st = s();
@@ -122,6 +122,26 @@ window.Setup = (function () {
         <div class="su-row"><span>Spúšťať s Windowsom</span><label class="toggle"><input type="checkbox" data-set="launchAtLogin" ${st.launchAtLogin ? 'checked' : ''}></label></div>
         <div class="su-row"><span>Overlay po uložení</span><div class="su-inline">${seg('overlayStyle', [{ v: 'eye', l: 'Oko' }, { v: 'clap', l: 'Klapka' }], st.overlayStyle || 'eye')}<button class="btn small ghost" id="suOv">Ukážka</button><label class="toggle"><input type="checkbox" data-set="overlay" ${st.overlay !== false ? 'checked' : ''}></label></div></div>
         <div class="su-row col"><span>Zvuk po uložení</span><div class="snd-grid">${SOUNDS.map(x => `<button class="snd${(st.clipSound || 'beep') === x.id ? ' on' : ''}" data-snd="${x.id}">${x.id === 'none' ? '' : '<i>▶</i>'}${esc(x.label)}</button>`).join('')}</div></div>`;
+    }
+    function special() {
+      const st = s(), o = St().obs || {}, hdrNow = St().engine && St().engine.hdr;
+      const obsLine = !o.checked ? '<span class="su-muted">Kontrolujem, či je OBS nainštalované…</span>'
+        : o.installed ? '<span class="su-ok">● OBS je nainštalované</span>'
+        : `<span class="su-no">● OBS nie je nainštalované</span><button class="btn small primary" id="suObsDl">${I.ext}<span>Stiahnuť OBS</span></button>`;
+      return `<h2>Špeciálne situácie</h2>
+        <p class="su-muted">Dve veci, ktoré väčšina ľudí nepotrebuje. Ak nevieš, či sa ťa týkajú, nechaj ich tak, ako sú.</p>
+        <div class="su-row col"><span>Mám HDR monitor</span>
+          <small class="su-muted">Keď máš vo Windowse zapnuté HDR, video by vyšlo prepálené a vyblednuté. LookAtThis ho preto automaticky prevedie na normálne farby. Ak HDR nemáš, nič sa nemení.</small>
+          ${seg('hdrMode', [{ v: 'auto', l: 'Automaticky (odporúčané)' }, { v: 'off', l: 'Vypnúť' }], st.hdrMode || 'auto')}
+          ${hdrNow ? '<small class="su-ok">HDR som na tvojom monitore zistil, prevod je zapnutý.</small>' : ''}
+        </div>
+        <div class="su-row col">
+          <div class="su-inline" style="justify-content:space-between;gap:16px"><span><b>Hrám Valorant alebo hru, ktorá sa skrýva pred nahrávaním</b></span><label class="toggle"><input type="checkbox" data-set="obsBridge" ${st.obsBridge ? 'checked' : ''}></label></div>
+          <small class="su-muted">Takéto hry zakazujú snímanie obrazovky, vo videu by bola len plocha. Ak to zapneš, pri takej hre spustím na pozadí OBS, ktoré hru nahrá, a zvuk ostane z LookAtThis. Potrebuje nainštalované OBS (je zadarmo).</small>
+          <div class="su-inline">${obsLine}</div>
+          ${st.obsBridge && o.checked && !o.installed ? '<small class="su-no">Bez OBS to nebude fungovať, stiahni ho cez tlačidlo vyššie.</small>' : ''}
+        </div>
+        <p class="su-muted small">Oboje nájdeš aj neskôr v Nastavenia (Video a Nahrávanie cez OBS).</p>`;
     }
     function done() {
       const st = s();
@@ -150,13 +170,19 @@ window.Setup = (function () {
         body.querySelectorAll('[data-pre]').forEach(x => x.classList.toggle('on', x === b));
       }),
       5: body => {
+        body.querySelectorAll('[data-set]').forEach(cb => cb.onchange = () => save({ [cb.dataset.set]: cb.checked }).then(render));
+        const dl = $('#suObsDl', body); if (dl) dl.onclick = () => api.action('obsDownload');
+        if (!obsAsk) { obsAsk = true; api.action('obsStatus').then(() => { if (step === 5) render(); }).catch(() => { }); }
+        segHandler(body);
+      },
+      6: body => {
         $('#suDir', body).onclick = () => api.action('pickFolder').then(() => setTimeout(render, 200));
         $('#suOv', body).onclick = () => api.action('testOverlay');
         body.querySelectorAll('[data-set]').forEach(cb => cb.onchange = () => save({ [cb.dataset.set]: cb.checked }));
         body.querySelectorAll('[data-snd]').forEach(b => b.onclick = () => { sound(b.dataset.snd, s().soundVolume ?? 0.6); body.querySelectorAll('[data-snd]').forEach(x => x.classList.toggle('on', x === b)); save({ clipSound: b.dataset.snd }); });
         segHandler(body);
       },
-      6: () => { if (firstClip) celebrate(); }
+      7: () => { if (firstClip) celebrate(); }
     };
     function segHandler(body) {
       body.querySelectorAll('.seg').forEach(sg => sg.addEventListener('click', e => {

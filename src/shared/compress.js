@@ -5,7 +5,8 @@
   const PRESETS = [
     { id: 'discord', mb: 20, label: 'Discord', sub: '20 MB · bez Nitra' },
     { id: 'small', mb: 10, label: 'Malý', sub: '10 MB · staré limity, iné appky' },
-    { id: 'nitro', mb: 50, label: 'Nitro Basic', sub: '50 MB' }
+    { id: 'nitro', mb: 50, label: 'Nitro Basic', sub: '50 MB' },
+    { id: 'big', mb: 100, label: 'Veľký', sub: 'Väčšie klipy, kvalitnejší obraz' }
   ];
   const MIN_VKBPS = 150;        // pod týmto už video nemá zmysel
   // bitov na pixel a snímku, pri ktorých hra ešte vyzerá slušne (pri 60 fps sa snímky viac podobajú, stačí menej)

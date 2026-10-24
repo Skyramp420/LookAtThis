@@ -520,7 +520,7 @@ mark { background: color-mix(in srgb, var(--accent) 38%, transparent); color: in
 .cmp-h p { margin: 0 !important; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
 .cmp-ic { width: 40px; height: 40px; border-radius: 11px; flex: none; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 .cmp-ic svg { width: 22px; height: 22px; }
-.cmp-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.cmp-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
 .cmp-p { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; border: 0; border-radius: 11px; padding: 10px 11px 9px; background: var(--well); color: var(--text); cursor: default; transition: box-shadow .2s, background .2s, transform .3s var(--spring); }
 .cmp-p:hover { background: var(--fill2); }
 .cmp-p:active { transform: scale(.97); }
@@ -1299,3 +1299,7 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .vol .vol-r, .st .vol .vol-r { width: 72px; flex: none; }
 .ed-fs .vol, .st-stage.fs .st-trans .vol { color: #fff; }
 .ed-tb.ed-sdr span { display: inline !important; }
+
+.su-row small.su-ok, .su-ok { color: var(--mint); font-weight: 600; }
+.su-row small.su-no, .su-no { color: var(--amber); font-weight: 600; }
+.su-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
