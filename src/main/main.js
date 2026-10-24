@@ -927,6 +927,7 @@ async function runAction(type, p = {}) {
       pushState(); return { moved: out, failed };
     }
     case 'openLog': shell.openPath(LOGF); return true;
+    case 'attention': if (win && !win.isDestroyed() && !win.isFocused()) { try { win.flashFrame(true); } catch (e) { } } return true;
     case 'openLogFolder': shell.showItemInFolder(LOGF); return true;
     case 'obsStatus': return await checkObs();
     case 'obsDownload': shell.openExternal('https://obsproject.com/download'); return true;

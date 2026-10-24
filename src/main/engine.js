@@ -12,6 +12,9 @@ const SEG = 2; // dĺžka segmentu v sekundách = aj interval kľúčových sní
 
 // vysoká = cq 21: vizuálne takmer rovnaké ako 19, ale zhruba polovičný zápis na disk
 const QUALITY = { high: 21, medium: 24, low: 28 };
+/* HDR → SDR: ako jasno je „biele“ v SDR obsahu na HDR monitore (nity); Windows ho nastavuje posuvníkom Jas obsahu SDR */
+const HDR_WHITE = { dark: 320, normal: 240, bright: 180 };
+const mbpsOf = s => Math.min(200, Math.max(2, Number(s.qualityMbps) || 20));
 const ENCODERS = {
   nvenc: { h264: 'h264_nvenc', hevc: 'hevc_nvenc', av1: 'av1_nvenc', zeroCopy: true },
   amf: { h264: 'h264_amf', hevc: 'hevc_amf', zeroCopy: true },
@@ -84,7 +87,7 @@ class Engine extends EventEmitter {
   hasHW() { const a = this.available; return !!(a && (a.h264_nvenc || a.h264_amf || a.h264_qsv)); }
   powerSaving(s) { return s.powerSave === 'on' || (s.powerSave !== 'off' && (!!this.weak || (this.available != null && !this.hasHW()))); }
 
-  videoArgs(s, enc, zeroCopy) {
+  videoArgs(s, enc, zeroCopy, hdr) {
     const save = this.powerSaving(s), cpu = enc.fam === 'x264';
     let fps = Number(s.fps) || 60;
     let q = QUALITY[s.quality] || QUALITY.high;
@@ -94,13 +97,18 @@ class Engine extends EventEmitter {
     const px = this.monitorPx ? this.monitorPx(s.monitor) : null, codecN = s.codec || 'h264';
     if (px && px.w > 4096 && codecN !== 'hevc' && codecN !== 'av1') res = Math.min(res || 9999, Math.max(2, Math.floor(3840 * px.h / px.w / 2) * 2));
     if (save || cpu) { fps = Math.min(fps, 30); res = Math.min(res || 9999, cpu && save ? 720 : 1080); }
+    // HDR → SDR ide cez procesor (tonemap), preto s mierou: 30 fps a najviac 1080p
+    if (hdr) { fps = Math.min(fps, 30); res = Math.min(res || 9999, 1080); }
+    const custom = s.quality === 'custom', mb = mbpsOf(s);
     if (save) q = Math.max(q, QUALITY.medium);
     const g = fps * SEG;
-    const args = ['-f', 'lavfi', '-thread_queue_size', '512', '-analyzeduration', '0', '-i', `ddagrab=output_idx=${Number(s.monitor) || 0}:framerate=${fps}:draw_mouse=${s.cursor === false ? 0 : 1}`];
+    const args = ['-f', 'lavfi', '-thread_queue_size', '512', '-analyzeduration', '0', '-i', `ddagrab=output_idx=${Number(s.monitor) || 0}:framerate=${fps}:draw_mouse=${s.cursor === false ? 0 : 1}${hdr ? ':output_fmt=10bit' : ''}`];
     const filters = [];
     const H = res ? `'min(ih,${res})'` : null; // nikdy nezväčšovať
-    const zero = zeroCopy && ENCODERS[enc.fam].zeroCopy;
-    if (zero && res && enc.fam === 'nvenc') {
+    const zero = !hdr && zeroCopy && ENCODERS[enc.fam].zeroCopy;
+    if (hdr) {
+      filters.push(...this.hdrFilters(hdr, res, cpu));
+    } else if (zero && res && enc.fam === 'nvenc') {
       // zmenšenie priamo na grafike (CUDA), obraz neprechádza cez procesor
       filters.push('hwmap=derive_device=cuda', `scale_cuda=w=-2:h=${H}`);
     } else if (!(zero && !res)) {
@@ -111,13 +119,43 @@ class Engine extends EventEmitter {
     const out = [];
     if (filters.length) out.push('-vf', filters.join(','));
     out.push('-c:v', enc.name);
-    if (enc.fam === 'nvenc') out.push('-preset', save ? 'p2' : 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', String(q), '-b:v', '0', '-maxrate', save ? '40M' : '60M', '-bufsize', save ? '80M' : '120M', '-forced-idr', '1');
-    else if (enc.fam === 'amf') out.push('-quality', save ? 'speed' : 'balanced', '-rc', 'cqp', '-qp_i', String(q), '-qp_p', String(q + 2));
-    else if (enc.fam === 'qsv') out.push('-preset', save ? 'veryfast' : 'faster', '-global_quality', String(q));
-    else out.push('-preset', save ? 'ultrafast' : 'superfast', '-tune', 'zerolatency', '-crf', String(q + 3), '-threads', '0');
+    // vlastná kvalita: pevný dátový tok v Mbps (VBR s malou rezervou na špičky)
+    const rate = ['-b:v', `${mb}M`, '-maxrate', `${Math.round(mb * 1.25)}M`, '-bufsize', `${mb * 2}M`];
+    if (enc.fam === 'nvenc') out.push('-preset', save ? 'p2' : 'p4', '-tune', 'hq', '-rc', 'vbr', ...(custom ? rate : ['-cq', String(q), '-b:v', '0', '-maxrate', save ? '40M' : '60M', '-bufsize', save ? '80M' : '120M']), '-forced-idr', '1');
+    else if (enc.fam === 'amf') out.push('-quality', save ? 'speed' : 'balanced', ...(custom ? ['-rc', 'vbr_peak', ...rate] : ['-rc', 'cqp', '-qp_i', String(q), '-qp_p', String(q + 2)]));
+    else if (enc.fam === 'qsv') out.push('-preset', save ? 'veryfast' : 'faster', ...(custom ? rate : ['-global_quality', String(q)]));
+    else out.push('-preset', save ? 'ultrafast' : 'superfast', '-tune', 'zerolatency', ...(custom ? rate : ['-crf', String(q + 3)]), '-threads', '0');
     out.push('-g', String(g), '-force_key_frames', `expr:gte(t,n_forced*${SEG})`);
-    this.effective = { fps, res: res || 0, save };
+    this.effective = { fps, res: res || 0, save, hdr: !!hdr };
     return { input: args, output: out };
+  }
+
+  /* filtre HDR (PQ, BT.2020) → SDR (BT.709): zscale + tonemap na procesore */
+  hdrFilters(hdr, res, cpu) {
+    const f = ['hwdownload', 'format=x2bgr10le', 'format=gbrp10le'];
+    if (res) f.push(`scale=w=-2:h='min(ih,${res})':flags=fast_bilinear`);
+    f.push(`zscale=tin=smpte2084:t=linear:npl=${hdr.white}:min=gbr:pin=bt2020:rin=full`, 'format=gbrpf32le', 'zscale=p=bt709',
+      `tonemap=tonemap=mobius:desat=0:peak=${hdr.peak}`, 'zscale=t=bt709:m=bt709:r=tv', cpu ? 'format=yuv420p' : 'format=nv12');
+    return f;
+  }
+  /* beží na monitore HDR? Ak áno a tonemap filter prejde skúškou, vráti nastavenie, inak null (nahráva sa ako doteraz) */
+  async prepareHdr(s) {
+    this.hdrInfo = null;
+    if (s.hdrMode === 'off' || process.platform !== 'win32') return null;
+    const mon = Number(s.monitor) || 0;
+    try {
+      const d = await run(this.ffmpeg, ['-hide_banner', '-v', 'info', '-f', 'lavfi', '-i', `ddagrab=output_idx=${mon}:framerate=1:output_fmt=auto`, '-frames:v', '1', '-vf', 'hwdownload', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
+      const m = /Video: wrapped_avframe, ([a-z0-9]+)/.exec(d.err);
+      const fmt = m ? m[1] : '?';
+      if (!/f16|f32|x2bgr10|x2rgb10|rgba64|gbrp1[0-6]/.test(fmt)) { this.log.info('HDR: monitor ' + mon + ' je SDR (' + fmt + ')'); return null; }
+      const white = HDR_WHITE[s.hdrBright] || HDR_WHITE.normal;
+      const hdr = { white, peak: +(1000 / white).toFixed(2) };
+      const t = await run(this.ffmpeg, ['-hide_banner', '-v', 'error', '-f', 'lavfi', '-i', `ddagrab=output_idx=${mon}:framerate=10:output_fmt=10bit`, '-frames:v', '3', '-vf', this.hdrFilters(hdr, 1080, false).join(','), '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
+      if (t.code !== 0) { this.log.warn('HDR: monitor je HDR (' + fmt + '), ale tonemap neprešiel skúškou, nahrávam bez neho: ' + String(t.err).trim().split('\n').slice(-2).join(' | ')); return null; }
+      this.log.info(`HDR: monitor ${mon} je HDR (${fmt}), zapínam prevod na SDR (biela ${white} nit)`);
+      this.hdrInfo = hdr;
+      return hdr;
+    } catch (e) { this.log.warn('HDR detekcia: ' + e.message); return null; }
   }
 
   helperArgs(t, s, pipe) {
@@ -168,6 +206,8 @@ class Engine extends EventEmitter {
     const tracks = (s.tracks || []).filter(t => t.on);
     this.tracks = {};
     const enc = this.pickEncoder(s);
+    const hdr = await this.prepareHdr(s);
+    if (gen !== this.gen) return;
     // pokus 1: zero-copy (GPU → enkodér), pokus 2: cez systémovú pamäť, pokus 3: x264 na procesore
     const attempts = [[enc, true], [enc, false], [{ fam: 'x264', name: 'libx264' }, false]];
     const [useEnc, zeroCopy] = attempts[Math.min(this.retry, attempts.length - 1)];
@@ -201,7 +241,7 @@ class Engine extends EventEmitter {
     await Promise.all(pipes.map(p => p.ready));
     if (gen !== this.gen) { this.killHelpers(); return; }
 
-    const v = this.videoArgs(s, useEnc, zeroCopy);
+    const v = this.videoArgs(s, useEnc, zeroCopy, hdr);
     const args = ['-hide_banner', '-loglevel', 'warning', '-nostats', '-y', ...v.input];
     // bez -probesize/-analyzeduration ffmpeg každú rúru ~1 s „skúma“ a ďalšiu otvorí až potom:
     // každá ďalšia stopa by tak začínala o sekundu neskôr a nesedela s obrazom ani s ostatnými stopami

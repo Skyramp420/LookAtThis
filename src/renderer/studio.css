@@ -2,8 +2,10 @@
 /* Electron: ťahacia lišta okna (.titlebar) by inak zhltla kliky na tlačidlá editora nad ňou */
 body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-wrap { -webkit-app-region: no-drag; }
-.st-wrap { position: fixed; inset: 0; z-index: 120; padding: 10px; display: grid; background: var(--scrim); backdrop-filter: blur(4px); opacity: 0; transition: opacity .22s var(--ease); }
+.st-wrap { position: fixed; inset: 0; z-index: 120; padding: 10px; display: grid; background: var(--scrim); opacity: 0; transition: opacity .26s var(--ease); }
 .st-wrap.in { opacity: 1; }
+.st-wrap:not(.settled) .st-top, .st-wrap:not(.settled) .st-left, .st-wrap:not(.settled) .st-insp, .st-wrap:not(.settled) .st-tlbar, .st-wrap:not(.settled) .st-tl { will-change: transform, opacity; }
+.st-wrap:not(.settled) .st { box-shadow: 0 0 0 .5px var(--line); }
 .st-wrap.out { opacity: 0; transition-duration: .2s; }
 .st { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr) 42px var(--th, minmax(190px, 38%)); background: var(--win); border-radius: 14px; box-shadow: var(--pop-shadow); overflow: hidden; }
 
@@ -382,3 +384,17 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 @keyframes tpZoomA { 0%, 20% { transform: none; } 80%, 100% { transform: scale(1.3); } }
 @keyframes tpZoomB { 0%, 20% { opacity: 0; transform: scale(1.2); } 80%, 100% { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .st-trc:hover .st-trp, .st-trc:hover .st-trp * { animation: none !important; } }
+
+/* celá obrazovka v advanced editore */
+.st-fprog { display: none; }
+.st-stage.fs { background: #000; padding: 0; gap: 0; cursor: pointer; }
+.st-stage.fs.fs-idle { cursor: none; }
+.st-stage.fs .st-frame { border-radius: 0; box-shadow: none; }
+.st-stage.fs .st-trans { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; padding: 8px 16px; border-radius: 16px; background: rgba(20, 20, 22, .72); backdrop-filter: blur(20px) saturate(1.6); color: #fff; transition: opacity .3s; cursor: default; }
+.st-stage.fs .st-tc, .st-stage.fs .st-ico { color: #fff; }
+.st-stage.fs .st-tc.dim { color: rgba(255, 255, 255, .6); }
+.st-stage.fs .st-play { background: #fff; color: #111; }
+.st-stage.fs .st-hq { display: none; }
+.st-stage.fs .st-fprog { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(255, 255, 255, .16); cursor: pointer; z-index: 5; transition: opacity .3s; }
+.st-fprog i { display: block; height: 100%; width: 0; background: var(--accent); }
+.st-stage.fs.fs-idle .st-trans, .st-stage.fs.fs-idle .st-fprog { opacity: 0; }

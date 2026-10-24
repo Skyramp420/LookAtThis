@@ -171,8 +171,11 @@ window.Studio = (function () {
               <button class="st-play" id="stPlay" aria-label="Prehrať (medzerník)">${I.play}</button>
               <button class="st-ico" id="stNext" aria-label="Na koniec">${IC.next}</button>
               <span class="st-tc dim" id="stDur">00:00.00</span>
+              ${UI.volCtl()}
+              <button class="st-ico" id="stFs" aria-label="Celá obrazovka (F)" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               <button class="st-hq${UI.previewFull() ? ' on' : ''}" id="stHq" title="Náhľad v plnej kvalite (inak rýchla kópia v 720p). Export je vždy v plnej kvalite.">HD</button>
             </div>
+            <div class="st-fprog" id="stFprog"><i id="stFfill"></i></div>
           </section>
           <aside class="st-insp" id="stInsp"></aside>
         </div>
@@ -206,7 +209,7 @@ window.Studio = (function () {
     document.body.classList.add('st-open'); // ťahacia lišta okna pod editorom inak zhltne kliky (Electron app-region)
     const q = s => root.querySelector(s);
     const frame = q('#stFrame'), vids = q('#stVids'), txtCv = q('#stTxt'), stage = q('#stStage');
-    const headEl = q('#stHead'), timeEl = q('#stTime');
+    const headEl = q('#stHead'), timeEl = q('#stTime'), fsFill = q('#stFfill');
     /* výplň posuvníka podľa hodnoty (predtým bola napevno v polovici) */
     function fillRange(r) { if (!r) return; const mn = Number(r.min || 0), mx = Number(r.max || 100), v = Number(r.value); r.style.setProperty('--f', String(clamp((v - mn) / ((mx - mn) || 1), 0, 1))); }
     const fillAll = el => $$('input[type=range]', el).forEach(fillRange);
@@ -547,7 +550,8 @@ window.Studio = (function () {
     /* ---------- náhľad ---------- */
     let fk = 1;
     function layoutFrame() {
-      const r = { w: stage.clientWidth - 32, h: stage.clientHeight - 70 };
+      const fsOn = document.fullscreenElement === stage;
+      const r = fsOn ? { w: stage.clientWidth, h: stage.clientHeight } : { w: stage.clientWidth - 32, h: stage.clientHeight - 70 };
       if (r.w <= 0) return;
       const A = W / H;
       let fw = r.w, fh = fw / A;
@@ -734,7 +738,7 @@ window.Studio = (function () {
       for (const s of src.values()) for (const a of s.audio.values()) {
         const w = want.get(a);
         if (w && playing) {
-          a.volume = w.vol;
+          a.volume = Math.min(1, w.vol * UI.pvol());
           if (a.playbackRate !== w.rate) a.playbackRate = w.rate;
           if (Math.abs(a.playbackRate - w.rate) > 0.01) a.playbackRate = w.rate;
           if (a.paused) { a.currentTime = w.pos; a.play().catch(() => { }); }
@@ -775,6 +779,7 @@ window.Studio = (function () {
       const x = t * pps;
       headEl.style.transform = `translate3d(${x}px,0,0)`;
       const txt = tc(t); if (timeEl.textContent !== txt) timeEl.textContent = txt;
+      if (fsFill && document.fullscreenElement === stage) { const dd = duration(); fsFill.style.width = (dd ? Math.min(100, t / dd * 100) : 0) + '%'; }
       if (follow) {
         const vw = scroll.clientWidth;
         if (x > sx + vw - 40) setSX(x - 80, true);
@@ -1717,7 +1722,7 @@ window.Studio = (function () {
     });
 
     /* ---------- export ---------- */
-    function layer(html, cls = '') { const l = q('#stLayer'); l.className = 'st-layer ' + cls; l.innerHTML = html; l.hidden = false; return l; }
+    function layer(html, cls = '') { const l = q('#stLayer'); l.className = 'st-layer ' + cls + (!document.hasFocus() || document.hidden ? ' noanim' : ''); l.innerHTML = html; l.hidden = false; return l; }
     function hideLayer() { const l = q('#stLayer'); l.hidden = true; l.innerHTML = ''; }
     function exportDialog() {
       if (!P.items.length) { hint('Časová os je prázdna'); return; }
@@ -1841,6 +1846,7 @@ window.Studio = (function () {
         });
         exporting = false;
         const fname = String(out).split(/[\\/]/).pop();
+        api.action('attention').catch(() => { });
         const d = layer(`<div class="st-exp done">
           <svg class="cmp-check" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M21 33l7.5 7L43 25"/></svg>
           <h3>Hotovo</h3><p class="st-note" title="${esc(out)}">${esc(fname)}</p>
@@ -1864,12 +1870,19 @@ window.Studio = (function () {
       if (document.querySelector('.pop-menu')) return;  // otvorené menu si Esc a šípky rieši samo
       e.stopPropagation();                             // knižnica pod editorom nesmie reagovať (napr. Delete)
       if (exporting) return;
+      if (document.fullscreenElement && e.key === 'Escape') { document.exitFullscreen().catch(() => { }); return; }
       if (e.target.closest('input, textarea') && e.key !== 'Escape') return;
       if (!q('#stLayer').hidden) { if (e.key === 'Escape') hideLayer(); return; }
       const k = e.key.toLowerCase();
       if (e.ctrlKey && k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
       if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); return; }
       if (e.key === ' ') { e.preventDefault(); playing ? pause() : play(); return; }
+      if (k === 'f' && !e.ctrlKey) { e.preventDefault(); toggleFs(); return; }
+      if (k === 'm' && !e.ctrlKey) { e.preventDefault(); volApi.toggleMute(); hint('Zvuk náhľadu prepnutý'); return; }
+      if (k === 'z' && !e.ctrlKey) { e.preventDefault(); fitZoom(); setSX(0, true); hint('Celá časová os'); return; }
+      if (k === 'k' && !e.ctrlKey) { e.preventDefault(); playing ? pause() : play(); return; }
+      if ((k === 'j' || k === 'l') && !e.ctrlKey) { e.preventDefault(); seek(t + (k === 'j' ? -5 : 5)); return; }
+      if (k === 'a' && e.ctrlKey) { e.preventDefault(); P.items.forEach(i => sel.add(i.id)); renderTimelineSel(); renderInsp(); return; }
       if (k === 's' && !e.ctrlKey) { e.preventDefault(); splitAt(t); return; }
       if (k === 't' && !e.ctrlKey) { e.preventDefault(); addText(); return; }
       if (k === 'd' && e.ctrlKey) { e.preventDefault(); duplicateSel(); return; }
@@ -1896,6 +1909,35 @@ window.Studio = (function () {
     ro.observe(stage); ro.observe(scroll);
 
     q('#stPlay').onclick = () => playing ? pause() : play();
+    const volApi = UI.wireVol(root, () => { try { syncMedia(false); } catch (e) { } });
+    /* celá obrazovka: celý prehrávač (obraz + ovládanie), ovládanie sa počas prehrávania schová */
+    function toggleFs() {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
+      else stage.requestFullscreen().catch(() => { });
+    }
+    let fsIdle = 0;
+    const fsWake = () => { stage.classList.remove('fs-idle'); clearTimeout(fsIdle); fsIdle = setTimeout(() => { if (playing && document.fullscreenElement === stage) stage.classList.add('fs-idle'); }, 2200); };
+    const onFs = () => {
+      const on = document.fullscreenElement === stage;
+      stage.classList.toggle('fs', on); stage.classList.remove('fs-idle');
+      if (on) fsWake();
+      requestAnimationFrame(() => { layoutFrame(); drawFrame(); });
+    };
+    document.addEventListener('fullscreenchange', onFs);
+    q('#stFs').onclick = toggleFs;
+    stage.addEventListener('pointermove', () => { if (document.fullscreenElement === stage) fsWake(); });
+    stage.addEventListener('pointerdown', e => {
+      if (document.fullscreenElement !== stage || e.button !== 0 || e.target.closest('.st-trans, .st-fprog')) return;
+      playing ? pause() : play();
+    });
+    q('#stFprog').addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      const bar = e.currentTarget, r = bar.getBoundingClientRect();
+      const go = ev => seek(Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * duration(), playing);
+      go(e); bar.setPointerCapture(e.pointerId);
+      const up = () => { bar.removeEventListener('pointermove', go); bar.removeEventListener('pointerup', up); };
+      bar.addEventListener('pointermove', go); bar.addEventListener('pointerup', up);
+    });
     q('#stHq').onclick = e => { const on = !UI.previewFull(); UI.setPreviewFull([...src.values()].flatMap(x => [x.video, x.video2]), on); e.currentTarget.classList.toggle('on', on); hint(on ? 'Náhľad v plnej kvalite (skákanie je pomalšie)' : 'Rýchly náhľad, export je stále v plnej kvalite'); };
     q('#stPrev').onclick = () => seek(0);
     q('#stNext').onclick = () => seek(duration());
@@ -2041,8 +2083,7 @@ window.Studio = (function () {
         await anim.finished.catch(() => { });
         frame.style.opacity = '';
         fly.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' }).finished.then(() => fly.remove());
-      } else root.classList.add('in');
-      setTimeout(() => root.classList.add('settled'), 750);
+      } else { root.classList.add('in'); await new Promise(r => setTimeout(r, 420)); }
     }
 
     function close() {
@@ -2050,6 +2091,8 @@ window.Studio = (function () {
       pause(); persist(true);
       closed = true;
       document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('fullscreenchange', onFs);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
       ro.disconnect();
       root.classList.add('out');
       setTimeout(() => {
@@ -2066,11 +2109,13 @@ window.Studio = (function () {
 
     // štart: najprv kostra a animácia, zdroje sa načítajú popri tom
     renderAll();
-    const entering = enter();
+    // najprv dohrá animácia, až potom sa načítavajú zdroje (dekódovanie videa a náhľady by ju inak trhali)
+    await enter();
+    if (closed) return;
     try { await init(); }
     catch (e) { toast('error', 'Advanced editor sa nepodarilo otvoriť', e.message); }
-    await entering;
     if (closed) return;
+    setTimeout(() => root.classList.add('settled'), 1000);
     if (input.t != null) seek(input.t);
     Studio._state = () => ({ P, sel: [...sel], t, pps });
   }

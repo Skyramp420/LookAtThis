@@ -1472,6 +1472,7 @@
       setCat = b.dataset.cat; setQ = ''; $('#setQ', root).value = '';
       try { localStorage.setItem('lat.setCat', setCat); } catch (e) { }
       apply();
+      $$('.set-card', root).forEach(c => { c.classList.remove('in'); if (!c.hidden) { void c.offsetWidth; c.classList.add('in'); } });
       const v = $('#view-settings'); if (v) v.scrollTo({ top: 0 });
     }));
     const inp = $('#setQ', root);
@@ -1482,6 +1483,7 @@
 
   function renderSettings() {
     const root = $('#view-settings');
+    const keepScroll = root.scrollTop;
     const s = S.settings, av = S.encoders || {};
     const encName = { auto: 'Automaticky (najlepší dostupný)', nvenc: 'NVIDIA NVENC', amf: 'AMD AMF', qsv: 'Intel QuickSync', x264: 'Procesor (x264)' };
     const famOk = { nvenc: av.h264_nvenc, amf: av.h264_amf, qsv: av.h264_qsv, x264: av.libx264 !== false };
@@ -1516,8 +1518,11 @@
         `${row('Monitor', '', pb(monLabel, () => mons.map(m => ({ label: m.label, v: m.idx, checked: m.idx === Number(s.monitor) })), it => save({ monitor: it.v })))}
         ${row('Snímky za sekundu', '', seg('fps', [30, 60, 120, 144].map(v => ({ v, l: String(v) })), s.fps))}
         ${row('Rozlíšenie', 'Natívne ide priamo z grafiky bez kopírovania, preto je najľahšie.', seg('resolution', [{ v: 'native', l: 'Natívne' }, { v: '1440', l: '1440p' }, { v: '1080', l: '1080p' }, { v: '720', l: '720p' }], s.resolution))}
-        ${row('Kvalita', '', seg('quality', [{ v: 'high', l: 'Vysoká' }, { v: 'medium', l: 'Stredná' }, { v: 'low', l: 'Nízka' }], s.quality))}
+        ${row('Kvalita', '', seg('quality', [{ v: 'high', l: 'Vysoká' }, { v: 'medium', l: 'Stredná' }, { v: 'low', l: 'Nízka' }, { v: 'custom', l: 'Vlastná' }], s.quality))}
+        ${s.quality === 'custom' ? row('Dátový tok', 'Koľko Mbps sa má nahrávať. Viac = lepší obraz a väčšie súbory (10 Mbps je asi 75 MB na minútu).', `<div class="mbps"><input type="range" id="qMbps" min="4" max="100" step="1" value="${Math.min(100, Math.max(4, Number(s.qualityMbps) || 20))}" style="--p:${(Math.min(100, Math.max(4, Number(s.qualityMbps) || 20)) - 4) / 96 * 100}%;width:180px"><b id="qMbpsV">${Math.min(100, Math.max(4, Number(s.qualityMbps) || 20))} Mbps</b></div>`) : ''}
         ${row('Kurzor myši', '', toggle('cursor', s.cursor !== false))}
+        ${row('HDR → SDR', 'Keď máš vo Windowse zapnuté HDR, video by bolo prepálené. Automaticky ho prevedie na normálne farby (na procesore, max. 1080p a 30 fps). Ak monitor HDR nemá, nič sa nemení.', seg('hdrMode', [{ v: 'auto', l: 'Automaticky' }, { v: 'off', l: 'Vypnuté' }], s.hdrMode || 'auto'))}
+        ${(s.hdrMode || 'auto') === 'auto' ? row('Jas pri HDR', 'Ak je video po prevode príliš tmavé alebo svetlé, zmeň toto (podľa Jasu obsahu SDR vo Windowse).', seg('hdrBright', [{ v: 'dark', l: 'Tmavší' }, { v: 'normal', l: 'Normálny' }, { v: 'bright', l: 'Svetlejší' }], s.hdrBright || 'normal')) : ''}
         ${row('Vyrezať okno hry v editore', 'Keď hráš v okne, editor sa otvorí rovno s výrezom len okna hry (napr. 16:9 zo širokého monitora). Vrátiš to cez Formát → Celá obrazovka.', toggle('autoWinCrop', !!s.autoWinCrop))}`)}
         ${setCard('video', 'chip', 'Enkodér a kodek', 'Kto video stláča a v akom formáte.',
         `${row('Enkodér', `<span class="enc-tags">${['h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'h264_amf', 'h264_qsv', 'libx264'].map(k => `<span class="${av[k] ? 'ok' : ''}">${k}</span>`).join('')}</span>`, pb(encName[s.encoder] || encName.auto, encItems, it => save({ encoder: it.v })))}
@@ -1575,6 +1580,7 @@
     </div>`;
     placeThumbs(root);
     wireSettings(root);
+    root.scrollTop = keepScroll;
     if (!obsAsked) { obsAsked = true; api.action('obsStatus').catch(() => { }); }
     $$('[data-set]', root).forEach(cb => cb.addEventListener('change', () => save({ [cb.dataset.set]: cb.checked })));
     $$('[data-accent]', root).forEach(b => b.addEventListener('click', async () => { await save({ accent: b.dataset.accent }); applyLook(); renderSettings(); }));
@@ -1584,6 +1590,8 @@
     $('#runSetup', root).onclick = () => Setup.open();
     $('#whatsNew', root).onclick = () => whatsNew(null);
     $$('[data-snd]', root).forEach(b => b.onclick = () => { sound(b.dataset.snd, S.settings.soundVolume ?? 0.6); $$('[data-snd]', root).forEach(x => x.classList.toggle('on', x === b)); save({ clipSound: b.dataset.snd }); });
+    const qm = $('#qMbps', root);
+    if (qm) { qm.oninput = () => { qm.style.setProperty('--p', (qm.value - 4) / 96 * 100 + '%'); $('#qMbpsV', root).textContent = qm.value + ' Mbps'; }; qm.onchange = () => save({ qualityMbps: Number(qm.value) }); }
     const sv = $('#sndVol', root);
     if (sv) { sv.oninput = () => sv.style.setProperty('--p', sv.value + '%'); sv.onchange = () => { save({ soundVolume: sv.value / 100 }); sound(S.settings.clipSound || 'beep', sv.value / 100); }; }
     $('#scanG', root).onclick = () => api.action('scanGames').then(r => toast('ok', 'Hry nájdené', `${(r.games || []).length} hier`));

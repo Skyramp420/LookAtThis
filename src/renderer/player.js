@@ -156,7 +156,7 @@ window.Player = (function () {
             </div>
             <div class="ed-hint" id="hint" hidden></div>
             <div class="ed-flash" id="flash"></div>
-            <div class="ed-fs" id="fsBar"><button class="fs-play" id="fsPlay">${I.play}</button><span class="fs-time" id="fsTime"></span><div class="fs-prog" id="fsProg"><i id="fsFill"></i></div><button class="fs-exit" id="fsExit" title="Zavrieť celú obrazovku (Esc)"><svg viewBox="0 0 16 16"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+            <div class="ed-fs" id="fsBar"><button class="fs-play" id="fsPlay">${I.play}</button><span class="fs-time" id="fsTime"></span><div class="fs-prog" id="fsProg"><i id="fsFill"></i></div>${UI.volCtl()}<button class="fs-exit" id="fsExit" title="Zavrieť celú obrazovku (Esc)"><svg viewBox="0 0 16 16"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
             <div class="ed-loading" id="loading"><div class="mx-load"><i></i><i></i><i></i></div><span>Pripravujem klip…</span></div>
           </div>
           <aside class="ed-side">
@@ -180,6 +180,7 @@ window.Player = (function () {
           <span class="pl-time" id="plTime">0:00.00 <i>/ 0:00</i></span>
           <button class="ed-tb ed-hq${UI.previewFull() ? ' on' : ''}" id="hqBtn" title="Náhľad v plnej kvalite (inak rýchla kópia v 720p). Na uložené video to nemá vplyv."><svg viewBox="0 0 16 16"><rect x="1.8" y="3.5" width="12.4" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.6 6.2v3.6M7 6.2v3.6M4.6 8h2.4M9.2 6.2v3.6h1.2a1.8 1.8 0 0 0 0-3.6z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Plná kvalita</span></button>
           <button class="ed-tb ed-fsb2" id="fsBtn" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Celá obrazovka</span></button>
+          ${UI.volCtl()}
           <span class="ed-sep"></span>
           <div class="ed-tools">
             <button class="ed-tb" id="bSplit" title="Rozdeliť na pozícii prehrávania (S)">${IC.split}<span>Rozdeliť</span></button>
@@ -500,10 +501,11 @@ window.Player = (function () {
       if (closed || !active) return;
       const { src } = active, v = src.video;
       const ff = 1 - fadeAt(t);
-      if (!v.muted) v.volume = ff;
+      const pv = UI.pvol();
+      if (!v.muted) v.volume = Math.min(1, ff * pv);
       src.audios.forEach((a, i) => {
         const mx = mixer[i];
-        a.volume = mx && mx.on ? Math.min(1, mx.vol) * ff : 0;
+        a.volume = mx && mx.on ? Math.min(1, Math.min(1, mx.vol) * ff * pv) : 0;
         // posun stopy voči obrazu (kladný = stopa meškala → hrá sa zvuk o kúsok neskôr)
         const vt = v.seeking && v._want != null ? v._want : v.currentTime; // video ešte hľadá → zvuk podľa cieľa
         const target = Math.max(0, vt + ((mx && mx.off) || 0) / 1000);
@@ -1359,6 +1361,7 @@ window.Player = (function () {
       else { selectOv(null); setTool('select'); stage.requestFullscreen().catch(() => { }); }
     }
     $('#fsBtn', m).onclick = e => { e.stopPropagation(); toggleFs(); };
+    const volApi = UI.wireVol(m, () => { try { syncAudio(false); } catch (e) { } });
     $('#fsExit', m).onclick = e => { e.stopPropagation(); toggleFs(); };
     $('#fsPlay', m).onclick = e => { e.stopPropagation(); toggle(); };
     $('#fsProg', m).addEventListener('pointerdown', e => {

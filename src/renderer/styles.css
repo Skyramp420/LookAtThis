@@ -1227,7 +1227,7 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .set-cat.dim { opacity: .35; }
 .set-cat.hit { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .set-main { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-.set-card { animation: setin .32s var(--glide); }
+.set-card.in { animation: setin .32s var(--glide); }
 @keyframes setin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .set-card[hidden], .rg[hidden], .set-empty[hidden] { display: none; }
 .set-card > header { display: flex; align-items: center; gap: 12px; margin: 0 2px 9px; }
@@ -1278,3 +1278,20 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .pb-row i { font-style: normal; width: 72px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .pb-row.pb-h { border-top: 0; color: var(--faint); font-size: 11.5px; font-weight: 600; }
 .perf-note { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+
+/* okno nie je v popredí (alt-tab počas renderu): prehliadač pozastaví animácie a dialóg by ostal neviditeľný, kým nekliknete */
+.noanim, .noanim * { animation: none !important; }
+.noanim .cmp-check path { stroke-dashoffset: 0 !important; }
+.mbps { display: flex; align-items: center; gap: 12px; }
+.mbps b { min-width: 68px; text-align: right; font: 600 13px var(--tc); font-variant-numeric: tabular-nums; }
+
+/* hlasitosť náhľadu */
+.vol { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.vol-b { width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: inherit; display: grid; place-items: center; transition: background .15s, transform .2s var(--spring); }
+.vol-b:hover { background: var(--hover); }
+.vol-b:active { transform: scale(.9); }
+.vol-b svg { width: 18px; height: 18px; }
+.vol[data-lvl="1"] .w2, .vol[data-lvl="x"] .w1, .vol[data-lvl="x"] .w2 { display: none; }
+.vol:not([data-lvl="x"]) .wx { display: none; }
+.vol .vol-r, .st .vol .vol-r { width: 72px; flex: none; }
+.ed-fs .vol, .st-stage.fs .st-trans .vol { color: #fff; }

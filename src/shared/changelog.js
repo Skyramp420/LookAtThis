@@ -1,6 +1,14 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.31', items: [
+      'HDR → SDR: keď máš vo Windowse zapnuté HDR, nahrávanie sa automaticky prevedie na normálne farby (už nie je prepálené). Nájdeš v Nastavenia → Video; ak sa ti obraz zdá tmavý alebo svetlý, uprav Jas pri HDR. Prevod beží na procesore, preto max. 1080p a 30 fps.',
+      'Kvalita Vlastná: v Nastavenia → Video vyberieš presný dátový tok v Mbps.',
+      'Hlasitosť náhľadu v oboch editoroch (aj vo fullscreene). Advanced editor má teraz aj celú obrazovku (F). Nové klávesy: M stlmiť, Z celá časová os, J/K/L, Ctrl+A.',
+      'Opravené: po dorenderovaní v advanced editore ostala len rozmazaná obrazovka, kým si nekliol. Okno teraz po exporte zabliká na lište.',
+      'Opravené: Nastavenia poskočili pri každom kliknutí.',
+      'Advanced editor sa otvára plynulejšie (zdroje sa načítajú až po animácii).'
+    ] },
     { v: '1.0.30', items: [
       'Nastavenia sú rozdelené do kategórií (Clipy, Skratky, Video, Výkon, OBS, Hry, Overlay a zvuk, Vzhľad, Systém, O appke) s hľadaním vľavo.',
       'Pri uložení clipu sa hneď ukáže animovaný overlay „Ukladám clip“ a tlačidlo v okne sa zmení na „Ukladám…“. Pri zastavení nahrávania je to tak isto. Druhé stlačenie skratky počas ukladania sa ignoruje.',

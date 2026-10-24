@@ -136,6 +136,7 @@ window.UI = (function () {
     clearTimeout(closeT); closeT = 0;
     if (onCloseModal) { const f = onCloseModal; onCloseModal = null; try { f(); } catch (e) { } }
     m.className = 'modal ' + cls; m.innerHTML = html;
+    wrap.classList.toggle('noanim', !document.hasFocus() || document.hidden);
     wrap.hidden = false; wrap.classList.remove('closing');
     onCloseModal = onClose || null; beforeCloseModal = beforeClose || null;
     return m;
@@ -329,5 +330,42 @@ window.UI = (function () {
       else if (!full && !v._usingProxy) { swapSrc(v, v._proxy); v._usingProxy = true; }
     }
   }
-  return { $, $$, esc, I, menu, smoothSeek, useProxy, setPreviewFull, previewFull, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
+  /* ---------- hlasitosť náhľadu (spoločná pre oba editory, aj vo fullscreene; export sa nemení) ---------- */
+  const PV = { vol: 1, mute: false, loaded: false, subs: new Set() };
+  function pvLoad() {
+    if (PV.loaded) return; PV.loaded = true;
+    try { const v = parseFloat(localStorage.getItem('previewVol')); if (isFinite(v)) PV.vol = Math.min(1, Math.max(0, v)); PV.mute = localStorage.getItem('previewMute') === '1'; } catch (e) { }
+  }
+  /* kvadratická krivka: tichšie hlasitosti sa ovládajú jemnejšie */
+  const pvol = () => { pvLoad(); return PV.mute ? 0 : PV.vol * PV.vol; };
+  const SPK = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.2v3.6h3L10.8 15V5L6.5 8.2z"/><path class="w1" d="M13.4 7.4a3.6 3.6 0 0 1 0 5.2"/><path class="w2" d="M15.4 5.4a6.4 6.4 0 0 1 0 9.2"/><path class="wx" d="m13.6 7.8 4 4.4M17.6 7.8l-4 4.4"/></svg>';
+  function volCtl() {
+    pvLoad();
+    return `<div class="vol" data-vol><button type="button" class="vol-b" aria-label="Stlmiť náhľad" title="Stlmiť / zapnúť zvuk náhľadu">${SPK}</button><input type="range" class="vol-r" min="0" max="100" value="${Math.round(PV.vol * 100)}" aria-label="Hlasitosť náhľadu" title="Hlasitosť náhľadu (export sa nemení)"></div>`;
+  }
+  /* napojí všetky ovládače hlasitosti v root; onChange sa zavolá po každej zmene (editor prepočíta hlasitosť stôp) */
+  function wireVol(root, onChange) {
+    pvLoad();
+    const sync = () => {
+      const lvl = PV.mute || PV.vol === 0 ? 'x' : PV.vol < 0.5 ? '1' : '2';
+      root.querySelectorAll('[data-vol]').forEach(c => {
+        const r = c.querySelector('.vol-r');
+        r.value = Math.round(PV.vol * 100); r.style.setProperty('--p', r.value + '%'); r.style.setProperty('--f', String(r.value / 100));
+        c.dataset.lvl = lvl;
+      });
+    };
+    root.querySelectorAll('[data-vol]').forEach(c => {
+      const r = c.querySelector('.vol-r'), b = c.querySelector('.vol-b');
+      // posuvník nesmie spustiť klik na plátno (vo fullscreene klik = pauza)
+      c.addEventListener('pointerdown', e => e.stopPropagation());
+      c.addEventListener('click', e => e.stopPropagation());
+      r.addEventListener('input', () => { PV.vol = r.value / 100; PV.mute = false; pvSave(); sync(); onChange && onChange(); });
+      b.addEventListener('click', () => { toggleMute(); });
+    });
+    function toggleMute() { if (!PV.mute && PV.vol === 0) PV.vol = 0.6; else PV.mute = !PV.mute; pvSave(); sync(); onChange && onChange(); }
+    sync();
+    return { toggleMute };
+  }
+  function pvSave() { try { localStorage.setItem('previewVol', String(PV.vol)); localStorage.setItem('previewMute', PV.mute ? '1' : '0'); } catch (e) { } }
+  return { pvol, volCtl, wireVol, $, $$, esc, I, menu, smoothSeek, useProxy, setPreviewFull, previewFull, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
 })();
