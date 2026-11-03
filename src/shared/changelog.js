@@ -1,6 +1,9 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.34', items: [
+      'Opravené: OBS sa spúšťalo na pozadí, aj keď nebežala žiadna hra. Okno pred snímaním skrývala aj iná appka (napr. Claude) a LookAtThis ju bral ako hru. OBS teraz štartuje len kvôli hrám a zoznam sa pri štarte sám vyčistí.'
+    ] },
     { v: '1.0.33', items: [
       'Pri ukladaní a exporte pribudla možnosť 100 MB (pri Discorde s Nitrom, v oboch editoroch aj v komprimácii).',
       'Sprievodca prvým spustením má nový krok Špeciálne situácie: vysvetlí HDR → SDR a nahrávanie cez OBS pre hry ako Valorant (s kontrolou, či je OBS nainštalované a tlačidlom na stiahnutie).'

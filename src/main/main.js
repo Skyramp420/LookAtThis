@@ -355,7 +355,7 @@ function regionFrom(r) {
 }
 /* história okna v popredí (prepnutia hier, alt-tab na plochu); hlási ju fxkeys pri každej zmene */
 let fgLog = [], lastBlockedExe = '', lastFgKey = '';
-const APP_START = Date.now(); let blockedSince = 0;
+const APP_START = Date.now(); let blockedSince = 0; let lastHiddenNonGame = '';
 function onForeground(r) {
   const exe = String(r.exe || '').toLowerCase();
   if (!exe || exe === 'lookatthis.exe') return;
@@ -372,7 +372,9 @@ function onForeground(r) {
   lastFgKey = game ? key : '';
   if (game && store.get().obsBridge && (store.get().hidingGames || []).includes(exe) && !obs.connected) obsWarmup(exe);
   if (r.aff !== 0x11 && exe === lastBlockedExe) { lastBlockedExe = ''; log.info(`${exe} sa znova dá nahrať (aff=${r.aff}), skrytá bola ${Math.round((now - blockedSince) / 1000)} s`); obsOnShown(exe, 'shown'); }
-  if (r.aff === 0x11 && exe !== lastBlockedExe) {
+  // len hry: aj iné appky (napr. Claude, správcovia hesiel, Teams) vedia skryť okno pred snímaním, kvôli nim OBS spúšťať nechceme
+  if (r.aff === 0x11 && !game && key !== lastHiddenNonGame) { lastHiddenNonGame = key; log.info(`${exe} skryl okno pred snímaním, nie je to hra → ignorujem`); }
+  if (r.aff === 0x11 && game && exe !== lastBlockedExe) {
     lastBlockedExe = exe; blockedSince = now;
     { const hg = store.get().hidingGames || []; if (!hg.includes(exe)) store.set({ hidingGames: [...hg, exe].slice(-20) }); }
     log.warn(`${exe} blokuje snímanie obrazovky (WDA_EXCLUDEFROMCAPTURE), appka beží ${Math.round((now - APP_START) / 60000)} min`);
@@ -535,7 +537,7 @@ async function obsWatch() {
       setBadge('', false);
       obsOnShown(exe, 'exit');
     }
-    const hg = store.get().hidingGames || [];
+    const hg = (store.get().hidingGames || []).filter(e => isGameExe(e));
     const needed = store.get().obsBridge && (lastBlockedExe || hg.some(e => procs.has(e)));
     // skrývajúca sa hra beží (napr. LookAtThis sa spustil, keď už hra bežala) → OBS vopred
     const runningHider = hg.find(e => procs.has(e));
@@ -1396,6 +1398,9 @@ app.on('second-instance', () => showWindow());
 app.whenReady().then(async () => {
   const migrated = migrateFromClipIt();
   store = Store.create(USER, app.getPath('videos'));
+  // vyčisti zoznam skrývajúcich sa hier od appiek, ktoré hrami nie sú (staršie verzie tam pridali napr. claude.exe a OBS potom bežalo stále)
+  { const hg = store.get().hidingGames || [], ok = hg.filter(e => isGameExe(String(e).toLowerCase()));
+    if (ok.length !== hg.length) { log.info('OBS most: zo zoznamu skrývajúcich sa hier odstránené ' + hg.filter(e => !ok.includes(e)).join(', ')); store.set({ hidingGames: ok }); } }
   { const sm = store.setMeta.bind(store); store.setMeta = (a, b) => { invalidateClips(); return sm(a, b); }; }
   if (migrated || !store.get().oldLoginRemoved) { removeOldLogin(); store.set({ oldLoginRemoved: true }); }
   // nový predvolený zvuk klipnutia: kto mal pôvodnú klapku, dostane raz pípnutie (v Nastaveniach si ho vie zmeniť späť)
