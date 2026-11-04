@@ -45,6 +45,25 @@ const TMP = path.join(app.getPath('temp'), 'LookAtThis-buffer');
 const LOGF = path.join(USER, 'lookatthis.log');
 const EDIT = path.join(app.getPath('temp'), 'LookAtThis-edit');
 const PROJ = path.join(USER, 'projects');
+const STRIPS = path.join(USER, 'strips'); // pásy náhľadov pre časovú os advanced editora
+const stripKey = file => { const st = fs.statSync(file); return crypto.createHash('sha1').update(file + '|' + st.mtimeMs + '|' + st.size).digest('hex').slice(0, 16); };
+/* práve bežiaci export advanced editora: drží jeho ffmpeg procesy, aby sa dal zrušiť */
+let curExport = null;
+function exportCtl() {
+  const procs = new Set();
+  const ctl = {
+    cancelled: false,
+    track(p) { procs.add(p); p.on('close', () => procs.delete(p)); if (ctl.cancelled) killProc(p); },
+    cancel() { ctl.cancelled = true; for (const p of procs) killProc(p); }
+  };
+  curExport = ctl;
+  return ctl;
+}
+function killProc(p) {
+  // na Windows /T zabije aj prípadné podprocesy, /F hneď (ffmpeg pri zrušení nič zachraňovať nemusí)
+  if (process.platform === 'win32' && p.pid) execFile('taskkill.exe', ['/PID', String(p.pid), '/T', '/F'], { windowsHide: true }, () => { });
+  else try { p.kill('SIGKILL'); } catch (e) { }
+}
 const projFile = id => { if (!/^[a-z0-9]{4,40}$/i.test(String(id))) throw new Error('Neplatný projekt'); return path.join(PROJ, id + '.json'); };
 
 /* ---------- log ---------- */
@@ -834,7 +853,9 @@ function applySettings(before, now) {
 
 async function runAction(type, p = {}) {
   // akcie menia súbory alebo metadáta → zoznam klipov načítaj nanovo (lacné, deje sa len na klik)
-  if (!['extractTracks', 'calibrateMic', 'updateCheck', 'libraryInfo', 'refreshDevices', 'testOverlay'].includes(type)) invalidateClips();
+  // akcie, ktoré knižnicu nemenia, nesmú zahodiť jej cache (projSave chodí počas strihu každú chvíľu → zbytočné skenovanie)
+  if (!['extractTracks', 'calibrateMic', 'updateCheck', 'libraryInfo', 'refreshDevices', 'testOverlay',
+    'projList', 'projLoad', 'projSave', 'proxy', 'probe', 'thumbStripGet', 'thumbStripSave', 'cancelExport', 'hdrCheck', 'detectBars'].includes(type)) invalidateClips();
   const s = store.get();
   switch (type) {
     case 'saveClip': saveClip(); return true;
@@ -1037,6 +1058,27 @@ async function runAction(type, p = {}) {
       pushState(); return out;
     }
     case 'proxy': return proxies.get(p.path);
+    /* pás náhľadov časovej osi (JPEG, n políčok vedľa seba) — pri ďalšom otvorení projektu je hneď */
+    case 'thumbStripGet': {
+      try {
+        const k = stripKey(p.path), f = path.join(STRIPS, k + '.jpg');
+        const m = JSON.parse(fs.readFileSync(path.join(STRIPS, k + '.json'), 'utf8'));
+        if (!fs.existsSync(f)) return null;
+        return { file: f, n: m.n, tw: m.tw, th: m.th };
+      } catch (e) { return null; }
+    }
+    case 'thumbStripSave': {
+      const k = stripKey(p.path);
+      fs.mkdirSync(STRIPS, { recursive: true });
+      fs.writeFileSync(path.join(STRIPS, k + '.jpg'), Buffer.from(String(p.jpg).replace(/^data:image\/jpeg;base64,/, ''), 'base64'));
+      fs.writeFileSync(path.join(STRIPS, k + '.json'), JSON.stringify({ n: Number(p.n) || 0, tw: Number(p.tw) || 0, th: Number(p.th) || 0 }));
+      return true;
+    }
+    case 'cancelExport': {
+      if (!curExport) return false;
+      curExport.cancel(); log.info('Export zrušený používateľom');
+      return true;
+    }
     /* ---------- projekty advanced editora (JSON v AppData\Roaming\LookAtThis\projects) ---------- */
     case 'projList': {
       fs.mkdirSync(PROJ, { recursive: true });
@@ -1092,21 +1134,27 @@ async function runAction(type, p = {}) {
         return { png: f, start: Number(o.start), end: Number(o.end), cx: Number(o.cx), cy: Number(o.cy), animIn: o.animIn || 'none', animOut: o.animOut || 'none' };
       });
       const enc = engine.pickEncoder(store.get());
+      const ctl = exportCtl();
       try {
         const prog = f => send('event', { type: 'exportProgress', value: target ? f * 0.55 : f });
-        if (!target) await exportProject(FFMPEG, { ...p, out, overlays }, enc, videoEncArgs, prog);
+        if (!target) await exportProject(FFMPEG, { ...p, out, overlays }, enc, videoEncArgs, prog, ctl);
         else {
           const mid = path.join(tmp, 'montaz.mp4');
-          await exportProject(FFMPEG, { ...p, out: mid, overlays, keepTracks: false }, enc, videoEncArgs, prog);
+          await exportProject(FFMPEG, { ...p, out: mid, overlays, keepTracks: false }, enc, videoEncArgs, prog, ctl);
           const info = await probe(FFMPEG, mid);
           const plan = Compress.plan({ duration: info.duration, width: info.width, height: info.height, fps: info.fps, targetMB: target });
           if (!plan.ok) throw new Error(`Video je na ${target} MB pridlhé (max ${Math.floor(plan.maxSeconds / 60)} min ${plan.maxSeconds % 60} s). Exportuj v pôvodnej kvalite alebo ho skráť.`);
-          await compressClip(FFMPEG, { file: mid, out, targetMB: target, plan, tmpDir: path.join(tmp, 'pass') }, enc, f => send('event', { type: 'exportProgress', value: 0.55 + f * 0.45 }));
+          await compressClip(FFMPEG, { file: mid, out, targetMB: target, plan, tmpDir: path.join(tmp, 'pass'), ctl }, enc, f => send('event', { type: 'exportProgress', value: 0.55 + f * 0.45 }));
         }
-      } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { } }
+      } catch (e) {
+        // zrušené alebo zlyhané: nedokončený súbor v knižnici nenechávaj
+        try { fs.unlinkSync(out); } catch (x) { }
+        if (ctl.cancelled) { const c = new Error('Export bol zrušený'); c.cancelled = true; throw c; }
+        throw e;
+      } finally { if (curExport === ctl) curExport = null; try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { } }
       const first = (p.video || [])[0];
       const m = first ? (store.meta()[first.file] || {}) : {};
-      store.setMeta(out, { game: m.game, duration: Number(p.duration) || 0, kind: 'edit' });
+      store.setMeta(out, { game: m.game, duration: Math.max(0, (Number(p.duration) || 0) - (Number(p.from) || 0)), kind: 'edit' });
       pushState(); return out;
     }
     case 'rename': {

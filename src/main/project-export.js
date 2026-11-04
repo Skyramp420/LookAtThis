@@ -6,11 +6,14 @@
      audio:   [{ file, stream, lane, start, in, out, speed, vol, fadeIn, fadeOut }],
      lanes:   [{ id, title }]            poradie samostatných stôp (keepTracks)
      overlays:[{ png, cx, cy, start, end, animIn, animOut }],
-     keepTracks
+     keepTracks,
+     from                                  voliteľne: export len úseku [from, duration] (značky In/Out)
    }
    Video: čierne plátno W×H, na ňom každá položka v jej čase (overlay s posunom PTS).
    Zvuk:  každá položka zvlášť (vlastný -ss/-t), posun cez adelay, mix po stopách → hlavný mix
-          (+ voliteľne každá stopa ako samostatná zvuková stopa pre strihový program). */
+          (+ voliteľne každá stopa ako samostatná zvuková stopa pre strihový program).
+   Úsek (from = A > 0): graf beží v čase osi, na konci každej vetvy sa orež od A a posunie na 0.
+          Položky, ktoré začínajú dávno pred A, sa rovno posunú v zdroji (-ss), aby sa nedekódovalo zbytočne. */
 const { spawn } = require('child_process');
 
 const even = x => Math.max(2, Math.round(x / 2) * 2);
@@ -63,19 +66,41 @@ function videoChain(it, W, H, F) {
   return f;
 }
 
+const rangeFrom = job => { const D = Math.max(0.2, Number(job.duration) || 0); return Math.max(0, Math.min(D - 0.1, Number(job.from) || 0)); };
+/* video položka, ktorá začína dávno pred A: posuň jej začiatok v zdroji (bez speed rampy, tam je mapa času) */
+function skipVideo(it, A) {
+  if (!(A > 0) || it.map) return it;
+  const r = spd(it.speed), fh = it.freezeHead || 0, body = (it.out - it.in) / r;
+  const skip = A - it.start - 0.5; // pol sekundy rezerva, presne oreže trim
+  if (skip <= fh + 0.01 || skip >= fh + body - 0.05) return it;
+  return { ...it, in: it.in + (skip - fh) * r, start: it.start + skip, freezeHead: 0 };
+}
+/* zvuková položka, ktorá začína pred A: to isté (bez speed rampy a keyframov hlasitosti, tie rátajú čas od začiatku položky) */
+function skipAudio(a, A) {
+  if (!(A > 0) || (Array.isArray(a.chunks) && a.chunks.length) || a.volE) return a;
+  const r = spd(a.speed), od = a.dur > 0 ? a.dur : (a.out - a.in) / r;
+  const skip = A - a.start - 0.5;
+  if (skip <= 0.5 || skip >= od - 0.05) return a; // ≥ 0,5 s: stmievanie na začiatku (max 0,5 s) je celé pred novým začiatkom
+  return { ...a, in: a.in + skip * r, start: a.start + skip, dur: od - skip, fadeIn: false };
+}
+
 function buildArgs(job, encArgs) {
   const W = even(job.W), H = even(job.H), F = job.fps || 60;
   const video = (job.video || []).filter(v => v.out - v.in > 0.03);
   const audio = (job.audio || []).filter(a => a.out - a.in > 0.03 && a.vol > 0);
   const D = Math.max(0.2, Number(job.duration) || 0);
+  const A = rangeFrom(job), OD = D - A; // OD = dĺžka výstupu
+  // výrazy v čase výstupu → čas osi (t sa po orezaní úseku začína od 0, os od A)
+  const shT = e => A > 0 ? String(e).replace(/\bt\b/g, `(t+${n3(A)})`) : String(e);
+  const cutTail = A > 0 ? [`trim=start=${n3(A)}`, `setpts=PTS-${n3(A)}/TB`] : [];
   const args = ['-hide_banner', '-loglevel', 'error', '-y', '-progress', 'pipe:1', '-nostats'];
   const fc = [];
   let nIn = 0;
 
   // obraz
-  fc.push(`color=c=black:s=${W}x${H}:r=${F}:d=${n3(D)},format=yuv420p[base]`);
+  fc.push(`color=c=black:s=${W}x${H}:r=${F}:d=${n3(OD)},format=yuv420p[base]`);
   let v = 'base';
-  video.forEach((it, k) => {
+  video.map(it => skipVideo(it, A)).forEach((it, k) => {
     args.push('-ss', n3(it.in), '-t', n3(it.out - it.in), '-i', it.file);
     const idx = nIn++;
     const f = videoChain(it, W, H, F);
@@ -85,7 +110,8 @@ function buildArgs(job, encArgs) {
     if (!isConst(R, 0)) f.push('format=rgba', `rotate=a='(${R})*PI/180':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0`);
     if (!isConst(S, 1)) f.push(`scale=w='max(2,trunc(iw*(${S})/2)*2)':h='max(2,trunc(ih*(${S})/2)*2)':eval=frame`);
     if (!isConst(R, 0) || !isConst(S, 1) || !isConst(X, 0) || !isConst(Y, 0))
-      ov = `overlay=x='(main_w-overlay_w)/2+(${X})*main_w':y='(main_h-overlay_h)/2+(${Y})*main_h':eval=frame:eof_action=pass:repeatlast=0`;
+      ov = `overlay=x='(main_w-overlay_w)/2+(${shT(X)})*main_w':y='(main_h-overlay_h)/2+(${shT(Y)})*main_h':eval=frame:eof_action=pass:repeatlast=0`;
+    f.push(...cutTail);
     fc.push(`[${idx}:v]${f.join(',')}[vi${k}]`);
     fc.push(`[${v}][vi${k}]${ov}[vb${k}]`);
     v = `vb${k}`;
@@ -93,10 +119,11 @@ function buildArgs(job, encArgs) {
 
   // text (PNG) s animáciami — rovnaké krivky ako náhľad
   (job.overlays || []).forEach((o, k) => {
-    args.push('-loop', '1', '-framerate', String(F), '-t', n3(D), '-i', o.png);
+    args.push('-loop', '1', '-framerate', String(F), '-t', n3(OD), '-i', o.png);
     const idx = nIn++;
     const s = Math.max(0, o.start), e = Math.min(D, o.end), S = n3(s), E = n3(e);
-    const f = ['format=rgba'];
+    // obrázok beží od A (čas osi), aby fade/keyframy sedeli; na konci sa posunie späť na čas výstupu
+    const f = A > 0 ? [`setpts=PTS+${n3(A)}/TB`, 'format=rgba'] : ['format=rgba'];
     if (o.animIn && o.animIn !== 'none') f.push(`fade=t=in:st=${S}:d=${o.animIn === 'pop' ? 0.2 : 0.35}:alpha=1`);
     if (o.animOut === 'fade') f.push(`fade=t=out:st=${n3(Math.max(s, e - 0.3))}:d=0.3:alpha=1`);
     // keyframy textu (poloha ako zlomok obrazu, veľkosť, otočenie); bez nich statická poloha cx/cy
@@ -109,15 +136,16 @@ function buildArgs(job, encArgs) {
     }
     const dy = o.animIn === 'slide' ? `+pow(1-clip((t-${S})/0.4,0,1),3)*${(H * 0.05).toFixed(1)}` : '';
     const ox = XE != null ? `(${XE})*${W}` : Number(o.cx).toFixed(1), oy = YE != null ? `(${YE})*${H}` : Number(o.cy).toFixed(1);
+    if (A > 0) f.push(`setpts=PTS-${n3(A)}/TB`);
     fc.push(`[${idx}:v]${f.join(',')}[tx${k}]`);
-    fc.push(`[${v}][tx${k}]overlay=x='${ox}-overlay_w/2':y='${oy}-overlay_h/2${dy}':eval=frame:enable='between(t,${S},${E})'[to${k}]`);
+    fc.push(`[${v}][tx${k}]` + shT(`overlay=x='${ox}-overlay_w/2':y='${oy}-overlay_h/2${dy}':eval=frame:enable='between(t,${S},${E})'`) + `[to${k}]`);
     v = `to${k}`;
   });
   fc.push(`[${v}]format=yuv420p[vout]`);
 
   // zvuk: položky → stopy → mix
   const byLane = new Map();
-  audio.forEach((a, k) => {
+  audio.map(a => skipAudio(a, A)).forEach((a, k) => {
     args.push('-ss', n3(a.in), '-t', n3(a.out - a.in), '-i', a.file);
     const idx = nIn++;
     const r = spd(a.speed), od = a.dur > 0 ? a.dur : (a.out - a.in) / r, F2 = Math.min(0.5, od / 3);
@@ -149,7 +177,7 @@ function buildArgs(job, encArgs) {
     const ins = byLane.get(l.id);
     const mixed = ins.length > 1 ? `${ins.join('')}amix=inputs=${ins.length}:duration=longest:normalize=0,` : `${ins[0]}`;
     const body = ins.length > 1 ? mixed : `${ins[0]}anull,`;
-    fc.push(`${body}apad=whole_dur=${n3(D)},atrim=duration=${n3(D)}[L${i}]`);
+    fc.push(`${body}apad=whole_dur=${n3(D)},` + (A > 0 ? `atrim=start=${n3(A)}:end=${n3(D)},asetpts=PTS-STARTPTS` : `atrim=duration=${n3(D)}`) + `[L${i}]`);
     if (keep) { fc.push(`[L${i}]asplit=2[Lm${i}][Lk${i}]`); mixIn.push(`[Lm${i}]`); keepOut.push({ lab: `[Lk${i}]`, title: l.title }); }
     else mixIn.push(`[L${i}]`);
   });
@@ -160,7 +188,7 @@ function buildArgs(job, encArgs) {
     maps.push('-map', '[amix]'); titles.push('Mix');
     keepOut.forEach(k => { maps.push('-map', k.lab); titles.push(k.title); });
   }
-  const tail = ['-t', n3(D), '-r', String(F)];
+  const tail = ['-t', n3(OD), '-r', String(F)];
   if (titles.length) tail.push('-c:a', 'aac', '-b:a', '192k');
   titles.forEach((n, i) => tail.push(`-metadata:s:a:${i}`, `title=${n}`, `-metadata:s:a:${i}`, `handler_name=${n}`));
   if (titles.length) tail.push('-disposition:a:0', 'default');
@@ -168,10 +196,12 @@ function buildArgs(job, encArgs) {
   return [...args, '-filter_complex', fc.join(';'), ...maps, ...encArgs, ...tail];
 }
 
-function run(ffmpeg, args, D, onProgress) {
+function run(ffmpeg, args, D, onProgress, ctl) {
   return new Promise(resolve => {
+    if (ctl && ctl.cancelled) return resolve({ code: -2, err: 'Zrušené' });
     let err = '', buf = '';
     const p = spawn(ffmpeg, args, { windowsHide: true });
+    if (ctl) ctl.track(p);
     p.stdout.on('data', d => {
       buf += d;
       const m = buf.match(/out_time_us=(\d+)/g);
@@ -184,11 +214,14 @@ function run(ffmpeg, args, D, onProgress) {
 }
 
 /* videoEncArgs(enc) z engine; keď HW enkodér zlyhá, skúsi to procesor */
-async function exportProject(ffmpeg, job, enc, videoEncArgs, onProgress) {
+/* ctl (voliteľné): { cancelled, track(proc) } — export sa dá zrušiť zabitím procesu */
+async function exportProject(ffmpeg, job, enc, videoEncArgs, onProgress, ctl) {
   if (!(job.video || []).length && !(job.audio || []).length && !(job.overlays || []).length) throw new Error('Časová os je prázdna');
-  const D = Math.max(0.2, Number(job.duration) || 0);
-  let r = await run(ffmpeg, buildArgs(job, videoEncArgs(enc)), D, onProgress);
-  if (r.code !== 0 && enc && enc.fam !== 'x264') r = await run(ffmpeg, buildArgs(job, videoEncArgs(null)), D, onProgress);
+  const OD = Math.max(0.2, Number(job.duration) || 0) - rangeFrom(job);
+  const cancelled = () => ctl && ctl.cancelled;
+  let r = await run(ffmpeg, buildArgs(job, videoEncArgs(enc)), OD, onProgress, ctl);
+  if (r.code !== 0 && !cancelled() && enc && enc.fam !== 'x264') r = await run(ffmpeg, buildArgs(job, videoEncArgs(null)), OD, onProgress, ctl);
+  if (cancelled()) throw new Error('Zrušené');
   if (r.code !== 0) throw new Error((String(r.err).trim().split(/\r?\n/).pop()) || 'Export zlyhal');
   return job.out;
 }

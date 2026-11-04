@@ -197,6 +197,28 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-snap { position: absolute; top: 24px; bottom: 0; left: 0; width: 1px; background: var(--amber); z-index: 3; pointer-events: none; }
 .st-drop { position: absolute; top: 24px; bottom: 0; left: -1px; width: 2px; background: var(--accent); box-shadow: 0 0 12px var(--accent); z-index: 3; pointer-events: none; }
 
+/* In / Out: pás na pravítku, úchyty, stmavenie mimo úseku */
+.st-io { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: inset 0 -2px 0 var(--accent); pointer-events: none; }
+.st-io.new { animation: stIoIn .32s var(--spring); }
+@keyframes stIoIn { from { opacity: 0; transform: scaleY(.4); transform-origin: bottom; } }
+.st-ioh { position: absolute; top: 0; bottom: -2px; width: 14px; pointer-events: auto; cursor: ew-resize; }
+.st-ioh.in { left: -7px; } .st-ioh.out { right: -7px; }
+/* tvar „[“ a „]“: zvislá čiarka + vlajočka hore smerom do úseku */
+.st-ioh::before { content: ''; position: absolute; top: 2px; bottom: 0; left: 6px; width: 2.5px; border-radius: 2px; background: var(--accent); }
+.st-ioh::after { content: ''; position: absolute; top: 2px; width: 7px; height: 7px; background: var(--accent); transition: transform .25s var(--spring); }
+.st-ioh.in::after { left: 6px; border-radius: 1px 4px 4px 1px; transform-origin: left center; }
+.st-ioh.out::after { right: 5.5px; border-radius: 4px 1px 1px 4px; transform-origin: right center; }
+.st-ioh:hover::after { transform: scale(1.25); }
+.st-iodim { position: absolute; top: 24px; bottom: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }
+.st-iodim i { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--ink) 55%, transparent); }
+.st-iodim .l { left: 0; } .st-iodim .r { right: 0; }
+.st-sep { width: .5px; height: 18px; background: var(--line); margin: 0 4px; }
+.st-iochip { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; padding: 3px 3px 3px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font: 600 11.5px/1 var(--tc); white-space: nowrap; animation: stIoIn .32s var(--spring); }
+.st-iochip button { width: 20px; height: 20px; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; color: inherit; transition: background .15s; }
+.st-iochip button:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.st-iochip svg { width: 12px; height: 12px; }
+.st-exp .st-cancel { margin-top: 14px; }
+
 /* vrstvy (export) */
 .st-layer { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; background: var(--scrim); backdrop-filter: blur(3px); animation: fade .18s ease both; }
 .st-exp { width: min(440px, calc(100% - 32px)); background: var(--panel); border-radius: 16px; box-shadow: var(--pop-shadow); padding: 22px; display: flex; flex-direction: column; gap: 14px; animation: popin .32s var(--spring) both; }

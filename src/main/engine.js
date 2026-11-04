@@ -710,7 +710,23 @@ async function trim(ffmpeg, file, a, b, out, enc) {
 
 /* ---------- editor ---------- */
 /* vytiahni každú zvukovú stopu do samostatného súboru (bez prekódovania), aby ich editor mohol hrať zvlášť */
+/* výsledok sa pamätá v outDir/info.json (kľúč priečinka = cesta + čas zmeny súboru), takže pri ďalšom otvorení
+   projektu netreba spúšťať ffmpeg vôbec — len sa prečítajú hotové stopy a obálky */
+function readLevels(tracks) {
+  return tracks.map(t => { let levels = ''; try { levels = fs.readFileSync(t.file.replace(/\.m4a$/, '.lvl')).toString('base64'); } catch (e) { } return { ...t, levels }; });
+}
 async function extractTracks(ffmpeg, file, outDir) {
+  const cacheF = path.join(outDir, 'info.json');
+  try {
+    const c = JSON.parse(fs.readFileSync(cacheF, 'utf8'));
+    const ok = Array.isArray(c.tracks) && c.tracks.every(t => { try { return fs.statSync(t.file).size > 0 && fs.existsSync(t.file.replace(/\.m4a$/, '.lvl')); } catch (e) { return false; } });
+    if (ok) return { duration: c.duration, width: c.width, height: c.height, fps: c.fps, tracks: readLevels(c.tracks) };
+  } catch (e) { }
+  const r0 = await extractTracksFresh(ffmpeg, file, outDir);
+  try { fs.mkdirSync(outDir, { recursive: true }); fs.writeFileSync(cacheF, JSON.stringify({ ...r0, tracks: r0.tracks.map(({ levels, ...t }) => t) })); } catch (e) { }
+  return r0;
+}
+async function extractTracksFresh(ffmpeg, file, outDir) {
   const info = await probe(ffmpeg, file);
   const meta = { duration: info.duration, width: info.width, height: info.height, fps: info.fps };
   if (!info.audio) return { ...meta, tracks: [] };
@@ -940,7 +956,9 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
   const audio = plan.akbps > 0 && info.audio > 0 ? ['-map', '0:a:0', '-c:a', 'aac', '-b:a', `${plan.akbps}k`, '-ac', '2'] : ['-an'];
   const runP = (args, part, parts) => new Promise(resolve => {
     let err = '', buf = '';
+    if (job.ctl && job.ctl.cancelled) return resolve({ code: -2, err: 'Zrušené' });
     const p = spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-progress', 'pipe:1', '-nostats', ...args], { windowsHide: true });
+    if (job.ctl) job.ctl.track(p); // export sa dá zrušiť (zabije tento proces)
     p.stdout.on('data', d => {
       buf += d;
       const m = buf.match(/out_time_us=(\d+)/g);
@@ -961,6 +979,7 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
       else if (enc.fam === 'amf') v.push('-rc', 'vbr_peak', '-quality', 'quality');
       else if (enc.fam === 'qsv') v.push('-preset', 'slower');
       const r = await runP(['-i', job.file, '-map', '0:v:0', '-vf', vf, ...v, '-g', String(plan.fps * 4), ...audio, '-movflags', '+faststart', job.out], 0, 1);
+      if (job.ctl && job.ctl.cancelled) throw new Error('Zrušené');
       if (r.code !== 0) break; // HW nejde → x264
       const got = size();
       if (got > 0 && got <= limit) return { out: job.out, size: got, encoder: enc.name };
@@ -975,8 +994,10 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const base = ['-i', job.file, '-map', '0:v:0', '-vf', vf, '-c:v', 'libx264', '-preset', 'medium', '-b:v', `${vk}k`, '-passlogfile', log, '-g', String(plan.fps * 4)];
     let r = await runP([...base, '-pass', '1', '-an', '-f', 'mp4', nul], 0, 2);
+    if (job.ctl && job.ctl.cancelled) throw new Error('Zrušené');
     if (r.code !== 0) throw new Error(lastLine(r.err) || 'Kompresia zlyhala');
     r = await runP([...base, '-pass', '2', ...audio, '-movflags', '+faststart', job.out], 1, 2);
+    if (job.ctl && job.ctl.cancelled) throw new Error('Zrušené');
     if (r.code !== 0) throw new Error(lastLine(r.err) || 'Kompresia zlyhala');
     const got = size();
     if (got <= limit) return { out: job.out, size: got, encoder: 'libx264' };

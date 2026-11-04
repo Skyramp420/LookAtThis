@@ -1,6 +1,12 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.35', items: [
+      'Advanced editor: In a Out. Klávesou I a O (alebo tlačidlami pod náhľadom) si označíš úsek, na pravítku ho vidíš a vieš ho ťahať za okraje. Pri exporte si vyberieš, či chceš len označený úsek alebo celú časovú os. Shift+I / Shift+O skočí na značku, Alt+X ich zruší.',
+      'Export v advanced editore sa dá zrušiť, nedokončený súbor sa zmaže.',
+      'Uložené projekty sa otvárajú rýchlejšie: klipy sa načítajú naraz, stopy a náhľady na časovej osi sa pamätajú a projekt sa začne čítať už počas animácie.',
+      'Opravené: v exporte advanced editora sa nedalo zmeniť rozlíšenie ani snímky za sekundu (vždy sa použili predvolené).'
+    ] },
     { v: '1.0.34', items: [
       'Opravené: OBS sa spúšťalo na pozadí, aj keď nebežala žiadna hra. Okno pred snímaním skrývala aj iná appka (napr. Claude) a LookAtThis ju bral ako hru. OBS teraz štartuje len kvôli hrám a zoznam sa pri štarte sám vyčistí.'
     ] },
