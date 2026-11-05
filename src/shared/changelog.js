@@ -1,6 +1,13 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.36', items: [
+      'Advanced editor: viac úsekov naraz. Označ In/Out a stlač P (alebo „+“), úsek sa uloží a značíš ďalší. Úseky sú očíslované navrchu pravítka (klik = upraviť, pravý klik = menu). V exporte vyberieš Úseky a každý sa uloží ako samostatné video.',
+      'Úsek medzi In a Out sa dá prehrať dokola: Shift+medzerník alebo tlačidlo v čipe In/Out.',
+      'Export ukazuje, koľko ešte zostáva.',
+      'Rýchlejší export: videá sa pri renderovaní dekódujú na grafike (ak to nejde, automaticky procesor).',
+      'Export na 10/20/50/100 MB s grafickým enkodérom ide jedným prechodom priamo na cieľovú veľkosť, predtým sa kódovalo dvakrát. Keby to vyšlo nad limit, video sa samo dokomprimuje.'
+    ] },
     { v: '1.0.35', items: [
       'Advanced editor: In a Out. Klávesou I a O (alebo tlačidlami pod náhľadom) si označíš úsek, na pravítku ho vidíš a vieš ho ťahať za okraje. Pri exporte si vyberieš, či chceš len označený úsek alebo celú časovú os. Shift+I / Shift+O skočí na značku, Alt+X ich zruší.',
       'Export v advanced editore sa dá zrušiť, nedokončený súbor sa zmaže.',

@@ -217,6 +217,16 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-iochip button { width: 20px; height: 20px; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; color: inherit; transition: background .15s; }
 .st-iochip button:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .st-iochip svg { width: 12px; height: 12px; }
+/* uložené úseky: tenké pásy navrchu pravítka s číslom */
+.st-rg { position: absolute; top: 1px; height: 10px; border-radius: 3px; background: var(--accent); opacity: .62; cursor: pointer; z-index: 1; transition: opacity .15s; }
+.st-rg:hover { opacity: 1; }
+.st-rg.ed { background: transparent; opacity: 1; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.st-rg b { position: absolute; left: 4px; top: 0; font: 750 8.5px/10px var(--body); color: var(--accent-ink); pointer-events: none; }
+.st-rg.ed b { color: var(--accent); }
+.st-rgchip { border: 0; margin-left: 4px; padding: 5px 10px; border-radius: 999px; background: var(--fill2); color: var(--text); font: 600 11.5px/1 var(--body); white-space: nowrap; transition: background .15s; }
+.st-rgchip:hover { background: var(--fill); }
+.st-eta { min-height: 1.2em; margin-top: -4px; font-variant-numeric: tabular-nums; }
+.st-iochip button.on { background: var(--accent); color: var(--accent-ink); }
 .st-exp .st-cancel { margin-top: 14px; }
 
 /* vrstvy (export) */

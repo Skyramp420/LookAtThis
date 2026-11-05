@@ -947,6 +947,15 @@ async function toSdr(ffmpeg, job, enc, onProgress) {
   throw new Error(lastLine(last && last.err) || 'Prevod na SDR zlyhal');
 }
 
+/* HW enkodér s riadeným tokom na cieľovú veľkosť (kbit/s); použije kompresia aj export advanced editora */
+function targetEncArgs(enc, vk, fps) {
+  const v = ['-c:v', enc.name, '-b:v', `${vk}k`, '-maxrate', `${Math.round(vk * 1.3)}k`, '-bufsize', `${vk * 2}k`];
+  if (enc.fam === 'nvenc') v.push('-preset', 'p6', '-tune', 'hq', '-rc', 'vbr', '-multipass', 'fullres', '-spatial-aq', '1');
+  else if (enc.fam === 'amf') v.push('-rc', 'vbr_peak', '-quality', 'quality');
+  else if (enc.fam === 'qsv') v.push('-preset', 'slower');
+  v.push('-g', String(fps * 4));
+  return v;
+}
 async function compressClip(ffmpeg, job, enc, onProgress) {
   const { plan } = job;
   const limit = job.targetMB * 1e6;
@@ -974,11 +983,8 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
   if (enc && enc.fam !== 'x264') {
     let vk = plan.vkbps;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const v = ['-c:v', enc.name, '-b:v', `${vk}k`, '-maxrate', `${Math.round(vk * 1.3)}k`, '-bufsize', `${vk * 2}k`];
-      if (enc.fam === 'nvenc') v.push('-preset', 'p6', '-tune', 'hq', '-rc', 'vbr', '-multipass', 'fullres', '-spatial-aq', '1');
-      else if (enc.fam === 'amf') v.push('-rc', 'vbr_peak', '-quality', 'quality');
-      else if (enc.fam === 'qsv') v.push('-preset', 'slower');
-      const r = await runP(['-i', job.file, '-map', '0:v:0', '-vf', vf, ...v, '-g', String(plan.fps * 4), ...audio, '-movflags', '+faststart', job.out], 0, 1);
+      const v = targetEncArgs(enc, vk, plan.fps);
+      const r = await runP(['-i', job.file, '-map', '0:v:0', '-vf', vf, ...v, ...audio, '-movflags', '+faststart', job.out], 0, 1);
       if (job.ctl && job.ctl.cancelled) throw new Error('Zrušené');
       if (r.code !== 0) break; // HW nejde → x264
       const got = size();
@@ -1006,4 +1012,4 @@ async function compressClip(ffmpeg, job, enc, onProgress) {
   return { out: job.out, size: size(), encoder: 'libx264', over: true };
 }
 
-module.exports = { toSdr, compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, detectBars, SEG, stamp, videoEncArgs };
+module.exports = { targetEncArgs, toSdr, compressClip, Engine, thumbnail, probe, trim, extractTracks, exportSequence, detectBars, SEG, stamp, videoEncArgs };

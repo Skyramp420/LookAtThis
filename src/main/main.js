@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
-const { Engine, toSdr, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars, videoEncArgs } = require('./engine');
+const { Engine, toSdr, thumbnail, probe, trim, extractTracks, exportSequence, compressClip, detectBars, videoEncArgs, targetEncArgs } = require('./engine');
 const { Obs, findObs, findObsDeep, killStaleOurs } = require('./obs');
 const { Perf } = require('./perf');
 const { mergeObsWithTracks } = require('./obs-merge');
@@ -47,6 +47,37 @@ const EDIT = path.join(app.getPath('temp'), 'LookAtThis-edit');
 const PROJ = path.join(USER, 'projects');
 const STRIPS = path.join(USER, 'strips'); // pásy náhľadov pre časovú os advanced editora
 const stripKey = file => { const st = fs.statSync(file); return crypto.createHash('sha1').update(file + '|' + st.mtimeMs + '|' + st.size).digest('hex').slice(0, 16); };
+/* export advanced editora na cieľovú veľkosť jedným prechodom: s HW enkodérom sa časová os kóduje rovno na
+   vypočítaný dátový tok (predtým: plná kvalita a potom ešte raz kompresia = dvojnásobný čas).
+   Keď to vyjde nad limit, výsledok sa ešte dokomprimuje. Vráti false, ak sa to takto nedá (procesor, chyba). */
+async function exportToSize(p, overlays, out, tmp, target, enc, ctl) {
+  if (!enc || enc.fam === 'x264') return false;
+  const OD = Math.max(0.2, (Number(p.duration) || 0) - (Number(p.from) || 0));
+  const plan = Compress.plan({ duration: OD, width: p.W, height: p.H, fps: p.fps, targetMB: target, audio: (p.audio || []).length > 0 });
+  if (!plan.ok) throw new Error(`Video je na ${target} MB pridlhé (max ${Math.floor(plan.maxSeconds / 60)} min ${plan.maxSeconds % 60} s). Exportuj v pôvodnej kvalite alebo ho skráť.`);
+  const limit = target * 1e6, one = path.join(tmp, 'jeden.mp4');
+  const vk = Math.max(Compress.MIN_VKBPS, Math.floor(plan.vkbps * 0.96)); // HW enkodéry radšej mierne pod cieľ
+  const t0 = Date.now();
+  try {
+    await exportProject(FFMPEG, { ...p, out: one, overlays, keepTracks: false, fps: plan.fps, outH: plan.height, abr: plan.akbps, fixedEnc: true },
+      enc, e => targetEncArgs(e, vk, plan.fps), f => send('event', { type: 'exportProgress', value: f * 0.94 }), ctl);
+  } catch (e) {
+    if (ctl.cancelled) throw e;
+    log.warn('Export na MB jedným prechodom zlyhal, skúšam po starom: ' + e.message);
+    return false;
+  }
+  const got = fs.statSync(one).size;
+  log.info(`Export na ${target} MB jedným prechodom: ${(got / 1e6).toFixed(1)} MB za ${((Date.now() - t0) / 1000).toFixed(1)} s (${enc.name}, ${plan.height}p${plan.fps})`);
+  if (got > 0 && got <= limit) { moveFile(one, out); return true; }
+  // trochu nad limitom: dokomprimuj hotový súbor (jeden vstup, ide to rýchlo)
+  const fix = { ...plan, vkbps: Math.max(Compress.MIN_VKBPS, Math.floor(vk * (limit / got) * 0.93)) };
+  await compressClip(FFMPEG, { file: one, out, targetMB: target, plan: fix, tmpDir: path.join(tmp, 'pass'), ctl }, enc, f => send('event', { type: 'exportProgress', value: 0.94 + f * 0.06 }));
+  return true;
+}
+/* presun aj medzi diskami (dočasný priečinok býva na C:, knižnica inde) */
+function moveFile(a, b) {
+  try { fs.renameSync(a, b); } catch (e) { fs.copyFileSync(a, b); try { fs.unlinkSync(a); } catch (x) { } }
+}
 /* práve bežiaci export advanced editora: drží jeho ffmpeg procesy, aby sa dal zrušiť */
 let curExport = null;
 function exportCtl() {
@@ -1138,7 +1169,8 @@ async function runAction(type, p = {}) {
       try {
         const prog = f => send('event', { type: 'exportProgress', value: target ? f * 0.55 : f });
         if (!target) await exportProject(FFMPEG, { ...p, out, overlays }, enc, videoEncArgs, prog, ctl);
-        else {
+        else if (!(await exportToSize(p, overlays, out, tmp, target, enc, ctl))) {
+          // procesor (x264) alebo HW pokus zlyhal: po starom — plná kvalita, potom kompresia
           const mid = path.join(tmp, 'montaz.mp4');
           await exportProject(FFMPEG, { ...p, out: mid, overlays, keepTracks: false }, enc, videoEncArgs, prog, ctl);
           const info = await probe(FFMPEG, mid);

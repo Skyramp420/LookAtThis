@@ -84,7 +84,8 @@ function skipAudio(a, A) {
   return { ...a, in: a.in + skip * r, start: a.start + skip, dur: od - skip, fadeIn: false };
 }
 
-function buildArgs(job, encArgs) {
+const HW_MAX = 8; // HW dekóderov naraz (každý drží v grafike vlastné snímky); ďalšie vstupy dekóduje procesor
+function buildArgs(job, encArgs, opt = {}) {
   const W = even(job.W), H = even(job.H), F = job.fps || 60;
   const video = (job.video || []).filter(v => v.out - v.in > 0.03);
   const audio = (job.audio || []).filter(a => a.out - a.in > 0.03 && a.vol > 0);
@@ -101,6 +102,8 @@ function buildArgs(job, encArgs) {
   fc.push(`color=c=black:s=${W}x${H}:r=${F}:d=${n3(OD)},format=yuv420p[base]`);
   let v = 'base';
   video.map(it => skipVideo(it, A)).forEach((it, k) => {
+    // dekódovanie na grafike: pri 1440p60 záznamoch inak procesor nestíha a export sa ťahá
+    if (opt.hw && k < HW_MAX) args.push('-hwaccel', 'auto');
     args.push('-ss', n3(it.in), '-t', n3(it.out - it.in), '-i', it.file);
     const idx = nIn++;
     const f = videoChain(it, W, H, F);
@@ -141,7 +144,9 @@ function buildArgs(job, encArgs) {
     fc.push(`[${v}][tx${k}]` + shT(`overlay=x='${ox}-overlay_w/2':y='${oy}-overlay_h/2${dy}':eval=frame:enable='between(t,${S},${E})'`) + `[to${k}]`);
     v = `to${k}`;
   });
-  fc.push(`[${v}]format=yuv420p[vout]`);
+  // export na cieľovú veľkosť: plátno ostane v rozlíšení projektu (text a polohy sedia), zmenší sa až na konci
+  const sc = job.outH > 0 && job.outH < H ? `scale=-2:${even(job.outH)}:flags=lanczos,` : '';
+  fc.push(`[${v}]${sc}format=yuv420p[vout]`);
 
   // zvuk: položky → stopy → mix
   const byLane = new Map();
@@ -189,7 +194,7 @@ function buildArgs(job, encArgs) {
     keepOut.forEach(k => { maps.push('-map', k.lab); titles.push(k.title); });
   }
   const tail = ['-t', n3(OD), '-r', String(F)];
-  if (titles.length) tail.push('-c:a', 'aac', '-b:a', '192k');
+  if (titles.length) tail.push('-c:a', 'aac', '-b:a', `${Number(job.abr) || 192}k`);
   titles.forEach((n, i) => tail.push(`-metadata:s:a:${i}`, `title=${n}`, `-metadata:s:a:${i}`, `handler_name=${n}`));
   if (titles.length) tail.push('-disposition:a:0', 'default');
   tail.push('-metadata', 'comment=LookAtThis · advanced editor', '-movflags', '+faststart', job.out);
@@ -219,8 +224,14 @@ async function exportProject(ffmpeg, job, enc, videoEncArgs, onProgress, ctl) {
   if (!(job.video || []).length && !(job.audio || []).length && !(job.overlays || []).length) throw new Error('Časová os je prázdna');
   const OD = Math.max(0.2, Number(job.duration) || 0) - rangeFrom(job);
   const cancelled = () => ctl && ctl.cancelled;
-  let r = await run(ffmpeg, buildArgs(job, videoEncArgs(enc)), OD, onProgress, ctl);
-  if (r.code !== 0 && !cancelled() && enc && enc.fam !== 'x264') r = await run(ffmpeg, buildArgs(job, videoEncArgs(null)), OD, onProgress, ctl);
+  // pokusy: HW dekódovanie + zvolený enkodér → bez HW dekódovania → procesor (x264)
+  const tries = [[enc, true], [enc, false]];
+  if (enc && enc.fam !== 'x264' && !job.fixedEnc) tries.push([null, false]);
+  let r;
+  for (const [e, hw] of tries) {
+    r = await run(ffmpeg, buildArgs(job, videoEncArgs(e), { hw }), OD, onProgress, ctl);
+    if (r.code === 0 || cancelled()) break;
+  }
   if (cancelled()) throw new Error('Zrušené');
   if (r.code !== 0) throw new Error((String(r.err).trim().split(/\r?\n/).pop()) || 'Export zlyhal');
   return job.out;

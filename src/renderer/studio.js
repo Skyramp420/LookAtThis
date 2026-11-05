@@ -31,6 +31,7 @@ window.Studio = (function () {
   const IC = {
     ioIn: '<svg viewBox="0 0 16 16"><path d="M5 2.5v11M5 2.5h4M5 13.5h4M8 8h5.5M11 5.5 13.5 8 11 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     ioOut: '<svg viewBox="0 0 16 16"><path d="M11 2.5v11M11 2.5H7M11 13.5H7M8 8H2.5M5 5.5 2.5 8 5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    loop: '<svg viewBox="0 0 16 16"><path d="M3 7.5V7a3 3 0 0 1 3-3h6.5M10.5 2l2 2-2 2M13 8.5V9a3 3 0 0 1-3 3H3.5M5.5 14l-2-2 2-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     x: '<svg viewBox="0 0 16 16"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
     trAdd: '<svg viewBox="0 0 16 16"><path d="M8 4v8M4 8h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
     trOn: '<svg viewBox="0 0 16 16"><path d="M3 3.5h4.5L5.5 8l2 4.5H3zM13 3.5H8.5L10.5 8l-2 4.5H13z" fill="currentColor"/></svg>',
@@ -191,7 +192,8 @@ window.Studio = (function () {
           <span class="st-sep"></span>
           <button class="st-tool" id="stIn" title="Začiatok úseku na prehrávacej hlave (I) · Shift+I = skok naň">${IC.ioIn}<span>In</span><kbd>I</kbd></button>
           <button class="st-tool" id="stOut" title="Koniec úseku na prehrávacej hlave (O) · Shift+O = skok naň">${IC.ioOut}<span>Out</span><kbd>O</kbd></button>
-          <span class="st-iochip" id="stIOchip" hidden><span id="stIOlen"></span><button type="button" id="stIOx" title="Zrušiť In/Out (Alt+X)" aria-label="Zrušiť In a Out">${IC.x}</button></span>
+          <span class="st-iochip" id="stIOchip" hidden><span id="stIOlen"></span><button type="button" id="stIOadd" title="Uložiť úsek do zoznamu (P) · všetky sa dajú vyexportovať naraz" aria-label="Uložiť úsek">${IC.trAdd}</button><button type="button" id="stIOloop" title="Prehrať úsek dokola (Shift+medzerník)" aria-label="Prehrať úsek dokola">${IC.loop}</button><button type="button" id="stIOx" title="Zrušiť In/Out (Alt+X)" aria-label="Zrušiť In a Out">${IC.x}</button></span>
+          <button type="button" class="st-rgchip" id="stRgchip" hidden title="Uložené úseky · každý sa exportuje ako samostatné video"></button>
           <span class="grow"></span>
           <span class="st-hint" id="stHint"></span>
           <button class="st-tool${snapOn ? ' on' : ''}" id="stSnap" title="Prichytávanie (N)">${IC.magnet}<span>Prichytávanie</span></button>
@@ -403,7 +405,7 @@ window.Studio = (function () {
     const group = it => it.g ? P.items.filter(x => x.g === it.g) : [it];
 
     /* ---------- história ---------- */
-    const snapshot = () => JSON.stringify({ fmt: P.fmt, name: P.name, lanes: P.lanes, items: P.items, io: P.io || null });
+    const snapshot = () => JSON.stringify({ fmt: P.fmt, name: P.name, lanes: P.lanes, items: P.items, io: P.io || null, ranges: P.ranges || [] });
     function commit() {
       undo.push(lastSnap); if (undo.length > 120) undo.shift();
       redo.length = 0; lastSnap = snapshot(); persist(); updHist();
@@ -411,7 +413,7 @@ window.Studio = (function () {
     let lastSnap = '';
     function restore(json) {
       const o = JSON.parse(json);
-      P.fmt = o.fmt; P.name = o.name; P.lanes = o.lanes; P.items = o.items; P.io = o.io || null;
+      P.fmt = o.fmt; P.name = o.name; P.lanes = o.lanes; P.items = o.items; P.io = o.io || null; P.ranges = o.ranges || [];
       sel = new Set([...sel].filter(id => P.items.some(i => i.id === id)));
       lastSnap = json; persist(); renderAll();
     }
@@ -423,7 +425,7 @@ window.Studio = (function () {
     function projData() {
       const sources = {};
       for (const sr of src.values()) if (P.items.some(i => i.src === sr.path)) sources[sr.path] = { path: sr.path, name: sr.name, duration: sr.duration, music: sr.music };
-      return { v: 1, name: P.name, fmt: P.fmt, fps: P.fps, lanes: P.lanes, items: P.items, io: P.io || null, sources, t, at: Date.now() };
+      return { v: 1, name: P.name, fmt: P.fmt, fps: P.fps, lanes: P.lanes, items: P.items, io: P.io || null, ranges: P.ranges || [], sources, t, at: Date.now() };
     }
     /* projekt sa ukladá sám (súbor v AppData), pri zatvorení hneď */
     function persist(now) {
@@ -798,8 +800,22 @@ window.Studio = (function () {
       raf = requestAnimationFrame(tick);
       t = t0 + (performance.now() - clock0) / 1000;
       const D = duration();
-      if (t >= D) { t = D; pause(); }
+      // slučka In/Out: na konci úseku späť na jeho začiatok
+      const lr = looping && ioRange();
+      if (lr && t >= lr.b) { t = lr.a; t0 = t; clock0 = performance.now(); syncMedia(true); }
+      else if (t >= D) { t = D; pause(); }
       syncMedia(false); drawFrame(); updHead(true);
+    }
+    let looping = false;
+    /* prehrá označený úsek dokola (Shift+medzerník alebo tlačidlo v čipe In/Out) */
+    function playLoop() {
+      const r = ioRange();
+      if (!r) { hint('Najprv si označ úsek (I a O)'); return; }
+      if (playing && looping) { pause(); return; }
+      if (playing) pause();
+      looping = true; q('#stIOloop').classList.add('on');
+      if (t < r.a - 1e-3 || t >= r.b - 0.03) t = r.a;
+      play();
     }
     function play() {
       if (closed || playing || !P.items.length) return;
@@ -811,6 +827,7 @@ window.Studio = (function () {
     function pause() {
       if (!playing) return;
       playing = false; cancelAnimationFrame(raf);
+      looping = false; q('#stIOloop').classList.remove('on');
       q('#stPlay').innerHTML = I.play; root.classList.remove('playing');
       syncMedia(true); drawFrame(); persist();
       if (sel.size || trSel) renderInsp(); // hodnoty v inšpektore podľa miesta, kde sa zastavilo
@@ -866,7 +883,72 @@ window.Studio = (function () {
       hint(`${which === 'a' ? 'In' : 'Out'} ${tc(time)}`);
     }
     function clearIO() { if (!P.io) return; P.io = null; commit(); renderIO(); hint('In/Out zrušené'); }
+    /* ---------- uložené úseky: P.ranges = [{ id, a, b }] — z dlhého záznamu viac videí naraz ---------- */
+    const rgWord = n => n === 1 ? 'úsek' : n < 5 ? 'úseky' : 'úsekov';
+    function rangesFor() {
+      const D = duration();
+      return (P.ranges || []).map(r => ({ ...r, a: clamp(r.a, 0, D), b: clamp(r.b, 0, D) })).filter(r => r.b - r.a >= 0.1).sort((x, y) => x.a - y.a);
+    }
+    const rgNo = id => rangesFor().findIndex(r => r.id === id) + 1;
+    function addRange() {
+      const r = ioRange();
+      if (!r) { hint('Najprv si označ úsek (I a O)'); return; }
+      P.ranges = P.ranges || [];
+      const ed = P.io.rid && P.ranges.find(x => x.id === P.io.rid);
+      let id;
+      if (ed) { ed.a = r.a; ed.b = r.b; id = ed.id; }
+      else { id = uid(); P.ranges.push({ id, a: r.a, b: r.b }); }
+      P.io = null; // ďalší úsek sa značí odznova
+      commit(); renderIO();
+      hint(ed ? `Úsek ${rgNo(id)} upravený` : `Úsek ${rgNo(id)} uložený · spolu ${P.ranges.length}, exportuješ ich naraz`);
+    }
+    function loadRange(id) {
+      const r = (P.ranges || []).find(x => x.id === id); if (!r) return;
+      P.io = { a: r.a, b: r.b, rid: r.id }; commit(); renderIO(); seek(r.a);
+      hint(`Úsek ${rgNo(id)} · uprav In/Out a ulož (P)`);
+    }
+    function deleteRange(id) {
+      P.ranges = (P.ranges || []).filter(x => x.id !== id);
+      if (P.io && P.io.rid === id) delete P.io.rid;
+      commit(); renderIO(); hint('Úsek odstránený');
+    }
+    const ptAnchor = e => ({ getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY, width: 0, height: 0 }), contains: () => false, classList: { contains: () => false, add() { }, remove() { } } });
+    function rangeMenu(anchor) {
+      const rs = rangesFor(); if (!rs.length) return;
+      menu(anchor, [{ head: `Uložené úseky (${rs.length})` }, ...rs.map((r, i) => ({ label: `${i + 1} · ${tShort(r.a)}–${tShort(r.b)} · ${tc(r.b - r.a)}`, v: 'load:' + r.id, checked: !!(P.io && P.io.rid === r.id) })),
+        { sep: true }, { label: 'Exportovať všetky…', v: 'exp' }, { label: 'Odstrániť všetky úseky', v: 'clear' }], pick => {
+        if (pick.v.startsWith('load:')) loadRange(pick.v.slice(5));
+        else if (pick.v === 'exp') exportDialog();
+        else if (pick.v === 'clear') { P.ranges = []; if (P.io) delete P.io.rid; commit(); renderIO(); hint('Úseky odstránené'); }
+      });
+    }
+    function renderRanges() {
+      $$('.st-rg', ruler).forEach(x => x.remove());
+      const rs = rangesFor(), chip = q('#stRgchip');
+      chip.hidden = !rs.length;
+      chip.textContent = `${rs.length} ${rgWord(rs.length)}`;
+      q('#stIOadd').title = P.io && P.io.rid ? `Uložiť zmeny úseku ${rgNo(P.io.rid)} (P)` : 'Uložiť úsek do zoznamu (P) · všetky sa dajú vyexportovať naraz';
+      rs.forEach((r, i) => {
+        const el = document.createElement('div');
+        el.className = 'st-rg' + (P.io && P.io.rid === r.id ? ' ed' : '');
+        el.style.left = r.a * pps + 'px'; el.style.width = Math.max(4, (r.b - r.a) * pps) + 'px';
+        el.innerHTML = `<b>${i + 1}</b>`;
+        el.title = `Úsek ${i + 1} · ${tShort(r.a)}–${tShort(r.b)} · klik = upraviť, pravý klik = menu`;
+        el.addEventListener('pointerdown', e => { e.stopPropagation(); });
+        el.addEventListener('click', e => { e.stopPropagation(); loadRange(r.id); });
+        el.addEventListener('contextmenu', e => {
+          e.preventDefault(); e.stopPropagation();
+          menu(ptAnchor(e), [{ label: 'Upraviť (načítať do In/Out)', v: 'load' }, { label: 'Prehrať dokola', v: 'loop' }, { sep: true }, { label: 'Odstrániť úsek', v: 'del' }], pick => {
+            if (pick.v === 'load') loadRange(r.id);
+            else if (pick.v === 'loop') { loadRange(r.id); playLoop(); }
+            else if (pick.v === 'del') deleteRange(r.id);
+          });
+        });
+        ruler.appendChild(el);
+      });
+    }
     function renderIO() {
+      renderRanges();
       const io = P.io, has = !!(io && (io.a != null || io.b != null));
       q('#stIOchip').hidden = !has; q('#stIOdim').hidden = !has;
       const old = ruler.querySelector('.st-io'); if (old) old.remove();
@@ -1843,15 +1925,18 @@ window.Studio = (function () {
       const v0 = P.items.find(i => i.kind === 'video'), fps0 = Math.min(60, Math.round((v0 && src.get(v0.src) && src.get(v0.src).fps) || 60));
       let o = { res: 0, fps: fps0 >= 50 ? 60 : 30, mb: 0, keep: false };
       try { o = { ...o, ...JSON.parse(localStorage.getItem('studio.export') || '{}'), res: 0 }; } catch (e) { }
-      // označený úsek (In/Out): keď je, export ho predvolene berie
-      const io = ioRange(), part = io && !io.full ? io : null;
-      o.part = !!part;
-      const note = () => `${tc(o.part ? part.b - part.a : duration())} · ${P.fmt} · uloží sa do knižnice`;
+      // rozsah: označený úsek (In/Out), uložené úseky (každý = samostatné video) alebo celá os
+      const io = ioRange(), part = io && !io.full ? io : null, rgs = rangesFor();
+      o.scope = part ? 'part' : rgs.length ? 'ranges' : 'all';
+      const note = () => o.scope === 'ranges'
+        ? `${rgs.length} ${rgs.length < 5 ? 'videá' : 'videí'} · spolu ${tc(rgs.reduce((x, r) => x + r.b - r.a, 0))} · ${P.fmt} · uložia sa do knižnice`
+        : `${tc(o.scope === 'part' ? part.b - part.a : duration())} · ${P.fmt} · uloží sa do knižnice`;
+      const scopes = [part && ['part', `In – Out · ${tShort(part.a)}–${tShort(part.b)}`], rgs.length && ['ranges', `Úseky (${rgs.length})`], ['all', 'Celá os']].filter(Boolean);
       const sizes = [{ v: 0, l: 'Pôvodná kvalita' }, { v: 20, l: '20 MB · Discord' }, { v: 10, l: '10 MB' }, { v: 50, l: '50 MB · Nitro Basic' }, { v: 100, l: '100 MB · Nitro' }];
       const l = layer(`<div class="st-exp">
         <h3>Exportovať video</h3>
         <p class="st-note" id="stEnote">${note()}</p>
-        ${part ? `<div class="st-f"><span class="lbl">Rozsah</span><div class="seg" data-seg="part"><button type="button" data-v="1" class="on">In – Out · ${tShort(part.a)}–${tShort(part.b)}</button><button type="button" data-v="0">Celá časová os</button></div></div>` : ''}
+        ${scopes.length > 1 ? `<div class="st-f"><span class="lbl">Rozsah</span><div class="seg" data-seg="scope">${scopes.map(([v, lb]) => `<button type="button" data-v="${v}" class="${v === o.scope ? 'on' : ''}">${esc(lb)}</button>`).join('')}</div></div>` : ''}
         <div class="st-f"><label class="lbl" for="stEn">Názov</label><input id="stEn" class="st-in" value="${esc(P.name || 'Montáž')}" spellcheck="false"></div>
         <div class="st-f"><span class="lbl">Rozlíšenie</span><div class="seg" data-seg="res">${res.map((r, i) => `<button type="button" data-v="${i}" class="${i === o.res ? 'on' : ''}">${r[0]}×${r[1]}</button>`).join('')}</div></div>
         <div class="st-f"><span class="lbl">Snímky za sekundu</span><div class="seg" data-seg="fps"><button type="button" data-v="60" class="${o.fps === 60 ? 'on' : ''}">60</button><button type="button" data-v="30" class="${o.fps === 30 ? 'on' : ''}">30</button></div></div>
@@ -1860,14 +1945,15 @@ window.Studio = (function () {
         <div class="st-acts"><button class="btn" data-a="x">Zrušiť</button><button class="btn primary" data-a="go">${IC.exp}<span>Exportovať</span></button></div>
       </div>`, 'center');
       fillAll(l);
-      UI.onSeg(l.firstElementChild, (k, val) => { if (k === 'part') { o.part = val === '1'; l.querySelector('#stEnote').textContent = note(); } else o[k] = Number(val); });
+      UI.onSeg(l.firstElementChild, (k, val) => { if (k === 'scope') { o.scope = val; l.querySelector('#stEnote').textContent = note(); } else o[k] = Number(val); });
       l.querySelector('[data-a=x]').onclick = hideLayer;
       l.querySelector('[data-a=go]').onclick = () => {
         o.keep = l.querySelector('#stKeep').checked;
         const name = l.querySelector('#stEn').value.trim() || 'Montáž';
         P.name = name; q('#stName').value = name; persist();
         try { localStorage.setItem('studio.export', JSON.stringify({ fps: o.fps, mb: o.mb, keep: o.keep })); } catch (e) { }
-        runExport(name, res[o.res] || res[0], { ...o, range: o.part ? part : null });
+        const list = o.scope === 'ranges' ? rgs : [o.scope === 'part' ? part : null];
+        runExport(name, res[o.res] || res[0], { ...o, list });
       };
     }
     /* ---------- export: jedno video podľa plánu (rovnaké výpočty ako náhľad) ---------- */
@@ -1935,12 +2021,57 @@ window.Studio = (function () {
       }
       return out;
     }
+    /* odhad zostávajúceho času z doterajšieho tempa (vyhladený, nech neskáče) */
+    function etaText(sec) {
+      if (!isFinite(sec) || sec < 0) return '';
+      if (sec < 60) return `ešte ~${Math.max(5, Math.ceil(sec / 5) * 5)} s`;
+      const m = Math.floor(sec / 60), r = Math.round((sec % 60) / 10) * 10;
+      return m >= 10 ? `ešte ~${m + (r >= 30 ? 1 : 0)} min` : `ešte ~${m} min${r && r < 60 ? ` ${r} s` : ''}`;
+    }
+    /* jedno video do exportu: položky v úseku R (alebo celá os) → payload pre exportProject */
+    function exportJob(R, EW, EH) {
+      const D = R ? R.b : duration(), A = R ? R.a : 0;
+      // úsek: čo je celé mimo neho, do exportu vôbec nejde (zvyšok oreže ffmpeg)
+      const inR = (s0, e0) => !R || (e0 > A + 1e-3 && s0 < D - 1e-3);
+      // pohyb (keyframy) ako ffmpeg výrazy v čase osi: T = (t - začiatok položky)
+      const motionOf = it => { const T = `(t-${it.start.toFixed(4)})`; return { s: KF.exprOf(it, 'scale', T), x: KF.exprOf(it, 'x', T), y: KF.exprOf(it, 'y', T), r: KF.exprOf(it, 'rot', T) }; };
+      const video = renderPlan().filter(p => inR(p.rs, p.re)).map(p => exportVideo(p));
+      const audio = [];
+      for (const it of P.items) {
+        if (it.kind !== 'audio' || !inR(it.start, end(it))) continue;
+        const ln = lane(it.lane); if (!audible(ln)) continue;
+        const s = src.get(it.src); if (!s) continue;
+        const animVol = KF.animated(it, 'vol');
+        const vol = (ln.vol ?? 1) * (animVol ? 1 : (it.vol ?? 1)); if (vol <= 0) continue;
+        // hudba: pôvodný súbor; klipy: zvuková stopa č. ti v pôvodnom klipe; hlasitosť z keyframov ako výraz (t = čas od začiatku úseku)
+        audio.push({ file: s.music ? s.path : it.src, stream: s.music ? 0 : it.ti, lane: ln.id, start: it.start, in: it.in, out: it.out, speed: ramped(it) ? 1 : sp(it), chunks: ramped(it) ? audioChunks(it) : null, dur: len(it), vol, volE: animVol ? KF.exprOf(it, 'vol', 't') : null, fadeIn: !!it.fadeIn, fadeOut: !!it.fadeOut });
+      }
+      const overlays = itemsOn('t').filter(it => String(it.text || '').trim() && it.end > it.start && inR(it.start, it.end)).map(it => { const m = motionOf(it); return { ...textPng(it, EW, EH), start: it.start, end: it.end, animIn: it.animIn || 'none', animOut: it.animOut || 'none', xe: m.x, ye: m.y, se: m.s, re: m.r }; });
+      const empty = !video.length && !audio.length && !overlays.length;
+      return { empty, D, A, video, audio, overlays };
+    }
+    /* o.list = [úsek | null] — null = celá os; viac úsekov = viac videí za sebou (každé zvlášť v knižnici) */
     async function runExport(name, [EW, EH], o) {
       exporting = true;
       let cancelling = false;
-      const R = o.range; // { a, b } = len označený úsek
-      const l = layer(`<div class="st-exp prog"><div class="sv-ring"><svg viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27"/><circle class="fg" id="stRing" cx="32" cy="32" r="27"/></svg><b id="stPct">0 %</b></div><h3>Exportujem…</h3><p class="st-note">${esc(name)} · ${EW}×${EH} · ${o.fps} fps${R ? ` · ${tShort(R.a)}–${tShort(R.b)}` : ''}</p><button class="btn st-cancel" data-a="cancel">Zrušiť</button></div>`, 'center locked');
-      const setP = v => { const r = l.querySelector('#stRing'), p = l.querySelector('#stPct'); if (r) r.style.strokeDashoffset = String(170 * (1 - v)); if (p) p.textContent = Math.round(v * 100) + ' %'; };
+      const list = o.list && o.list.length ? o.list : [null], N = list.length;
+      const lens = list.map(R => R ? R.b - R.a : duration()), total = lens.reduce((x, y) => x + y, 0) || 1;
+      const R0 = list[0];
+      const sub = N > 1 ? ` · ${N} ${N < 5 ? 'videá' : 'videí'}` : R0 ? ` · ${tShort(R0.a)}–${tShort(R0.b)}` : '';
+      const l = layer(`<div class="st-exp prog"><div class="sv-ring"><svg viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27"/><circle class="fg" id="stRing" cx="32" cy="32" r="27"/></svg><b id="stPct">0 %</b></div><h3>Exportujem…</h3><p class="st-note">${esc(name)} · ${EW}×${EH} · ${o.fps} fps${sub}</p><p class="st-note st-eta" id="stEta">&nbsp;</p><button class="btn st-cancel" data-a="cancel">Zrušiť</button></div>`, 'center locked');
+      const t0 = performance.now();
+      let done0 = 0, curLen = lens[0], etaS = null, etaAt = 0;
+      const setP = f => {
+        const v = clamp((done0 + f * curLen) / total, 0, 1);
+        const r = l.querySelector('#stRing'), p = l.querySelector('#stPct'); if (r) r.style.strokeDashoffset = String(170 * (1 - v)); if (p) p.textContent = Math.round(v * 100) + ' %';
+        const now = performance.now(), el = (now - t0) / 1000;
+        if (v > 0.02 && el > 2.5 && now - etaAt > 900) {
+          etaAt = now;
+          const rem = el * (1 - v) / v;
+          etaS = etaS == null ? rem : etaS * 0.7 + rem * 0.3;
+          const e = l.querySelector('#stEta'); if (e) e.textContent = etaText(etaS);
+        }
+      };
       Studio._onEvent = ev => { if (ev.type === 'exportProgress' && !cancelling) setP(ev.value); };
       const cb = l.querySelector('[data-a=cancel]');
       cb.onclick = () => {
@@ -1949,46 +2080,39 @@ window.Studio = (function () {
         l.querySelector('h3').textContent = 'Ruším export…';
         api.action('cancelExport').catch(() => { });
       };
+      const outs = [];
       try {
-        const D = R ? R.b : duration(), A = R ? R.a : 0;
-        // úsek: čo je celé mimo neho, do exportu vôbec nejde (zvyšok oreže ffmpeg)
-        const inR = (s0, e0) => !R || (e0 > A + 1e-3 && s0 < D - 1e-3);
-        // pohyb (keyframy) ako ffmpeg výrazy v čase osi: T = (t - začiatok položky)
-        const motionOf = it => { const T = `(t-${it.start.toFixed(4)})`; return { s: KF.exprOf(it, 'scale', T), x: KF.exprOf(it, 'x', T), y: KF.exprOf(it, 'y', T), r: KF.exprOf(it, 'rot', T) }; };
-        const video = renderPlan().filter(p => inR(p.rs, p.re)).map(p => exportVideo(p));
-        const audio = [];
-        for (const it of P.items) {
-          if (it.kind !== 'audio' || !inR(it.start, end(it))) continue;
-          const ln = lane(it.lane); if (!audible(ln)) continue;
-          const s = src.get(it.src); if (!s) continue;
-          const animVol = KF.animated(it, 'vol');
-          const vol = (ln.vol ?? 1) * (animVol ? 1 : (it.vol ?? 1)); if (vol <= 0) continue;
-          // hudba: pôvodný súbor; klipy: zvuková stopa č. ti v pôvodnom klipe; hlasitosť z keyframov ako výraz (t = čas od začiatku úseku)
-          audio.push({ file: s.music ? s.path : it.src, stream: s.music ? 0 : it.ti, lane: ln.id, start: it.start, in: it.in, out: it.out, speed: ramped(it) ? 1 : sp(it), chunks: ramped(it) ? audioChunks(it) : null, dur: len(it), vol, volE: animVol ? KF.exprOf(it, 'vol', 't') : null, fadeIn: !!it.fadeIn, fadeOut: !!it.fadeOut });
+        for (let i = 0; i < N && !cancelling; i++) {
+          done0 = lens.slice(0, i).reduce((x, y) => x + y, 0); curLen = lens[i];
+          if (N > 1) l.querySelector('h3').textContent = `Exportujem ${i + 1} z ${N}…`;
+          const R = list[i], j = exportJob(R, EW, EH);
+          if (j.empty) { if (N === 1) throw new Error(R ? 'V označenom úseku nič nie je' : 'Časová os je prázdna'); continue; }
+          const out = await api.action('exportProject', {
+            name: N > 1 ? `${name} ${i + 1}` : name, W: EW, H: EH, fps: o.fps, duration: j.D, from: j.A, targetMB: o.mb, keepTracks: !!o.keep && !o.mb,
+            video: j.video, audio: j.audio, overlays: j.overlays, lanes: P.lanes.filter(x => x.kind === 'audio').map(x => ({ id: x.id, title: x.name }))
+          });
+          outs.push(out);
         }
-        const overlays = itemsOn('t').filter(it => String(it.text || '').trim() && it.end > it.start && inR(it.start, it.end)).map(it => { const m = motionOf(it); return { ...textPng(it, EW, EH), start: it.start, end: it.end, animIn: it.animIn || 'none', animOut: it.animOut || 'none', xe: m.x, ye: m.y, se: m.s, re: m.r }; });
-        if (R && !video.length && !audio.length && !overlays.length) throw new Error('V označenom úseku nič nie je');
-        const out = await api.action('exportProject', {
-          name, W: EW, H: EH, fps: o.fps, duration: D, from: A, targetMB: o.mb, keepTracks: !!o.keep && !o.mb,
-          video, audio, overlays, lanes: P.lanes.filter(x => x.kind === 'audio').map(x => ({ id: x.id, title: x.name }))
-        });
+        if (cancelling) throw new Error('Zrušené');
         exporting = false;
-        const fname = String(out).split(/[\\/]/).pop();
+        const out = outs[outs.length - 1], fname = String(out).split(/[\\/]/).pop();
         api.action('attention').catch(() => { });
+        const multi = outs.length > 1;
         const d = layer(`<div class="st-exp done">
           <svg class="cmp-check" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M21 33l7.5 7L43 25"/></svg>
-          <h3>Hotovo</h3><p class="st-note" title="${esc(out)}">${esc(fname)}</p>
-          <div class="st-acts"><button class="btn" data-a="copy">${IC.copy}<span>Kopírovať pre Discord</span></button><button class="btn" data-a="reveal">${I.folder}<span>Ukázať v priečinku</span></button></div>
+          <h3>Hotovo</h3><p class="st-note" title="${esc(outs.join('\n'))}">${multi ? `${outs.length} ${outs.length < 5 ? 'videá sú' : 'videí je'} v knižnici` : esc(fname)}</p>
+          <div class="st-acts">${multi ? '' : `<button class="btn" data-a="copy">${IC.copy}<span>Kopírovať pre Discord</span></button>`}<button class="btn" data-a="reveal">${I.folder}<span>Ukázať v priečinku</span></button></div>
           <div class="st-acts"><button class="btn ghost" data-a="more">Upravovať ďalej</button><button class="btn primary" data-a="close">Zavrieť editor</button></div></div>`, 'center');
-        const cb = d.querySelector('[data-a=copy]');
-        cb.onclick = async () => { try { await api.action('copyFile', { path: out }); cb.querySelector('span').textContent = 'Skopírované, vlož cez Ctrl+V'; } catch (er) { toast('error', 'Kopírovanie zlyhalo', er.message); } };
+        const cp = d.querySelector('[data-a=copy]');
+        if (cp) cp.onclick = async () => { try { await api.action('copyFile', { path: out }); cp.querySelector('span').textContent = 'Skopírované, vlož cez Ctrl+V'; } catch (er) { toast('error', 'Kopírovanie zlyhalo', er.message); } };
         d.querySelector('[data-a=reveal]').onclick = () => api.action('reveal', { path: out });
         d.querySelector('[data-a=more]').onclick = hideLayer;
         d.querySelector('[data-a=close]').onclick = () => close();
       } catch (e) {
         exporting = false; hideLayer();
-        if (cancelling) hint('Export zrušený');
-        else toast('error', 'Export zlyhal', e.message);
+        const kept = outs.length ? ` · hotové ${outs.length} z ${N}, tie ostali v knižnici` : '';
+        if (cancelling) { if (kept) toast('info', 'Export zrušený', kept.slice(3)); else hint('Export zrušený'); }
+        else toast('error', 'Export zlyhal', e.message + kept);
       }
       Studio._onEvent = null;
     }
@@ -2005,6 +2129,7 @@ window.Studio = (function () {
       const k = e.key.toLowerCase();
       if (e.ctrlKey && k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
       if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); return; }
+      if (e.key === ' ' && e.shiftKey) { e.preventDefault(); playLoop(); return; }
       if (e.key === ' ') { e.preventDefault(); playing ? pause() : play(); return; }
       if (k === 'f' && !e.ctrlKey) { e.preventDefault(); toggleFs(); return; }
       if (k === 'm' && !e.ctrlKey) { e.preventDefault(); volApi.toggleMute(); hint('Zvuk náhľadu prepnutý'); return; }
@@ -2021,6 +2146,7 @@ window.Studio = (function () {
         return;
       }
       if (k === 'x' && e.altKey) { e.preventDefault(); clearIO(); return; }
+      if (k === 'p' && !e.ctrlKey && !e.altKey) { e.preventDefault(); addRange(); return; }
       if (k === 't' && !e.ctrlKey) { e.preventDefault(); addText(); return; }
       if (k === 'd' && e.ctrlKey) { e.preventDefault(); duplicateSel(); return; }
       if (k === 'n' && !e.ctrlKey) { toggleSnap(); return; }
@@ -2085,6 +2211,9 @@ window.Studio = (function () {
     q('#stIn').onclick = () => setIO('a', t);
     q('#stOut').onclick = () => setIO('b', t);
     q('#stIOx').onclick = clearIO;
+    q('#stIOloop').onclick = playLoop;
+    q('#stIOadd').onclick = addRange;
+    q('#stRgchip').onclick = e => rangeMenu(e.currentTarget);
     q('#stSnap').onclick = toggleSnap;
     q('#stUndo').onclick = doUndo;
     q('#stRedo').onclick = doRedo;
