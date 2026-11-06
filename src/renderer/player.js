@@ -1694,9 +1694,25 @@ window.Player = (function () {
       const D = total();
       const l = showLayer(`<div class="sv">
         <div class="sv-ring"><svg viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27"/><circle class="fg" id="svRing" cx="32" cy="32" r="27"/></svg><b id="svPct">0 %</b></div>
-        <h3>Ukladám strih…</h3><p>${dur(D)} · ${esc(sizeLabel())}${overlays.length ? ` · ${overlays.length} ${plural(overlays.length, 'objekt', 'objekty', 'objektov')}` : ''}</p></div>`, 'locked sv-layer');
-      const setP = v => { const r = $('#svRing', l), pct = $('#svPct', l); if (r) r.style.strokeDashoffset = String(170 * (1 - v)); if (pct) pct.textContent = Math.round(v * 100) + ' %'; };
-      Player._onEvent = ev => { if (ev.type === 'exportProgress') setP(ev.value); };
+        <h3>Ukladám strih…</h3><p>${dur(D)} · ${esc(sizeLabel())}${overlays.length ? ` · ${overlays.length} ${plural(overlays.length, 'objekt', 'objekty', 'objektov')}` : ''}</p>
+        <p class="sv-eta" id="svEta">&nbsp;</p><button class="btn sv-cancel" data-a="cancel">Zrušiť</button></div>`, 'locked sv-layer');
+      // odhad zostávajúceho času z doterajšieho tempa (vyhladený)
+      const t0 = performance.now(); let etaS = null, etaAt = 0, cancelling = false;
+      const setP = v => {
+        const r = $('#svRing', l), pct = $('#svPct', l); if (r) r.style.strokeDashoffset = String(170 * (1 - v)); if (pct) pct.textContent = Math.round(v * 100) + ' %';
+        const now = performance.now(), el = (now - t0) / 1000;
+        if (v > 0.02 && el > 2.5 && now - etaAt > 900) {
+          etaAt = now; const rem = el * (1 - v) / v; etaS = etaS == null ? rem : etaS * 0.7 + rem * 0.3;
+          const e = $('#svEta', l); if (e) e.textContent = UI.eta(etaS);
+        }
+      };
+      Player._onEvent = ev => { if (ev.type === 'exportProgress' && !cancelling) setP(ev.value); };
+      const cbt = l.querySelector('[data-a=cancel]');
+      cbt.onclick = () => {
+        if (cancelling) return;
+        cancelling = true; cbt.disabled = true; cbt.textContent = 'Ruším…'; l.querySelector('h3').textContent = 'Ruším ukladanie…';
+        api.action('cancelExport').catch(() => { });
+      };
       try {
         const ovs = [];
         for (const o of overlays) if (o.end > 0 && o.start < D && (o.type !== 'text' || o.text.trim())) {
@@ -1729,7 +1745,8 @@ window.Player = (function () {
       } catch (e) {
         saving = false;
         hideLayer();
-        toast('error', 'Uloženie zlyhalo', e.message);
+        if (cancelling) toast('info', 'Uloženie zrušené', 'Nedokončený súbor som zmazal.');
+        else toast('error', 'Uloženie zlyhalo', e.message);
       }
       Player._onEvent = null;
     }

@@ -786,7 +786,8 @@ function videoEncArgs(enc) {
            overlays: [{ png, start, end }],            čas na výslednej časovej osi
            tracks: [{ i, vol, title }],                ktoré stopy počuť (index podľa poradia)
            allTracks: [titles], keepTracks }           */
-async function exportSequence(ffmpeg, job, enc, onProgress) {
+/* opt = { encArgs(enc) → argumenty enkodéra (export na MB), fixedEnc: neskúšať procesor }; ctl = { cancelled, track(proc) } */
+async function exportSequence(ffmpeg, job, enc, onProgress, ctl, opt = {}) {
   const segs = job.segments.filter(s => s.out - s.in > 0.05);
   if (!segs.length) throw new Error('Časová os je prázdna');
   const W = job.W % 2 ? job.W + 1 : job.W, H = job.H % 2 ? job.H + 1 : job.H, F = job.fps || 60;
@@ -866,7 +867,9 @@ async function exportSequence(ffmpeg, job, enc, onProgress) {
     }
     v = `o${k}`;
   });
-  fc.push(`[${v}]format=yuv420p[vout]`);
+  // export na cieľovú veľkosť: text a šípky sú v rozlíšení strihu, zmenší sa až výsledok
+  const sc = job.outH > 0 && job.outH < H ? `scale=-2:${job.outH - (job.outH % 2)}:flags=lanczos,` : '';
+  fc.push(`[${v}]${sc}format=yuv420p[vout]`);
   const maps = ['-map', '[vout]'];
   const titles = [];
   const on = job.tracks.filter(t => t.vol > 0 && t.i < T);
@@ -889,13 +892,22 @@ async function exportSequence(ffmpeg, job, enc, onProgress) {
   if (job.keepTracks) for (let i = 0; i < T; i++) { maps.push('-map', `[${keepIn[i]}]`); titles.push(job.allTracks[i]); }
   const head = [...args, '-filter_complex', fc.join(';'), ...maps];
   const tail = [];
-  if (titles.length) tail.push('-c:a', 'aac', '-b:a', '192k');
+  if (titles.length) tail.push('-c:a', 'aac', '-b:a', `${Number(job.abr) || 192}k`);
   titles.forEach((n, i) => tail.push(`-metadata:s:a:${i}`, `title=${n}`, `-metadata:s:a:${i}`, `handler_name=${n}`));
   tail.push('-movflags', '+faststart', job.out);
+  // vstupy úsekov sú v args hneď za 7 úvodnými (po 6: -ss x -t y -i súbor) → pred prvých 8 dáme dekódovanie na grafike
+  const hwHead = () => {
+    const a = args.slice(0, 7);
+    segs.forEach((_, k) => { if (k < 8) a.push('-hwaccel', 'auto'); a.push(...args.slice(7 + k * 6, 13 + k * 6)); });
+    return [...a, ...args.slice(7 + segs.length * 6), '-filter_complex', fc.join(';'), ...maps];
+  };
+  const encFor = opt.encArgs || videoEncArgs;
 
   const tryRun = a => new Promise(resolve => {
+    if (ctl && ctl.cancelled) return resolve({ code: -2, err: 'Zrušené' });
     let err = '', buf = '';
     const p = spawn(ffmpeg, a, { windowsHide: true });
+    if (ctl) ctl.track(p);
     p.stdout.on('data', d => {
       buf += d;
       const m = buf.match(/out_time_us=(\d+)/g);
@@ -905,8 +917,15 @@ async function exportSequence(ffmpeg, job, enc, onProgress) {
     p.on('error', e => resolve({ code: -1, err: e.message }));
     p.on('close', code => resolve({ code, err }));
   });
-  let r = await tryRun([...head, ...videoEncArgs(enc), ...tail]);
-  if (r.code !== 0 && enc && enc.fam !== 'x264') r = await tryRun([...head, ...videoEncArgs(null), ...tail]); // HW zlyhal → procesor
+  // pokusy: dekódovanie na grafike → bez neho → procesor (x264)
+  const tries = [[hwHead(), enc], [head, enc]];
+  if (enc && enc.fam !== 'x264' && !opt.fixedEnc) tries.push([head, null]);
+  let r;
+  for (const [h, e] of tries) {
+    r = await tryRun([...h, ...encFor(e), ...tail]);
+    if (r.code === 0 || (ctl && ctl.cancelled)) break;
+  }
+  if (ctl && ctl.cancelled) throw new Error('Zrušené');
   if (r.code !== 0) throw new Error(lastLine(r.err) || 'Uloženie zlyhalo');
   return job.out;
 }

@@ -195,6 +195,7 @@ window.Studio = (function () {
           <span class="st-iochip" id="stIOchip" hidden><span id="stIOlen"></span><button type="button" id="stIOadd" title="Uložiť úsek do zoznamu (P) · všetky sa dajú vyexportovať naraz" aria-label="Uložiť úsek">${IC.trAdd}</button><button type="button" id="stIOloop" title="Prehrať úsek dokola (Shift+medzerník)" aria-label="Prehrať úsek dokola">${IC.loop}</button><button type="button" id="stIOx" title="Zrušiť In/Out (Alt+X)" aria-label="Zrušiť In a Out">${IC.x}</button></span>
           <button type="button" class="st-rgchip" id="stRgchip" hidden title="Uložené úseky · každý sa exportuje ako samostatné video"></button>
           <span class="grow"></span>
+          <span class="st-load" id="stLoad" hidden></span>
           <span class="st-hint" id="stHint"></span>
           <button class="st-tool${snapOn ? ' on' : ''}" id="stSnap" title="Prichytávanie (N)">${IC.magnet}<span>Prichytávanie</span></button>
           <input type="range" id="stZoom" min="0" max="100" value="30" aria-label="Priblíženie časovej osi" title="Priblíženie (Ctrl + koliesko)">
@@ -243,6 +244,74 @@ window.Studio = (function () {
         if (music || mi < 0) P.lanes.push(l); else P.lanes.splice(mi, 0, l);
       }
       return l;
+    }
+    /* ---------- viac stôp ----------
+       Video: hlavná stopa „v“ (magnetická, klipy idú za sebou) + vrstvy nad ňou (voľné umiestnenie, kreslia sa navrch).
+       Zvuk: stopy podľa stôp klipu, hudba a vlastné stopy. Vrstva 0 = hlavná, čím vyššie v zozname, tým vyššia vrstva. */
+    const vLanes = () => P.lanes.filter(l => l.kind === 'video');
+    const videoItems = () => P.items.filter(i => i.kind === 'video');
+    function layerOf(id) { const vl = vLanes(), i = vl.findIndex(l => l.id === id); return i < 0 ? 0 : vl.length - 1 - i; }
+    /* zvuk klipu na vrchnej video vrstve: stopa s rovnakým názvom, ak je v tom čase voľná, inak „Hra 2“, „Hra 3“… */
+    function audioLaneFree(title, s0, e0) {
+      const free = l => !itemsOn(l.id).some(o => o.start < e0 - 1e-3 && end(o) > s0 + 1e-3);
+      const base = audioLaneFor(title);
+      if (free(base)) return base;
+      for (let k = 2; k < 20; k++) {
+        const id = base.id + '~' + k;
+        let l = lane(id);
+        if (!l) {
+          l = { ...base, id, name: `${base.name} ${k}`, mute: false, solo: false, custom: true };
+          // hneď pod poslednou stopou rovnakého druhu
+          let at = P.lanes.findIndex(x => x.id === base.id);
+          while (at + 1 < P.lanes.length && P.lanes[at + 1].id.startsWith(base.id + '~')) at++;
+          P.lanes.splice(at + 1, 0, l);
+        }
+        if (free(l)) return l;
+      }
+      return base;
+    }
+    /* nová prázdna stopa: video navrch (nad všetky video stopy), zvuk nad hudbu */
+    function addLane(kind) {
+      let l;
+      if (kind === 'video') {
+        const n = vLanes().length + 1;
+        l = { id: 'v' + uid(), kind: 'video', name: `Video ${n}`, custom: true };
+        P.lanes.splice(Math.max(0, P.lanes.findIndex(x => x.kind === 'video')), 0, l);
+      } else {
+        const n = P.lanes.filter(x => x.kind === 'audio' && x.custom && !/~\d+$/.test(x.id)).length + 1;
+        const k = P.lanes.filter(x => x.kind === 'audio').length;
+        l = { id: 'a:x' + uid(), kind: 'audio', name: `Zvuk ${n}`, vol: 1, mute: false, solo: false, c: AUDIO_C[k % AUDIO_C.length], custom: true };
+        const mi = P.lanes.findIndex(x => x.music);
+        if (mi < 0) P.lanes.push(l); else P.lanes.splice(mi, 0, l);
+      }
+      commit(); renderTimeline();
+      hint(kind === 'video' ? `${l.name}: vrstva nad videom · pretiahni sem klip` : `${l.name}: pretiahni sem zvuk alebo hudbu`);
+      return l;
+    }
+    function removeLane(id) {
+      const l = lane(id); if (!l || id === 'v' || id === 't') return;
+      if (itemsOn(id).length) { hint('Na stope sú klipy, najprv ich presuň alebo zmaž'); return; }
+      P.lanes = P.lanes.filter(x => x.id !== id);
+      commit(); renderTimeline(); hint(`Stopa ${l.name} odstránená`);
+    }
+    function renameLane(id) {
+      const h = heads.querySelector(`.st-lh[data-lane="${CSS.escape(id)}"] span`), l = lane(id); if (!h || !l) return;
+      const inp = document.createElement('input');
+      inp.className = 'st-lname'; inp.value = l.name; inp.spellcheck = false;
+      h.replaceWith(inp); inp.focus(); inp.select();
+      let done = false;
+      const fin = ok => { if (done) return; done = true; const v = inp.value.trim().slice(0, 40); if (ok && v && v !== l.name) { l.name = v; commit(); } renderTimeline(); };
+      inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); });
+      inp.addEventListener('blur', () => fin(true));
+    }
+    /* najbližší voľný začiatok na voľnej stope pre úsek dĺžky L (pri `at` alebo hneď za prekážkou) */
+    function freeStart(id, at, L, skip) {
+      const os = itemsOn(id).filter(o => !skip || !skip.has(o));
+      const ok = s0 => s0 >= -1e-6 && !os.some(o => o.start < s0 + L - 1e-3 && end(o) > s0 + 1e-3);
+      if (ok(at)) return at;
+      const c = [];
+      for (const o of os) c.push(end(o), o.start - L);
+      return c.filter(ok).sort((x, y) => Math.abs(x - at) - Math.abs(y - at))[0] ?? Math.max(at, ...os.map(end));
     }
     /* ktoré stopy z klipu použiť: Mix vynecháme, keď sú aj samostatné stopy (inak by bol zvuk dvakrát) */
     function usableTracks(s) {
@@ -298,21 +367,37 @@ window.Studio = (function () {
       return [1080, 1080];
     }
 
-    /* ---------- zdroje ---------- */
+    /* ---------- zdroje ----------
+       known: všetky zdroje projektu (aj tie, čo sa ešte načítavajú alebo chýbajú na disku) — z neho sa ukladá projekt,
+       takže uloženie počas načítavania už nič nezahodí. offline: súbory, ktoré sa nepodarilo otvoriť (položky ostanú). */
     let prefetch = null;
     const trkPre = new Map(); // path → rozbehnuté extractTracks (z prefetchu pri otváraní projektu)
+    const known = new Map(), offline = new Set();
+    const baseName = p => String(p || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+    const srcName = p => (src.get(p) || known.get(p) || {}).name || baseName(p);
+    /* najviac n naraz (ffmpeg v hlavnom procese) */
+    function limiter(n) {
+      let active = 0; const wait = [];
+      const next = () => { if (active >= n || !wait.length) return; active++; const [fn, res, rej] = wait.shift(); fn().then(res, rej).finally(() => { active--; next(); }); };
+      return fn => new Promise((res, rej) => { wait.push([fn, res, rej]); next(); });
+    }
+    const trkLimit = limiter(3);
     async function loadSource(meta, music) {
       if (src.has(meta.path)) return src.get(meta.path);
+      known.set(meta.path, { ...(known.get(meta.path) || {}), path: meta.path, name: meta.name || (known.get(meta.path) || {}).name || baseName(meta.path), music: !!music });
+      offline.delete(meta.path);
       const s = { path: meta.path, name: meta.name || meta.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''), duration: meta.duration || 0, width: meta.width || 0, height: meta.height || 0, fps: meta.fps || 60, tracks: [], levels: [], music: !!music, audio: new Map(), thumbs: [], ready: false };
       src.set(meta.path, s);
       try {
-        const r = await (trkPre.get(meta.path) || api.action('extractTracks', { path: meta.path }));
+        const r = await (trkPre.get(meta.path) || trkLimit(() => api.action('extractTracks', { path: meta.path })));
         trkPre.delete(meta.path);
+        known.get(meta.path).duration = r.duration || s.duration;
         s.duration = r.duration || s.duration; s.width = r.width || s.width; s.height = r.height || s.height; s.fps = r.fps || s.fps;
         s.tracks = r.tracks || [];
         s.levels = s.tracks.map(tr => { try { return tr.levels ? Uint8Array.from(atob(tr.levels), c => c.charCodeAt(0)) : null; } catch (e) { return null; } });
       } catch (e) {
-        if (!music) throw e;
+        trkPre.delete(meta.path);
+        if (!music) { src.delete(meta.path); offline.add(meta.path); throw e; }
         // hudba v kontajneri, ktorý sa nedá skopírovať do m4a (napr. wav) → prehráme pôvodný súbor
         try { const pr = await api.action('probe', { path: meta.path }); s.duration = pr.duration || 0; } catch (x) { }
         s.tracks = [{ i: 0, title: 'Hudba', file: meta.path }];
@@ -384,10 +469,11 @@ window.Studio = (function () {
     function addClipAt(s, start, opt = {}) {
       const g = uid(), D = s.duration || 0.1;
       const a = opt.in || 0, b = opt.out != null ? opt.out : D, speed = opt.speed || 1;
-      const v = { id: uid(), lane: 'v', kind: 'video', src: s.path, start, in: a, out: b, speed, g, zoom: 1, cx: opt.cx ?? 0.5, cy: 0.5, fadeIn: !!opt.fadeIn, fadeOut: !!opt.fadeOut };
+      const vl = opt.lane && lane(opt.lane) && lane(opt.lane).kind === 'video' ? opt.lane : 'v';
+      const v = { id: uid(), lane: vl, kind: 'video', src: s.path, start, in: a, out: b, speed, g, zoom: 1, cx: opt.cx ?? 0.5, cy: 0.5, fadeIn: !!opt.fadeIn, fadeOut: !!opt.fadeOut };
       P.items.push(v);
       for (const tr of usableTracks(s)) {
-        const l = audioLaneFor(tr.title);
+        const l = vl === 'v' ? audioLaneFor(tr.title) : audioLaneFree(tr.title, start, start + (b - a) / speed);
         P.items.push({ id: uid(), lane: l.id, kind: 'audio', src: s.path, ti: tr.i, start, in: a, out: b, speed, g, vol: 1, fadeIn: !!opt.fadeIn, fadeOut: !!opt.fadeOut });
       }
       return v;
@@ -424,7 +510,10 @@ window.Studio = (function () {
     const projectId = opts.projectId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
     function projData() {
       const sources = {};
-      for (const sr of src.values()) if (P.items.some(i => i.src === sr.path)) sources[sr.path] = { path: sr.path, name: sr.name, duration: sr.duration, music: sr.music };
+      for (const pth of new Set(P.items.filter(i => i.src).map(i => i.src))) {
+        const sr = src.get(pth), k = known.get(pth) || {};
+        sources[pth] = sr ? { path: pth, name: sr.name, duration: sr.duration || k.duration, music: sr.music } : { path: pth, name: k.name || baseName(pth), duration: k.duration, music: !!k.music };
+      }
       return { v: 1, name: P.name, fmt: P.fmt, fps: P.fps, lanes: P.lanes, items: P.items, io: P.io || null, ranges: P.ranges || [], sources, t, at: Date.now() };
     }
     /* projekt sa ukladá sám (súbor v AppData), pri zatvorení hneď */
@@ -434,6 +523,11 @@ window.Studio = (function () {
       if (now) go(); else persistT = setTimeout(go, 600);
     }
     let savedOnce = false;
+    function setLoading(n, total) {
+      const el = q('#stLoad'); if (!el) return;
+      el.hidden = !total || n >= total;
+      if (!el.hidden) el.textContent = `Načítavam klipy ${n} / ${total}`;
+    }
 
     /* ---------- vstup: z jednoduchého editora, z knižnice alebo uložený projekt ---------- */
     async function init() {
@@ -441,21 +535,33 @@ window.Studio = (function () {
         try {
           const prev = await (prefetch || api.action('projLoad', { id: opts.projectId }));
           P = { ...P, ...prev, sources: {} };
+          P.items = (P.items || []).filter(i => i && i.id && i.lane);
           savedOnce = true;
+          for (const m of Object.values(prev.sources || {})) if (m && m.path) known.set(m.path, m);
+          // každý zdroj, na ktorý sa odkazuje položka — aj keď ho zoznam zdrojov stratil (staršia chyba ukladania)
+          const used = [...new Set(P.items.filter(i => i.src).map(i => i.src))];
+          const lost = used.filter(pth => !known.has(pth));
+          for (const pth of lost) { const it = P.items.find(i => i.src === pth), l = lane(it.lane); known.set(pth, { path: pth, name: baseName(pth), music: !!(l && l.music) }); }
+          if (lost.length) api.log('warn', `advanced editor: projekt ${opts.projectId} – ${lost.length} zdrojov chýbalo v zozname, doplnené z položiek`);
+          // os je vidno hneď, náhľady a zvuk sa dopĺňajú, ako sa zdroje načítajú
+          baseLanes(); lastSnap = snapshot();
+          t = clamp(prev.t || 0, 0, duration());
+          [W, H] = outSize(); renderAll(); fitZoom(); seek(t); shownEarly = true;
           const missing = [];
-          // zdroje naraz (po 4), nie jeden po druhom — pri projekte s viacerými klipmi to bolo hlavné čakanie
-          const list = Object.values(prev.sources || {});
-          let next = 0;
+          let next = 0, done = 0, redrawT = 0;
+          setLoading(0, used.length);
           const worker = async () => {
-            while (next < list.length && !closed) {
-              const m = list[next++];
-              try { await loadSource(m, m.music); } catch (e) { missing.push(m.name || m.path); P.items = P.items.filter(i => i.src !== m.path); }
+            while (next < used.length && !closed) {
+              const m = known.get(used[next++]);
+              try { await loadSource(m, m.music); } catch (e) { missing.push(m.name || baseName(m.path)); api.log('warn', `advanced editor: zdroj sa nedá otvoriť ${m.path}: ${e.message}`); }
+              done++; setLoading(done, used.length);
+              clearTimeout(redrawT); redrawT = setTimeout(() => { if (!closed) { [W, H] = outSize(); layoutFrame(); renderTimeline(); syncMedia(true); } }, 120);
             }
           };
-          await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker));
+          await Promise.all(Array.from({ length: Math.min(4, used.length) }, worker));
+          setLoading(0, 0);
           if (closed) return;
-          if (missing.length) toast('warn', 'Niektoré klipy chýbajú', missing.join(', '));
-          t = clamp(prev.t || 0, 0, duration());
+          if (missing.length) toast('warn', missing.length === 1 ? 'Klip chýba na disku' : `${missing.length} klipy chýbajú na disku`, `${missing.slice(0, 4).join(', ')}${missing.length > 4 ? '…' : ''} · ostali na osi označené, export ich vynechá`);
         } catch (e) { toast('error', 'Projekt sa nepodarilo otvoriť', e.message); }
       }
       baseLanes();
@@ -488,9 +594,10 @@ window.Studio = (function () {
       lastSnap = snapshot(); persist(true);
       [W, H] = outSize();
       renderAll();
-      fitZoom();
-      seek(t);
+      // pri otvorenom projekte bola os vidno už počas načítavania — nemeň priblíženie ani hlavu, s ktorými sa medzitým hýbalo
+      if (!shownEarly || (input.clips && input.clips.length)) { fitZoom(); seek(t); } else seek(t);
     }
+    let shownEarly = false;
 
     /* ---------- render: všetko ---------- */
     function renderAll() {
@@ -584,11 +691,12 @@ window.Studio = (function () {
       const music = [...src.values()].filter(m => m.music);
       q('#stMusicList').innerHTML = music.length ? `<div class="st-mh sub"><b>Hudba v projekte</b></div>${music.map(m => `<div class="st-mu">${IC.music}<span>${esc(m.name)}</span></div>`).join('')}` : '';
     }
-    async function addFromPath(c, at) {
+    async function addFromPath(c, at, laneId) {
       let s;
       try { s = await loadSource(c); } catch (e) { toast('error', 'Klip sa nepodarilo otvoriť', e.message); return; }
       const before0 = startsNow();
-      const v = insertClip(s, at);
+      // vrchná video vrstva: bez posúvania ostatných, na najbližšie voľné miesto na tej stope
+      const v = laneId && laneId !== 'v' ? addClipAt(s, freeStart(laneId, Math.max(0, at), (s.duration || 0.1)), { lane: laneId }) : insertClip(s, at);
       setTimeout(() => glideFrom(before0), 0);
       sel = new Set([v.id]);
       commit(); renderAll();
@@ -610,7 +718,7 @@ window.Studio = (function () {
       txtCv.width = Math.round(fw * devicePixelRatio); txtCv.height = Math.round(fh * devicePixelRatio);
       placeVideo(activeVideo());
     }
-    const activeVideo = (time = t) => itemsOn('v').find(it => time >= it.start - 1e-4 && time < end(it) - 1e-4) || null;
+    const activeVideo = (time = t) => videoItems().filter(it => time >= it.start - 1e-4 && time < end(it) - 1e-4).sort((x, y) => layerOf(y.lane) - layerOf(x.lane))[0] || null;
 
     /* ---------- prechody medzi klipmi ----------
        it.tin = { type, d } na klipe B = prechod z predošlého susedného klipu A. Okno je okolo strihu [strih − d/2, strih + d/2].
@@ -624,7 +732,7 @@ window.Studio = (function () {
       up: { l: 'Posun hore', ov: true, d: 0.5 },
       zoom: { l: 'Priblíženie', ov: true, d: 0.5 }
     };
-    function prevAdj(B) { return itemsOn('v').find(x => x !== B && Math.abs(end(x) - B.start) < 0.04) || null; }
+    function prevAdj(B) { return itemsOn(B.lane).find(x => x !== B && Math.abs(end(x) - B.start) < 0.04) || null; }
     function transOf(B) {
       if (!B.tin || !TRANS[B.tin.type]) return null;
       const A = prevAdj(B); if (!A) return null;
@@ -636,7 +744,8 @@ window.Studio = (function () {
     /* plán vykreslenia: pre každé video jeho skutočný rozsah (s predĺžením) a obálky prechodov.
        Rovnaký plán použije náhľad aj export, takže sedia. */
     function renderPlan() {
-      const vs = itemsOn('v'), plan = new Map();
+      // hlavná stopa dole, vrstvy nad ňou postupne navrch (poradie = poradie kreslenia v náhľade aj v exporte)
+      const vs = videoItems().sort((x, y) => layerOf(x.lane) - layerOf(y.lane) || x.start - y.start), plan = new Map();
       for (const it of vs) plan.set(it.id, { it, rs: it.start, re: end(it), env: [] });
       for (const B of vs) {
         const tr = transOf(B); if (!tr) continue;
@@ -1007,15 +1116,27 @@ window.Studio = (function () {
       renderIO();
       heads.innerHTML = `<div class="st-hr"></div>` + P.lanes.map(l => {
         const h = LANE_H[l.kind];
-        if (l.kind !== 'audio') return `<div class="st-lh" style="height:${h}px"><i style="background:${l.kind === 'video' ? 'var(--blue)' : 'var(--lilac)'}"></i><span>${esc(l.name)}</span></div>`;
+        if (l.kind !== 'audio') return `<div class="st-lh" style="height:${h}px" data-lane="${esc(l.id)}"${l.kind === 'video' && l.id !== 'v' ? ' title="Vrstva nad hlavným videom · pravý klik = premenovať, odstrániť"' : ''}><i style="background:${l.kind === 'video' ? 'var(--blue)' : 'var(--lilac)'}"></i><span>${esc(l.name)}</span>${l.kind === 'video' && l.id !== 'v' ? `<em>${layerOf(l.id) + 1}</em>` : ''}</div>`;
         return `<div class="st-lh${audible(l) ? '' : ' off'}" style="height:${h}px" data-lane="${esc(l.id)}">
           <i style="background:${l.c}"></i><span title="${esc(l.name)}">${esc(l.name)}</span>
           <button class="st-ms${l.mute ? ' on' : ''}" data-mute="${esc(l.id)}" title="Stlmiť stopu" aria-label="Stlmiť ${esc(l.name)}">M</button>
           <button class="st-ms solo${l.solo ? ' on' : ''}" data-solo="${esc(l.id)}" title="Počúvať len túto stopu" aria-label="Sólo ${esc(l.name)}">S</button>
         </div>`;
-      }).join('');
+      }).join('') + `<button type="button" class="st-addlane" id="stAddLane" title="Pridať video vrstvu alebo zvukovú stopu">${IC.trAdd}<span>Stopa</span></button>`;
+      q('#stAddLane').onclick = e => menu(e.currentTarget, [{ label: 'Video stopa (vrstva navrch)', v: 'video' }, { label: 'Zvuková stopa', v: 'audio' }], pick => addLane(pick.v));
       // položky sú ľahké DOM prvky (výber, ťahanie, popis); obsah (náhľady, priebeh zvuku) kreslí plátno stopy
-      lanesEl.innerHTML = P.lanes.map(l => `<div class="st-lane ${l.kind}${l.kind === 'audio' && !audible(l) ? ' off' : ''}" style="height:${LANE_H[l.kind]}px" data-lane="${esc(l.id)}"><canvas class="st-lc"></canvas>${itemsOn(l.id).map(itemHtml).join('')}${l.kind === 'video' ? transMarks() : ''}</div>`).join('');
+      lanesEl.innerHTML = P.lanes.map(l => `<div class="st-lane ${l.kind}${l.kind === 'audio' && !audible(l) ? ' off' : ''}" style="height:${LANE_H[l.kind]}px" data-lane="${esc(l.id)}"><canvas class="st-lc"></canvas>${itemsOn(l.id).map(itemHtml).join('')}${l.kind === 'video' ? transMarks(l.id) : ''}</div>`).join('');
+      $$('.st-lh[data-lane]', heads).forEach(h => h.oncontextmenu = e => {
+        e.preventDefault();
+        const l = lane(h.dataset.lane); if (!l || l.id === 't') return;
+        const its = [];
+        if (l.id !== 'v') its.push({ label: 'Premenovať', v: 'ren' });
+        if (l.kind === 'video') its.push({ label: 'Pridať video stopu nad', v: 'addv' });
+        else its.push({ label: 'Pridať zvukovú stopu', v: 'adda' });
+        if (l.id !== 'v') its.push({ sep: true }, { label: itemsOn(l.id).length ? 'Odstrániť stopu (najprv ju vyprázdni)' : 'Odstrániť stopu', v: 'del', disabled: !!itemsOn(l.id).length });
+        menu(ptAnchor(e), its, pick => { if (pick.v === 'ren') renameLane(l.id); else if (pick.v === 'addv') addLane('video'); else if (pick.v === 'adda') addLane('audio'); else if (pick.v === 'del') removeLane(l.id); });
+      });
+      $$('.st-lh[data-lane] span', heads).forEach(sp0 => sp0.ondblclick = () => { const id = sp0.parentElement.dataset.lane; if (id !== 'v' && id !== 't') renameLane(id); });
       $$('[data-mute]', heads).forEach(b => b.onclick = () => { const l = lane(b.dataset.mute); l.mute = !l.mute; commit(); renderTimeline(); renderInsp(); syncMedia(true); });
       $$('[data-solo]', heads).forEach(b => b.onclick = () => { const l = lane(b.dataset.solo); l.solo = !l.solo; commit(); renderTimeline(); renderInsp(); syncMedia(true); });
       updHead(false);
@@ -1023,8 +1144,8 @@ window.Studio = (function () {
       drawLanes();
     }
     /* značky na strihoch medzi susednými klipmi: klik = prechod */
-    function transMarks() {
-      return itemsOn('v').filter(B => prevAdj(B)).map(B => {
+    function transMarks(laneId) {
+      return itemsOn(laneId).filter(B => prevAdj(B)).map(B => {
         const tr = transOf(B), on = !!tr, w = on ? tr.d * pps : 0;
         return `<div class="st-trw${on ? ' on' : ''}${trSel === B.id ? ' sel' : ''}" style="left:${B.start * pps}px;width:${w}px"></div><button type="button" class="st-tr${on ? ' on' : ''}${trSel === B.id ? ' sel' : ''}" data-tb="${B.id}" style="left:${B.start * pps}px" title="${on ? 'Prechod: ' + TRANS[tr.type].l : 'Pridať prechod'}" aria-label="Prechod">${on ? IC.trOn : IC.trAdd}</button>`;
       }).join('');
@@ -1033,12 +1154,13 @@ window.Studio = (function () {
       const x = it.start * pps, w = Math.max(3, len(it) * pps);
       const s = src.get(it.src), l = lane(it.lane);
       let label = '';
-      if (it.kind === 'video') label = (s ? s.name : '') + (ramped(it) ? ' · speed ramp' : sp(it) !== 1 ? ` · ${String(sp(it)).replace('.', ',')}×` : '');
-      else if (it.kind === 'audio') label = l && l.music ? (s ? s.name : 'Hudba') : '';
+      const off = it.src && offline.has(it.src);
+      if (it.kind === 'video') label = (off ? 'Chýba: ' : '') + srcName(it.src) + (ramped(it) ? ' · speed ramp' : sp(it) !== 1 ? ` · ${String(sp(it)).replace('.', ',')}×` : '');
+      else if (it.kind === 'audio') label = off ? 'Chýba' : l && l.music ? srcName(it.src) || 'Hudba' : '';
       else label = String(it.text || '').replace(/\n/g, ' ') || 'Text';
       const fades = `${it.fadeIn ? '<i class="fi"></i>' : ''}${it.fadeOut ? '<i class="fo"></i>' : ''}`;
       const kfs = KF.times(it).map(T => `<i class="st-kfd${kfSel && kfSel.id === it.id && Math.abs(kfSel.t - T) < 1 / 120 ? ' on' : ''}" data-kt="${T}" style="left:${T * pps}px" title="Keyframe ${tc(it.start + T)} · ťahaj pre posun, klik = skok"></i>`).join('');
-      return `<div class="st-item ${it.kind}${sel.has(it.id) ? ' sel' : ''}${kfs ? ' haskf' : ''}" data-id="${it.id}" style="left:${x}px;width:${w}px">${fades}<span class="st-il">${esc(label)}</span>${kfs}<b class="st-e l"></b><b class="st-e r"></b></div>`;
+      return `<div class="st-item ${it.kind}${sel.has(it.id) ? ' sel' : ''}${kfs ? ' haskf' : ''}${off ? ' offline' : ''}" data-id="${it.id}" style="left:${x}px;width:${w}px"${off ? ` title="Súbor sa nedá otvoriť: ${esc(it.src)}"` : ''}>${fades}<span class="st-il">${esc(label)}</span>${kfs}<b class="st-e l"></b><b class="st-e r"></b></div>`;
     }
     /* kreslenie obsahu stôp: len viditeľná časť (šírka okna), takže zoom ani dĺžka nič nestoja */
     let drawQ = 0;
@@ -1098,7 +1220,7 @@ window.Studio = (function () {
           const ds = dispStart(it), e = ds + len(it); if (e < t0v || ds > t1v) continue;
           const X = ds * pps - x0, Wd = Math.max(3, len(it) * pps), y = 2, H2 = h - 4;
           g.save();
-          g.beginPath(); g.roundRect(X, y, Wd, H2, 6); g.clip();
+          g.beginPath(); g.roundRect(X + 1, y, Math.max(1, Wd - 2), H2, 6); g.clip();
           g.fillStyle = body; g.fillRect(X, y, Wd, H2);
           const vx0 = Math.max(X, 0), vx1 = Math.min(X + Wd, vw);
           const s = src.get(it.src);
@@ -1155,7 +1277,7 @@ window.Studio = (function () {
       if (trb) { e.preventDefault(); selectTrans(trb.dataset.tb); return; }
       const el = e.target.closest('.st-item');
       if (!el) { // klik do prázdna: zruš výber a skoč na čas
-        if (!e.shiftKey) { sel.clear(); renderTimeline(); renderInsp(); drawFrame(); }
+        if (!e.shiftKey) clearSel();
         scrub(e); return;
       }
       const it = P.items.find(i => i.id === el.dataset.id); if (!it) return;
@@ -1184,6 +1306,7 @@ window.Studio = (function () {
         return;
       }
       kfSel = null; if (trSel) { trSel = null; $$('.st-tr.sel, .st-trw.sel', lanesEl).forEach(x => x.classList.remove('sel')); }
+      const wasSel = sel.has(it.id);
       if (e.shiftKey || e.ctrlKey) { if (sel.has(it.id)) sel.delete(it.id); else sel.add(it.id); }
       else if (!sel.has(it.id)) sel = new Set([it.id]);
       const edge = e.target.classList.contains('st-e') ? (e.target.classList.contains('l') ? 'l' : 'r') : null;
@@ -1206,14 +1329,29 @@ window.Studio = (function () {
       };
       const bmap = new Map([...moving].map(m => [m.id, bounds(m)]));
       // video sa dá presunúť pred alebo za iný klip: pustíš ho cez neho a ostatné sa odsunú (vloženie)
-      const reorder = !edge && [...moving].some(m => m.kind === 'video');
-      const vMove = [...moving].find(m => m.kind === 'video');
+      // magnetické vkladanie len na hlavnej video stope; vrchné vrstvy sú voľné ako zvuk a text
+      const reorder = !edge && [...moving].some(m => m.kind === 'video' && m.lane === 'v');
+      const vMove = [...moving].find(m => m.kind === 'video' && m.lane === 'v') || [...moving].find(m => m.kind === 'video');
+      // presun na inú stopu rovnakého druhu (ťahaním hore/dole): presúva sa položka, na ktorú sa kliklo (+ vybrané z tej istej stopy)
+      const origLane = it.lane, vertMovers = edge || it.kind === 'text' ? [] : [...moving].filter(m => m.lane === origLane && m.kind === it.kind);
+      let tgt = null;
+      const laneAtY = y => { for (const el of lanesEl.children) { const r = el.getBoundingClientRect(); if (y >= r.top - 2 && y < r.bottom + 2) return lane(el.dataset.lane); } return null; };
       let insertAt = null;
       if (reorder) for (const m of moving) { const n = lanesEl.querySelector(`[data-id="${m.id}"]`); if (n) n.classList.add('dragging'); }
       const move = ev => {
         const dt = (ev.clientX - x0) / pps;
         if (!changed && Math.abs(ev.clientX - x0) < 3) return;
         changed = true;
+        if (vertMovers.length) {
+          const ln = laneAtY(ev.clientY), nt = ln && ln.kind === it.kind && ln.id !== origLane ? ln.id : null;
+          if (nt !== tgt) {
+            tgt = nt;
+            for (const m of vertMovers) m.lane = tgt || origLane;
+            renderTimeline();
+            for (const m of moving) { const n = lanesEl.querySelector(`[data-id="${m.id}"]`); if (n) n.classList.add('dragging'); }
+            if (tgt) { const le = lanesEl.querySelector(`.st-lane[data-lane="${CSS.escape(tgt)}"]`); if (le) le.classList.add('tgt'); }
+          }
+        }
         if (!edge) {
           let d = dt;
           // prichytenie: začiatok alebo koniec položky, na ktorú sa kliklo
@@ -1221,7 +1359,12 @@ window.Studio = (function () {
           const s1 = snapTo(o.start + d, pts, ev.altKey), s2 = snapTo(o.start + d + L, pts, ev.altKey);
           if (s1.hit != null && (s2.hit == null || Math.abs(s1.t - (o.start + d)) <= Math.abs(s2.t - (o.start + d + L)))) { d = s1.t - o.start; showSnap(s1.t); }
           else if (s2.hit != null) { d = s2.t - L - o.start; showSnap(s2.t); } else showSnap(null);
-          if (reorder) {
+          if (tgt) {
+            // na inej stope: voľný posun, miesto sa doladí po pustení
+            d = Math.max(d, -Math.min(...[...moving].map(m => orig.get(m.id).start)));
+            for (const m of moving) { const om = orig.get(m.id); m.start = om.start + d; if (m.kind === 'text') m.end = om.end + d; }
+            q('#stDrop').hidden = true;
+          } else if (reorder) {
             d = Math.max(d, -Math.min(...[...moving].map(m => orig.get(m.id).start)));
             for (const m of moving) { const om = orig.get(m.id); m.start = om.start + d; if (m.kind === 'text') m.end = om.end + d; }
             // kam sa vloží: klip pod stredom ťahaného videa → pred neho (ľavá polovica) alebo za neho
@@ -1278,6 +1421,27 @@ window.Studio = (function () {
       const up = () => {
         removeEventListener('pointermove', move); removeEventListener('pointerup', up);
         showSnap(null); q('#stDrop').hidden = true;
+        $$('.st-item.dragging', lanesEl).forEach(n => n.classList.remove('dragging'));
+        // klik (bez ťahania) na položku vo viacnásobnom výbere → vyber len ju
+        if (!changed && !e.shiftKey && !e.ctrlKey && wasSel && sel.size > 1) { sel = new Set([it.id]); renderTimelineSel(); }
+        if (changed && tgt) {
+          const before = startsNow();
+          let ok = true;
+          if (tgt === 'v') {
+            // na hlavnú stopu: vloží sa medzi klipy (ostatné sa odsunú), ako pri bežnom presune
+            const vm = vertMovers.find(m => m.kind === 'video'), c = vm ? vm.start + len(vm) / 2 : 0;
+            const others = itemsOn('v').filter(o => !moving.has(o));
+            const hitV = vm && (others.find(o => c >= o.start && c < end(o)) || others.find(o => o.start < end(vm) && end(o) > vm.start));
+            if (hitV) insertMoving(moving, orig, c < hitV.start + len(hitV) / 2 ? hitV.start : end(hitV)); else resolveOverlaps(moving);
+          } else ok = placeFree(moving);
+          if (!ok) {
+            for (const m of moving) { const om = orig.get(m.id); m.start = om.start; if (m.kind === 'text') m.end = om.end; }
+            for (const m of vertMovers) m.lane = origLane;
+            hint('Na tej stope tam nie je miesto');
+          } else { const ln = lane(tgt); hint(`Presunuté na ${ln ? ln.name : 'stopu'}`); }
+          commit(); renderTimeline(); glideFrom(before); syncMedia(true); drawFrame(); renderInsp();
+          return;
+        }
         if (changed && reorder) {
           const before = new Map(P.items.map(i => [i.id, moving.has(i) ? i.start : i.start]));
           if (insertAt != null) insertMoving(moving, orig, insertAt);
@@ -1304,6 +1468,21 @@ window.Studio = (function () {
       for (const i of rest) if (i.start >= at - 1e-3) shiftT(i, L);
       for (const m of ms) shiftT(m, at - s0);
     }
+    /* po presune na voľnú stopu: keď sa niečo prekrýva, posuň celú skupinu na najbližšie miesto, kde sa nič neprekrýva */
+    function placeFree(moving) {
+      const ms = [...moving];
+      const clash = () => ms.some(m => itemsOn(m.lane).some(o => !moving.has(o) && o.start < end(m) - 1e-3 && end(o) > m.start + 1e-3));
+      if (!clash()) return true;
+      const shift = d => { for (const m of ms) { m.start += d; if (m.kind === 'text') m.end += d; } };
+      const cands = new Set();
+      for (const m of ms) for (const o of itemsOn(m.lane)) if (!moving.has(o)) { cands.add(end(o) - m.start); cands.add(o.start - end(m)); }
+      const minS = Math.min(...ms.map(m => m.start));
+      for (const d of [...cands].sort((x, y) => Math.abs(x) - Math.abs(y))) {
+        if (minS + d < -1e-6) continue;
+        shift(d); if (!clash()) return true; shift(-d);
+      }
+      return false;
+    }
     /* video pustené bez vloženia, no prekrýva sa na iných stopách (napr. zvuk) → posuň nasledujúce */
     function resolveOverlaps(moving) {
       const ms = [...moving];
@@ -1323,6 +1502,21 @@ window.Studio = (function () {
       addEventListener('pointermove', move); addEventListener('pointerup', up);
     }
     ruler.addEventListener('pointerdown', e => { if (e.button === 0) scrub(e); });
+    /* zrušenie výberu: klik do prázdnej časti časovej osi (pod stopami) alebo vedľa náhľadu, aj Esc */
+    function clearSel() {
+      if (!sel.size && !trSel && !kfSel) return;
+      sel.clear(); trSel = null; kfSel = null;
+      renderTimeline(); renderInsp(); drawFrame();
+    }
+    scroll.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || e.target.closest('.st-lane, .st-ruler, .st-head, .st-io, .st-rg')) return;
+      if (!e.shiftKey) clearSel();
+    });
+    q('#stHeads').addEventListener('pointerdown', e => { if (e.button === 0 && !e.target.closest('button, .st-lh')) clearSel(); });
+    stage.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || document.fullscreenElement === stage || e.target.closest('#stFrame, .st-trans, .st-fprog')) return;
+      clearSel();
+    });
     q('#stHead').addEventListener('pointerdown', e => { if (e.button === 0) scrub(e); });
 
     // pretiahnutie klipu z médií na os
@@ -1338,7 +1532,8 @@ window.Studio = (function () {
       const c = lib().find(x => x.path === p) || { path: p };
       let at = Math.max(0, timeAt(e.clientX));
       const sn = snapTo(at, snapPoints(new Set()), e.altKey); at = sn.t;
-      addFromPath(c, at);
+      const le = e.target.closest('.st-lane'), ln = le && lane(le.dataset.lane);
+      addFromPath(c, at, ln && ln.kind === 'video' ? ln.id : 'v');
     });
     // klip pretiahnutý rovno na náhľad → na koniec
     stage.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('text/x-lat-clip')) { e.preventDefault(); frame.classList.add('drop'); } });
@@ -1453,7 +1648,7 @@ window.Studio = (function () {
         // ak by sa predĺžený úsek prekryl s ďalším, posuň nasledujúce položky (všetky stopy)
         const grow = end(m) - oldEnd;
         if (grow > 0 && m.kind === 'video') {
-          const next = itemsOn('v').find(o => o !== m && o.start >= oldEnd - 1e-3);
+          const next = itemsOn(m.lane).find(o => o !== m && o.start >= oldEnd - 1e-3);
           if (next && next.start < end(m)) for (const o of P.items) if (o.start >= oldEnd - 1e-3 && !group(it).includes(o)) { o.start += grow; if (o.kind === 'text') o.end += grow; }
         }
       }
@@ -1488,7 +1683,7 @@ window.Studio = (function () {
     function relink(v) { if (!v.g) v.g = uid(); for (const a of orphanAudio(v)) a.g = v.g; }
     /* k akému videu pripojiť samostatný zvuk: najviac prekrývajúce sa video, prednostne z toho istého klipu */
     function videoFor(a) {
-      const vs = itemsOn('v');
+      const vs = videoItems();
       const ov = v => Math.max(0, Math.min(end(v), end(a)) - Math.max(v.start, a.start));
       const score = v => ov(v) + (v.src === a.src ? 1000 : 0) - Math.abs(v.start - a.start) * 0.01;
       return vs.sort((x, y) => score(y) - score(x))[0] || null;
@@ -1575,7 +1770,7 @@ window.Studio = (function () {
     function cutNear() {
       const pk = P.items.find(i => sel.has(i.id) && i.kind === 'video');
       if (pk && prevAdj(pk)) return pk;
-      const cands = itemsOn('v').filter(B => prevAdj(B));
+      const cands = videoItems().filter(B => prevAdj(B));
       return cands.sort((x, y) => Math.abs(x.start - t) - Math.abs(y.start - t))[0] || null;
     }
     function previewTrans(B) {
@@ -2008,7 +2203,7 @@ window.Studio = (function () {
       }
       return { file: it.src, start: p.rs, in: inR, out: outR, speed: ramped(it) ? 1 : sp(it), map, freezeHead: fh, freezeTail: ft,
         srcW: s.width || 0, srcH: s.height || 0, fit: fitMode(it), zoom: it.zoom || 1, cx: it.cx ?? 0.5, cy: it.cy ?? 0.5,
-        fadeIn: false, fadeOut: false, colorFades, alpha, motion: { s: S, x: X, y: Y, r: R } };
+        fadeIn: false, fadeOut: false, colorFades, alpha, motion: { s: S, x: X, y: Y, r: R }, layer: layerOf(it.lane) > 0 };
     }
     /* zvuk so speed rampom: úseky po 0,1 s s vlastným tempom (atempo), rovnaké tempá sa zlúčia */
     function audioChunks(it) {
@@ -2035,7 +2230,7 @@ window.Studio = (function () {
       const inR = (s0, e0) => !R || (e0 > A + 1e-3 && s0 < D - 1e-3);
       // pohyb (keyframy) ako ffmpeg výrazy v čase osi: T = (t - začiatok položky)
       const motionOf = it => { const T = `(t-${it.start.toFixed(4)})`; return { s: KF.exprOf(it, 'scale', T), x: KF.exprOf(it, 'x', T), y: KF.exprOf(it, 'y', T), r: KF.exprOf(it, 'rot', T) }; };
-      const video = renderPlan().filter(p => inR(p.rs, p.re)).map(p => exportVideo(p));
+      const video = renderPlan().filter(p => src.has(p.it.src) && inR(p.rs, p.re)).map(p => exportVideo(p));
       const audio = [];
       for (const it of P.items) {
         if (it.kind !== 'audio' || !inR(it.start, end(it))) continue;
@@ -2081,6 +2276,7 @@ window.Studio = (function () {
         api.action('cancelExport').catch(() => { });
       };
       const outs = [];
+      if (P.items.some(i => i.src && !src.has(i.src))) toast('warn', 'Niektoré klipy chýbajú', 'Export ich vynechá (sú na osi označené).');
       try {
         for (let i = 0; i < N && !cancelling; i++) {
           done0 = lens.slice(0, i).reduce((x, y) => x + y, 0); curLen = lens[i];
@@ -2380,7 +2576,7 @@ window.Studio = (function () {
     // projekt a zvukové stopy pripravuje hlavný proces už počas animácie (animáciu to netrhá, dekódovanie videa až po nej)
     if (opts.projectId) {
       prefetch = api.action('projLoad', { id: opts.projectId }).then(prev => {
-        for (const m of Object.values(prev.sources || {})) { const pr = api.action('extractTracks', { path: m.path }); pr.catch(() => { }); trkPre.set(m.path, pr); }
+        for (const pth of new Set((prev.items || []).filter(i => i.src).map(i => i.src))) { const pr = trkLimit(() => api.action('extractTracks', { path: pth })); pr.catch(() => { }); trkPre.set(pth, pr); }
         return prev;
       });
       prefetch.catch(() => { });

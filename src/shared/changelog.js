@@ -1,6 +1,15 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.37', items: [
+      'Opravené: advanced editor nenačítal celý projekt. Projekt si zoznam klipov ukladal len z toho, čo už bolo načítané, takže uloženie počas otvárania niektoré klipy „stratilo“ (ostali na osi bez obrazu a zvuku). Teraz sa nič nestratí a už pokazené projekty sa pri otvorení samé opravia.',
+      'Klip, ktorý chýba na disku, sa už z projektu nevymaže. Ostane na osi šrafovaný s nápisom Chýba a export ho vynechá.',
+      'Projekt sa ukáže hneď, náhľady a zvuk sa dopĺňajú, ako sa klipy načítavajú (vpravo dole vidno, koľko ešte).',
+      'Opravené: výber na časovej osi sa nedal zrušiť. Zruší ho klik do prázdna (aj pod stopami a vedľa náhľadu) alebo Esc. Klik na jeden z viacerých vybraných klipov vyberie len ten.',
+      'Klipy na časovej osi majú jasné hranice, aj keď sú vybrané.',
+      'Viac stôp: „+ Stopa“ pod hlavičkami pridá video vrstvu (kreslí sa nad hlavným videom, napr. B-roll alebo obraz v obraze cez Pohyb) alebo zvukovú stopu. Klipy a zvuk sa medzi stopami presúvajú ťahaním hore a dole. Pravý klik na hlavičku stopy = premenovať alebo odstrániť.',
+      'Simple editor: rovnako ako advanced editor ukazuje, koľko ešte zostáva, ukladanie sa dá zrušiť, dekóduje sa na grafike a uloženie na MB ide jedným prechodom.'
+    ] },
     { v: '1.0.36', items: [
       'Advanced editor: viac úsekov naraz. Označ In/Out a stlač P (alebo „+“), úsek sa uloží a značíš ďalší. Úseky sú očíslované navrchu pravítka (klik = upraviť, pravý klik = menu). V exporte vyberieš Úseky a každý sa uloží ako samostatné video.',
       'Úsek medzi In a Out sa dá prehrať dokola: Shift+medzerník alebo tlačidlo v čipe In/Out.',

@@ -49,13 +49,14 @@ function videoChain(it, W, H, F) {
     const x = Math.round((sw - cw) * cx / 2) * 2, y = Math.round((sh - ch) * cy / 2) * 2;
     f.push(`scale=${sw}:${sh}`);
     if (cw < sw || ch < sh) f.push(`crop=${cw}:${ch}:${x}:${y}`);
-    if (cw < W || ch < H) f.push(`pad=${W}:${H}:${(W - cw) / 2 | 0}:${(H - ch) / 2 | 0}:color=black`);
+    if (cw < W || ch < H) { if (it.layer) f.push('format=yuva420p'); f.push(`pad=${W}:${H}:${(W - cw) / 2 | 0}:${(H - ch) / 2 | 0}:color=${it.layer ? 'black@0' : 'black'}`); }
   } else {
     f.push(`scale=${even(tw)}:${even(th)}:force_original_aspect_ratio=${it.fit === 'cover' ? 'increase' : 'decrease'}:force_divisible_by=2`,
       `crop='min(iw,${W})':'min(ih,${H})':'(iw-min(iw,${W}))*${cx}':'(ih-min(ih,${H}))*${cy}'`,
-      `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`);
+      ...(it.layer ? ['format=yuva420p'] : []), `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${it.layer ? 'black@0' : 'black'}`);
   }
-  f.push('setsar=1', 'format=yuv420p');
+  // vrstva nad hlavným videom: okolie ostane priehľadné (pod ním je vidno spodné video, ako v náhľade)
+  f.push('setsar=1', it.layer ? 'format=yuva420p' : 'format=yuv420p');
   const F2 = Math.min(0.5, od / 3);
   if (it.fadeIn) f.push(`fade=t=in:st=0:d=${n3(F2)}`);
   if (it.fadeOut) f.push(`fade=t=out:st=${n3(od - F2)}:d=${n3(F2)}`);

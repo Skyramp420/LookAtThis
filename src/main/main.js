@@ -51,16 +51,21 @@ const stripKey = file => { const st = fs.statSync(file); return crypto.createHas
    vypočítaný dátový tok (predtým: plná kvalita a potom ešte raz kompresia = dvojnásobný čas).
    Keď to vyjde nad limit, výsledok sa ešte dokomprimuje. Vráti false, ak sa to takto nedá (procesor, chyba). */
 async function exportToSize(p, overlays, out, tmp, target, enc, ctl) {
-  if (!enc || enc.fam === 'x264') return false;
   const OD = Math.max(0.2, (Number(p.duration) || 0) - (Number(p.from) || 0));
-  const plan = Compress.plan({ duration: OD, width: p.W, height: p.H, fps: p.fps, targetMB: target, audio: (p.audio || []).length > 0 });
+  return sizePass({ OD, W: p.W, H: p.H, fps: p.fps, audio: (p.audio || []).length > 0 }, out, tmp, target, enc, ctl, (one, extra, encFn, prog) =>
+    exportProject(FFMPEG, { ...p, out: one, overlays, keepTracks: false, ...extra, fixedEnc: true }, enc, encFn, prog, ctl));
+}
+/* jeden prechod na cieľový tok (oba editory); run(out, { fps, outH, abr }, encArgs, onProgress) vyrenderuje časovú os */
+async function sizePass(o, out, tmp, target, enc, ctl, run) {
+  if (!enc || enc.fam === 'x264') return false;
+  const OD = o.OD;
+  const plan = Compress.plan({ duration: OD, width: o.W, height: o.H, fps: o.fps, targetMB: target, audio: o.audio });
   if (!plan.ok) throw new Error(`Video je na ${target} MB pridlhé (max ${Math.floor(plan.maxSeconds / 60)} min ${plan.maxSeconds % 60} s). Exportuj v pôvodnej kvalite alebo ho skráť.`);
   const limit = target * 1e6, one = path.join(tmp, 'jeden.mp4');
   const vk = Math.max(Compress.MIN_VKBPS, Math.floor(plan.vkbps * 0.96)); // HW enkodéry radšej mierne pod cieľ
   const t0 = Date.now();
   try {
-    await exportProject(FFMPEG, { ...p, out: one, overlays, keepTracks: false, fps: plan.fps, outH: plan.height, abr: plan.akbps, fixedEnc: true },
-      enc, e => targetEncArgs(e, vk, plan.fps), f => send('event', { type: 'exportProgress', value: f * 0.94 }), ctl);
+    await run(one, { fps: plan.fps, outH: plan.height, abr: plan.akbps }, e => targetEncArgs(e, vk, plan.fps), f => send('event', { type: 'exportProgress', value: f * 0.94 }));
   } catch (e) {
     if (ctl.cancelled) throw e;
     log.warn('Export na MB jedným prechodom zlyhal, skúšam po starom: ' + e.message);
@@ -1071,19 +1076,29 @@ async function runAction(type, p = {}) {
       });
       const target = Number(p.targetMB) || 0;
       if (target) { const b0 = out.replace(/\)\.mp4$/, ` ${target} MB).mp4`); out = b0; let kk = 2; while (fs.existsSync(out)) out = b0.replace(/\)\.mp4$/, ` ${kk++}).mp4`); }
+      const enc = engine.pickEncoder(store.get());
+      const ctl = exportCtl();
+      const t0 = Date.now();
       try {
         const prog = f => send('event', { type: 'exportProgress', value: target ? f * 0.55 : f });
-        if (!target) await exportSequence(FFMPEG, { ...p, out, overlays }, engine.pickEncoder(store.get()), prog);
-        else {
-          // najprv strih vo vysokej kvalite do dočasného súboru, potom zmenšenie na cieľovú veľkosť
+        const OD = p.segments.reduce((a, x) => a + Math.max(0, x.out - x.in) / Math.max(0.25, Math.min(4, Number(x.speed) || 1)), 0);
+        if (!target) await exportSequence(FFMPEG, { ...p, out, overlays }, enc, prog, ctl);
+        else if (!(await sizePass({ OD, W: p.cropW || p.W, H: p.H, fps: p.fps, audio: (p.tracks || []).length > 0 }, out, tmp, target, enc, ctl, (one, extra, encFn, pr) =>
+          exportSequence(FFMPEG, { ...p, out: one, overlays, keepTracks: false, ...extra }, enc, pr, ctl, { encArgs: encFn, fixedEnc: true })))) {
+          // procesor (x264) alebo HW pokus zlyhal: najprv strih vo vysokej kvalite, potom zmenšenie na cieľovú veľkosť
           const mid = path.join(tmp, 'strih.mp4');
-          await exportSequence(FFMPEG, { ...p, out: mid, overlays }, engine.pickEncoder(store.get()), prog);
+          await exportSequence(FFMPEG, { ...p, out: mid, overlays }, enc, prog, ctl);
           const info = await probe(FFMPEG, mid);
           const plan = Compress.plan({ duration: info.duration, width: info.width, height: info.height, fps: info.fps, targetMB: target });
           if (!plan.ok) throw new Error(`Strih je na ${target} MB pridlhý (max ${Math.floor(plan.maxSeconds / 60)} min ${plan.maxSeconds % 60} s). Ulož ho v pôvodnej kvalite alebo skráť.`);
-          await compressClip(FFMPEG, { file: mid, out, targetMB: target, plan, tmpDir: path.join(tmp, 'pass') }, engine.pickEncoder(store.get()), f => send('event', { type: 'exportProgress', value: 0.55 + f * 0.45 }));
+          await compressClip(FFMPEG, { file: mid, out, targetMB: target, plan, tmpDir: path.join(tmp, 'pass'), ctl }, enc, f => send('event', { type: 'exportProgress', value: 0.55 + f * 0.45 }));
         }
-      } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { } }
+        log.info(`Simple editor: uložené za ${((Date.now() - t0) / 1000).toFixed(1)} s (${(OD).toFixed(1)} s videa, ${enc.name}${target ? `, ${target} MB` : ''})`);
+      } catch (e) {
+        try { fs.unlinkSync(out); } catch (x) { }
+        if (ctl.cancelled) { const c = new Error('Uloženie bolo zrušené'); c.cancelled = true; throw c; }
+        throw e;
+      } finally { if (curExport === ctl) curExport = null; try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { } }
       const m = store.meta()[first] || {};
       store.setMeta(out, { game: m.game, duration: p.segments.reduce((a, x) => a + (x.out - x.in) / (Number(x.speed) || 1), 0), kind: multi ? 'cut' : 'edit' });
       pushState(); return out;
@@ -1166,6 +1181,7 @@ async function runAction(type, p = {}) {
       });
       const enc = engine.pickEncoder(store.get());
       const ctl = exportCtl();
+      const tExp = Date.now();
       try {
         const prog = f => send('event', { type: 'exportProgress', value: target ? f * 0.55 : f });
         if (!target) await exportProject(FFMPEG, { ...p, out, overlays }, enc, videoEncArgs, prog, ctl);
@@ -1178,6 +1194,7 @@ async function runAction(type, p = {}) {
           if (!plan.ok) throw new Error(`Video je na ${target} MB pridlhé (max ${Math.floor(plan.maxSeconds / 60)} min ${plan.maxSeconds % 60} s). Exportuj v pôvodnej kvalite alebo ho skráť.`);
           await compressClip(FFMPEG, { file: mid, out, targetMB: target, plan, tmpDir: path.join(tmp, 'pass'), ctl }, enc, f => send('event', { type: 'exportProgress', value: 0.55 + f * 0.45 }));
         }
+        log.info(`Advanced editor: export za ${((Date.now() - tExp) / 1000).toFixed(1)} s (${Math.max(0, (Number(p.duration) || 0) - (Number(p.from) || 0)).toFixed(1)} s videa, ${enc.name}${target ? `, ${target} MB` : ''})`);
       } catch (e) {
         // zrušené alebo zlyhané: nedokončený súbor v knižnici nenechávaj
         try { fs.unlinkSync(out); } catch (x) { }

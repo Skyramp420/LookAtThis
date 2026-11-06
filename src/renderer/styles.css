@@ -1303,3 +1303,7 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 .su-row small.su-ok, .su-ok { color: var(--mint); font-weight: 600; }
 .su-row small.su-no, .su-no { color: var(--amber); font-weight: 600; }
 .su-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ukladanie v simple editore: odhad času a zrušenie */
+.sv .sv-eta { min-height: 1.2em; margin-top: -2px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sv .sv-cancel { margin-top: 12px; }

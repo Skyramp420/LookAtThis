@@ -178,7 +178,11 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-lane.off { opacity: .45; }
 .st-item { position: absolute; top: 2px; bottom: 2px; border-radius: 6px; overflow: hidden; cursor: grab; box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .12); transition: box-shadow .12s; }
 .st-item:active { cursor: grabbing; }
-.st-item.sel { box-shadow: 0 0 0 1.5px var(--accent), inset 0 0 0 .5px rgba(255, 255, 255, .2); z-index: 2; }
+/* hranice klipov: tmavá čiara na oboch okrajoch (aj medzi dvoma vybranými klipmi), výber je vnútri položky */
+.st-item { box-sizing: border-box; border-left: 1.5px solid var(--ink); border-right: 1.5px solid var(--ink); }
+.st-item.sel { box-shadow: inset 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); z-index: 2; }
+.st-item.offline { background: repeating-linear-gradient(135deg, rgba(255, 69, 58, .32) 0 6px, rgba(255, 69, 58, .14) 6px 12px); }
+.st-item.offline .st-il { color: #ffd0cc; }
 .st-item.land { animation: stLand .5s var(--spring); }
 @keyframes stLand { from { transform: translateY(-10px) scale(.96); opacity: .3; } }
 .st-lc { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; }
@@ -271,7 +275,7 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-tlbar { position: relative; }
 
 /* ---------- presúvanie a vkladanie ---------- */
-.st-item.dragging { z-index: 6; box-shadow: 0 0 0 1.5px var(--accent), 0 10px 24px rgba(0, 0, 0, .45); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.st-item.dragging { z-index: 6; box-shadow: inset 0 0 0 2px var(--accent), 0 10px 24px rgba(0, 0, 0, .45); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .st-drop { transition: transform .12s var(--ease); }
 
 /* ---------- keyframy na osi ---------- */
@@ -430,3 +434,12 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-stage.fs .st-fprog { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(255, 255, 255, .16); cursor: pointer; z-index: 5; transition: opacity .3s; }
 .st-fprog i { display: block; height: 100%; width: 0; background: var(--accent); }
 .st-stage.fs.fs-idle .st-trans, .st-stage.fs.fs-idle .st-fprog { opacity: 0; }
+
+/* viac stôp */
+.st-addlane { display: inline-flex; align-items: center; gap: 5px; margin: 6px 0 0 10px; padding: 5px 10px 5px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 560 11.5px/1 var(--body); transition: background .15s, color .15s; }
+.st-addlane:hover { background: var(--hover); color: var(--text); }
+.st-addlane svg { width: 13px; height: 13px; }
+.st-lh em { font: 650 10px/1 var(--body); font-style: normal; color: var(--muted); background: var(--fill2); border-radius: 4px; padding: 2px 5px; flex: none; }
+.st-lname { flex: 1; min-width: 0; font: 560 12px/1.2 var(--body); color: var(--text); background: var(--field); border: 0; border-radius: 5px; padding: 3px 6px; box-shadow: 0 0 0 .5px var(--accent); outline: none; }
+.st-lane.tgt { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 7%, var(--well)); }
+.st-load { font-size: 12px; color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }

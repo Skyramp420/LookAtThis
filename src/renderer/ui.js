@@ -367,5 +367,12 @@ window.UI = (function () {
     return { toggleMute };
   }
   function pvSave() { try { localStorage.setItem('previewVol', String(PV.vol)); localStorage.setItem('previewMute', PV.mute ? '1' : '0'); } catch (e) { } }
-  return { pvol, volCtl, wireVol, $, $$, esc, I, menu, smoothSeek, useProxy, setPreviewFull, previewFull, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
+  /* odhad zostávajúceho času: „ešte ~40 s“, „ešte ~2 min 30 s“ */
+  function eta(sec) {
+    if (!isFinite(sec) || sec < 0) return '';
+    if (sec < 60) return `ešte ~${Math.max(5, Math.ceil(sec / 5) * 5)} s`;
+    const m = Math.floor(sec / 60), r = Math.round((sec % 60) / 10) * 10;
+    return m >= 10 ? `ešte ~${m + (r >= 30 ? 1 : 0)} min` : `ešte ~${m} min${r && r < 60 ? ` ${r} s` : ''}`;
+  }
+  return { eta, pvol, volCtl, wireVol, $, $$, esc, I, menu, smoothSeek, useProxy, setPreviewFull, previewFull, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
 })();
