@@ -2,7 +2,7 @@
 
    job = {
      out, W, H, fps, duration,
-     video:   [{ file, start, in, out, speed, srcW, srcH, fit: 'fit'|'cover', zoom, cx, cy, fadeIn, fadeOut }],
+     video:   [{ file, start, in, out, speed, srcW, srcH, fit: 'fit'|'cover', zoom, cx, cy, fadeIn, fadeOut, interp }],
      audio:   [{ file, stream, lane, start, in, out, speed, vol, fadeIn, fadeOut }],
      lanes:   [{ id, title }]            poradie samostatných stôp (keepTracks)
      overlays:[{ png, cx, cy, start, end, animIn, animOut }],
@@ -37,7 +37,10 @@ function videoChain(it, W, H, F) {
   const z = Math.max(1, Math.min(4, Number(it.zoom) || 1));
   const cx = it.cx == null ? 0.5 : clamp01(it.cx), cy = it.cy == null ? 0.5 : clamp01(it.cy);
   // rýchlosť: konštantná, alebo speed ramp (výstupný čas ako funkcia času zdroja T)
-  const f = it.map ? ['setpts=PTS-STARTPTS', `setpts='(${safeE(it.map, 'T')})/TB'`, `fps=${F}`] : [`setpts=(PTS-STARTPTS)/${r}`, `fps=${F}`];
+  // plynulé spomalenie: medzisnímky dopočíta minterpolate (pohybom), až po zmenšení, aby nepočítal v 4K
+  const mi = `minterpolate=fps=${F}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`;
+  const f = it.map ? ['setpts=PTS-STARTPTS', `setpts='(${safeE(it.map, 'T')})/TB'`] : [`setpts=(PTS-STARTPTS)/${r}`];
+  if (!it.interp) f.push(`fps=${F}`);
   // prechod potrebuje záber pred/za klipom, ktorý v zdroji nie je → podrž prvú/poslednú snímku
   if (it.freezeHead > 0.001 || it.freezeTail > 0.001) f.push(`tpad=start_mode=clone:start_duration=${n3(it.freezeHead || 0)}:stop_mode=clone:stop_duration=${n3(it.freezeTail || 0)}`);
   const tw = W * z, th = H * z;
@@ -49,10 +52,12 @@ function videoChain(it, W, H, F) {
     const x = Math.round((sw - cw) * cx / 2) * 2, y = Math.round((sh - ch) * cy / 2) * 2;
     f.push(`scale=${sw}:${sh}`);
     if (cw < sw || ch < sh) f.push(`crop=${cw}:${ch}:${x}:${y}`);
+    if (it.interp) f.push(mi);
     if (cw < W || ch < H) { if (it.layer) f.push('format=yuva420p'); f.push(`pad=${W}:${H}:${(W - cw) / 2 | 0}:${(H - ch) / 2 | 0}:color=${it.layer ? 'black@0' : 'black'}`); }
   } else {
     f.push(`scale=${even(tw)}:${even(th)}:force_original_aspect_ratio=${it.fit === 'cover' ? 'increase' : 'decrease'}:force_divisible_by=2`,
       `crop='min(iw,${W})':'min(ih,${H})':'(iw-min(iw,${W}))*${cx}':'(ih-min(ih,${H}))*${cy}'`,
+      ...(it.interp ? [mi] : []),
       ...(it.layer ? ['format=yuva420p'] : []), `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${it.layer ? 'black@0' : 'black'}`);
   }
   // vrstva nad hlavným videom: okolie ostane priehľadné (pod ním je vidno spodné video, ako v náhľade)
@@ -155,6 +160,7 @@ function buildArgs(job, encArgs, opt = {}) {
     args.push('-ss', n3(a.in), '-t', n3(a.out - a.in), '-i', a.file);
     const idx = nIn++;
     const r = spd(a.speed), od = a.dur > 0 ? a.dur : (a.out - a.in) / r, F2 = Math.min(0.5, od / 3);
+    const Fi = a.fadeInD > 0 ? Math.min(a.fadeInD, od / 2) : F2, Fo = a.fadeOutD > 0 ? Math.min(a.fadeOutD, od / 2) : F2;
     const f = ['aformat=sample_rates=48000:channel_layouts=stereo', 'asetpts=PTS-STARTPTS', ...atempo(r)];
     let pre = '';
     // speed ramp: úseky s vlastným tempom za sebou
@@ -167,8 +173,8 @@ function buildArgs(job, encArgs, opt = {}) {
     } else if (Array.isArray(a.chunks) && a.chunks.length === 1) { f.splice(2, f.length - 2, ...atempo(a.chunks[0].r)); }
     if (Math.abs(a.vol - 1) > 1e-3) f.push(`volume=${Number(a.vol).toFixed(3)}`);
     if (a.volE) f.push(`volume='${safeE(a.volE, 1)}':eval=frame`); // hlasitosť z keyframov (t = čas od začiatku úseku)
-    if (a.fadeIn) f.push(`afade=t=in:st=0:d=${n3(F2)}`);
-    if (a.fadeOut) f.push(`afade=t=out:st=${n3(od - F2)}:d=${n3(F2)}`);
+    if (a.fadeIn) f.push(`afade=t=in:st=0:d=${n3(Fi)}`);
+    if (a.fadeOut) f.push(`afade=t=out:st=${n3(od - Fo)}:d=${n3(Fo)}`);
     if (a.start > 0.0005) f.push(`adelay=${Math.round(a.start * 1000)}:all=1`);
     if (pre) fc.push(`${pre}${f.length ? ',' + f.join(',') : ''}[ai${k}]`);
     else fc.push(`[${idx}:a:${a.stream || 0}]${f.join(',')}[ai${k}]`);

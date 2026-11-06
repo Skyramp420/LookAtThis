@@ -94,9 +94,9 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-note.sm { font-size: 11.5px; margin-top: 6px; }
 
 .st-stage { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
-.st-frame { position: relative; background: #000; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 .5px var(--line), 0 12px 32px var(--shadow); flex: none; transition: box-shadow .2s; }
+.st-frame { position: relative; background: #000; border-radius: 6px; overflow: visible; transform-origin: 0 0; box-shadow: 0 0 0 .5px var(--line), 0 12px 32px var(--shadow); flex: none; transition: box-shadow .2s; }
 .st-frame.drop { box-shadow: 0 0 0 2px var(--accent), 0 12px 32px var(--shadow); }
-.st-vids { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; }
+.st-vids { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; overflow: hidden; border-radius: inherit; }
 .st-vids video { position: absolute; display: block; max-width: none; }
 .st-black { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
 .st-txt { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -528,3 +528,96 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-tool:active, .st-ico:active, .st-gx:active, .st-cchip:active, .st-chip:active, .st-ms:active { transform: scale(.93); }
 .st-sect:active { transform: scale(.985); }
 .st-sect { transition: background .15s, transform .25s var(--spring); }
+
+/* náhľad: obal (priblíženie len pre zobrazenie) */
+.st-view { position: relative; flex: 1 1 auto; align-self: stretch; min-height: 0; min-width: 0; display: grid; place-items: center; overflow: clip; overflow-clip-margin: 14px; }
+.st-view.pan { cursor: grabbing; }
+.st-stage.fs .st-view { position: absolute; inset: 0; border-radius: 0; }
+.st-frame { transition: box-shadow .2s; }
+.st-black, .st-txt { border-radius: inherit; }
+.st-vz { position: absolute; right: 10px; top: 10px; z-index: 3; border: 0; border-radius: 20px; padding: 5px 10px; background: var(--material); backdrop-filter: blur(16px) saturate(1.6); color: var(--text); font: 600 11.5px/1 var(--body); font-variant-numeric: tabular-nums; box-shadow: var(--pop-shadow); cursor: pointer; animation: popin .3s var(--spring) both; }
+.st-vz:hover { color: var(--accent); }
+/* rámik úprav v obraze */
+.st-tfo { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.st-tfo[hidden] { display: none; }
+.st-tfb { position: absolute; pointer-events: auto; cursor: move; box-shadow: 0 0 0 calc(1.5px / var(--vz, 1)) var(--accent), 0 0 0 calc(3px / var(--vz, 1)) rgba(0, 0, 0, .35); transform-origin: 50% 50%; }
+.st-tfb i { position: absolute; width: calc(11px / var(--vz, 1)); height: calc(11px / var(--vz, 1)); margin: calc(-5.5px / var(--vz, 1)); border-radius: calc(3px / var(--vz, 1)); background: #fff; box-shadow: 0 0 0 calc(1.5px / var(--vz, 1)) var(--accent), 0 1px 4px rgba(0, 0, 0, .45); cursor: nwse-resize; transition: transform .2s var(--spring); }
+.st-tfb i:hover { transform: scale(1.3); }
+.st-tfb i[data-h=nw] { left: 0; top: 0; } .st-tfb i[data-h=ne] { right: 0; top: 0; cursor: nesw-resize; }
+.st-tfb i[data-h=sw] { left: 0; bottom: 0; cursor: nesw-resize; } .st-tfb i[data-h=se] { right: 0; bottom: 0; }
+.st-tfb b { position: absolute; left: 50%; top: calc(-26px / var(--vz, 1)); width: calc(12px / var(--vz, 1)); height: calc(12px / var(--vz, 1)); margin-left: calc(-6px / var(--vz, 1)); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 4px rgba(0, 0, 0, .45); cursor: grab; transition: transform .2s var(--spring); }
+.st-tfb b::after { content: ''; position: absolute; left: 50%; top: 100%; width: calc(1.5px / var(--vz, 1)); height: calc(14px / var(--vz, 1)); margin-left: calc(-.75px / var(--vz, 1)); background: var(--accent); }
+.st-tfb b:hover { transform: scale(1.25); }
+.st-tfb.busy { cursor: grabbing; }
+.st-tfbtn svg { width: 13px; height: 13px; display: block; }
+.st-tfbtn { padding: 3px 6px; }
+.st-view.z { overflow: hidden; border-radius: 8px; }
+.st-stage.fs .st-tfo, .st-stage.fs .st-vz { display: none; }
+/* dĺžka stmievania: posuvník sa plynulo vysunie pod prepínačom, keď je zapnutý */
+.st-fd { display: grid; }
+.st-fdl { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .32s var(--spring), opacity .2s var(--ease); }
+.st-fd:has(input[type=checkbox]:checked) .st-fdl { grid-template-rows: 1fr; opacity: 1; }
+.st-fdi { min-height: 0; overflow: hidden; display: flex; align-items: center; gap: 10px; padding-left: 47px; }
+.st-fdi > * { margin-top: 6px; }
+.st-fdi input[type=range] { flex: 1; min-width: 0; }
+.st-fdi .st-tc { flex: none; width: 46px; text-align: right; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* prázdny inšpektor: krátka rada navrchu, nie cez celý panel */
+.st-inote { padding: 4px 2px 2px; text-wrap: pretty; }
+/* tlačidlo grafu v hlavičke sekcie */
+.st-secg { margin-right: 2px; color: var(--muted); }
+.st-secg svg { width: 14px; height: 14px; }
+.st-secg:hover { color: var(--accent); }
+/* graf (Graph Editor) cez časovú os */
+.st-ge { position: absolute; inset: 0; z-index: 30; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--ink); box-shadow: 0 -0.5px 0 var(--line); }
+.st-ge[hidden] { display: none; }
+.st-ge.in { animation: stGeIn .38s var(--spring) both; }
+.st-ge.out { animation: stGeOut .2s var(--ease) both; pointer-events: none; }
+@keyframes stGeIn { from { opacity: 0; transform: translateY(14px); } }
+@keyframes stGeOut { to { opacity: 0; transform: translateY(10px); } }
+.st-geh { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; border-bottom: .5px solid var(--line); min-width: 0; }
+.st-get { display: inline-flex; align-items: center; gap: 7px; font: 650 13px/1 var(--body); color: var(--text); flex: none; }
+.st-get svg { width: 15px; height: 15px; color: var(--accent); }
+.st-get em { font-style: normal; font-weight: 520; color: var(--muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-gep, .st-gee { display: flex; gap: 4px; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.st-gep button, .st-gee button { flex: none; border: 0; border-radius: 8px; padding: 5px 10px; background: transparent; color: var(--muted); font: 560 12px/1 var(--body); display: inline-flex; align-items: center; gap: 6px; transition: background .15s, color .15s, transform .25s var(--spring); }
+.st-gep button:hover, .st-gee button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.st-gep button:active, .st-gee button:active:not(:disabled) { transform: scale(.94); }
+.st-gep button i { width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--c); }
+.st-gep button.anim i { background: var(--c); }
+.st-gep button.on { background: var(--fill); color: var(--text); }
+.st-gee button:disabled { opacity: .35; }
+.st-gee kbd { font-size: 10px; padding: 2px 4px; }
+.st-geb { position: relative; min-height: 0; }
+.st-gsvg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; touch-action: none; }
+.st-gsvg .gl { stroke: var(--line); stroke-width: .5; }
+.st-gsvg .gv, .st-gsvg .gt { fill: var(--muted); font: 500 10.5px var(--body); font-variant-numeric: tabular-nums; dominant-baseline: middle; }
+.st-gsvg .gv { text-anchor: end; }
+.st-gsvg .gt { text-anchor: middle; }
+.st-gsvg .go { fill: rgba(0, 0, 0, .22); }
+.st-gsvg .gc { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.st-gsvg .gh { stroke: var(--muted); stroke-width: 1; }
+.st-gsvg .gb { fill: var(--panel); stroke: var(--text); stroke-width: 1.5; cursor: grab; transition: r .2s var(--spring); }
+.st-gsvg .gb:has(+ .gx:hover) { r: 6.5; }
+.st-gsvg .gk { fill: var(--ink); stroke: var(--c); stroke-width: 2; cursor: move; transition: transform .2s var(--spring); transform-box: fill-box; transform-origin: center; }
+.st-gsvg .gk.on { fill: var(--c); stroke: #fff; }
+.st-gsvg .gph { stroke: var(--accent); stroke-width: 1.5; pointer-events: none; }
+.st-gsvg .gm { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; }
+.st-gsvg .ge0 { fill: var(--muted); font: 600 13px var(--body); text-anchor: middle; }
+.st-gsvg .ge0.sm { font-weight: 500; font-size: 12px; }
+.st-gtip { position: absolute; left: 66px; bottom: 2px; margin: 0; font: 500 11px/1.4 var(--body); color: var(--muted); opacity: .8; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 90px); }
+.st-gsvg .gx { fill: transparent; cursor: grab; }
+.st-gsvg .gx.k { cursor: move; }
+.st-gsvg .gk { pointer-events: none; }
+.st-gsvg .gk:has(+ .gx.k:hover) { transform: scale(1.25); }
+/* klávesové skratky */
+.st-keysb { width: 24px; height: 24px; border-radius: 50%; font: 650 12.5px/1 var(--body); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); margin-right: 4px; }
+.st-keysb:hover { color: var(--text); }
+.xs:has(.st-keys) { width: min(720px, calc(100% - 32px)); }
+.st-keysh { display: flex; align-items: center; justify-content: space-between; }
+.st-keysh h3 { margin: 0; font: 650 17px/1.2 var(--display); }
+.st-keys { columns: 2 280px; column-gap: 28px; }
+.st-keys section { break-inside: avoid; margin-bottom: 16px; }
+.st-keys h4 { margin: 0 0 6px; font: 600 11.5px/1 var(--body); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.st-keys div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: .5px solid var(--line); font: 500 12.5px/1.3 var(--body); }
+.st-keys div:last-child { border-bottom: 0; }
+.st-keys kbd { flex: none; }

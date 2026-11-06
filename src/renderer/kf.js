@@ -169,12 +169,14 @@ window.KF = (function () {
   /* rozdelenie položky v čase T (od jej začiatku): ľavá časť dostane keyframy pred T, pravá za T (posunuté), obe hodnotu v T */
   function split(it, T) {
     if (!anyKf(it)) return [it.kf ? {} : undefined, it.kf ? {} : undefined];
+    // obe polovice si nechajú svoje keyframy a k tomu najbližší keyframe za hranicou (mimo položky, nevidno ho),
+    // takže pohyb aj krivka v mieste strihu pokračujú presne ako predtým a nevznikne žiadny nový keyframe
     const L = {}, R = {};
     for (const [k, tr] of Object.entries(it.kf)) {
       if (!tr || !tr.length) continue;
-      const v = value(tr, T, tr[0].v), e = (tr.filter(x => x.t <= T).pop() || tr[0]).ease;
-      L[k] = tr.filter(x => x.t < T - 1e-4).map(x => ({ ...x })); L[k].push({ t: T, v, ease: e });
-      R[k] = [{ t: 0, v, ease: e }, ...tr.filter(x => x.t > T + 1e-4).map(x => ({ ...x, t: x.t - T }))];
+      const after = tr.find(x => x.t > T + 1e-4), before = tr.filter(x => x.t < T - 1e-4).pop();
+      L[k] = tr.filter(x => x.t <= T + 1e-4).map(x => ({ ...x })); if (after) L[k].push({ ...after });
+      R[k] = tr.filter(x => x.t >= T - 1e-4).map(x => ({ ...x, t: x.t - T })); if (before) R[k].unshift({ ...before, t: before.t - T });
     }
     return [L, R];
   }

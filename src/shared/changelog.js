@@ -1,6 +1,19 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.41', items: [
+      'Graf keyframov ako v After Effects (kláves G alebo ikonka krivky pri sekcii Pohyb): vidíš, ako sa hodnota mení v čase, kosoštvorce ťaháš v čase aj hodnote (so Shiftom len jedným smerom), úchytmi tvaruješ krivku, dvojklik pridá keyframe, ťahaním v prázdnom mieste vyberieš viac naraz. F9 = plynulo, Delete zmaže, Esc zavrie.',
+      'Úpravy v náhľade ako v DaVinci: prepínač pod náhľadom (kláves V). Keď je zapnutý, vybraný klip alebo text dostane rámik: ťahaním ho posunieš, rohmi zmeníš veľkosť, guličkou nad ním otočíš (so Shiftom po 15°). Keď je vypnutý, klik do obrazu len vyberie a nič sa omylom nepohne.',
+      'Priblíženie náhľadu: Ctrl + koliesko priblíži k miestu kurzora (aj oddiali), koliesko alebo prostredné tlačidlo posúva. Je to len pre teba pri úpravách, do videa sa nezapíše. Klik na percentá vráti celý obraz.',
+      'Plynulé spomalenie: pri spomalenom klipe (aj pri rampe) môžeš zapnúť dopočítanie chýbajúcich snímok, takže spomalenie nie je trhané. Prejaví sa vo výslednom videu, export takého klipu trvá dlhšie.',
+      'Dĺžka stmievania: pri roztmievaní, stmievaní, zosilnení aj stíšení nastavíš, ako dlho trvá. Klin na klipe na osi ukazuje skutočnú dĺžku.',
+      'Médiá sa dajú filtrovať podľa priečinka (ak máš klipy vo viacerých priečinkoch).',
+      'Časová os: koliesko posúva hore a dole, s Altom (alebo Shiftom) doľava a doprava.',
+      'Prehľad klávesových skratiek: kláves ? alebo tlačidlo ? v lište časovej osi.',
+      'Opravené: pri ťahaní klipu jeden z obrysov zaostával.',
+      'Opravené: rozdelenie klipu s keyframami pridávalo na začiatok novej časti keyframe navyše. Pohyb teraz po rozdelení pokračuje presne tak, ako bol.',
+      'Opravené: text „Klikni na klip, zvuk alebo text…“ v prázdnom inšpektore sa zobrazoval cez stred náhľadu.'
+    ] },
     { v: '1.0.40', items: [
       'Simple editor ukladá cez rovnaké okno ako export v advanced editore. Veľkosť (Pôvodná, Discord 20 MB…) vyberáš priamo v ňom a hneď vidíš, aká kvalita pri nej vyjde. Výber veľkosti z hornej lišty zmizol.',
       'Inšpektor v advanced editore je prerobený: prehľadné sekcie Rýchlosť, Obraz, Pohyb a Prechod a stmievanie, ktoré sa plynulo zbaľujú a rozbaľujú (a pamätajú si to). Zbalená sekcia ukáže stručný stav, napríklad „1,5×“ alebo „2 keyframy“.',

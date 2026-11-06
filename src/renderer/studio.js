@@ -31,6 +31,9 @@ window.Studio = (function () {
   const IC = {
     ioIn: '<svg viewBox="0 0 16 16"><path d="M5 2.5v11M5 2.5h4M5 13.5h4M8 8h5.5M11 5.5 13.5 8 11 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     ioOut: '<svg viewBox="0 0 16 16"><path d="M11 2.5v11M11 2.5H7M11 13.5H7M8 8H2.5M5 5.5 2.5 8 5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    tf: '<svg viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.6"/><rect x="1.8" y="1.8" width="3.4" height="3.4" rx=".8" fill="currentColor"/><rect x="10.8" y="1.8" width="3.4" height="3.4" rx=".8" fill="currentColor"/><rect x="1.8" y="10.8" width="3.4" height="3.4" rx=".8" fill="currentColor"/><rect x="10.8" y="10.8" width="3.4" height="3.4" rx=".8" fill="currentColor"/></svg>',
+    graph: '<svg viewBox="0 0 16 16"><path d="M2 13.5C5 13.5 5.5 2.5 8 2.5s3 11 6 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="2.6" r="1.6" fill="currentColor"/></svg>',
+    fitv: '<svg viewBox="0 0 16 16"><path d="M8 1.8v12.4M5.5 4.3 8 1.8l2.5 2.5M5.5 11.7 8 14.2l2.5-2.5M2.5 8h11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     chev: '<svg viewBox="0 0 16 16"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     loop: '<svg viewBox="0 0 16 16"><path d="M3 7.5V7a3 3 0 0 1 3-3h6.5M10.5 2l2 2-2 2M13 8.5V9a3 3 0 0 1-3 3H3.5M5.5 14l-2-2 2-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     x: '<svg viewBox="0 0 16 16"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
@@ -125,10 +128,13 @@ window.Studio = (function () {
   async function open(input = {}, opts = {}) {
     if (editorOpen) return;
     editorOpen = true;
+    let tfOn = false; try { tfOn = localStorage.getItem('studio.tf') === '1'; } catch (e) { }
     const lib = opts.library || (() => []);
     let P = { v: 1, name: 'Montáž', fmt: '16:9', fps: 60, lanes: [], items: [], sources: {} };
     const src = new Map();   // path → zdroj (metadáta + prehrávače)
     let kfSel = null; // vybraný keyframe { id, t }
+    let inspIt = null; // položka, ktorú ukazuje inšpektor
+    let ge = null;    // otvorený graf { it, k, sel: Set<keyframe>, vr: [min, max], drag }
     let trSel = null; // vybraný prechod = id klipu B
     let sel = new Set(), tab = 'klip', snapOn = true, t = 0, playing = false, raf = 0, clock0 = 0, t0 = 0;
     let pps = 40, W = 1920, H = 1080, exporting = false, closed = false;
@@ -164,11 +170,15 @@ window.Studio = (function () {
           <div class="st-split v" data-s="mw" title="Ťahaj pre zmenu šírky (dvojklik = pôvodná)"></div>
           <div class="st-split v r" data-s="iw" title="Ťahaj pre zmenu šírky (dvojklik = pôvodná)"></div>
           <section class="st-stage" id="stStage">
+            <div class="st-view" id="stView">
             <div class="st-frame" id="stFrame">
               <div class="st-vids" id="stVids"></div>
               <div class="st-black" id="stBlack"></div>
               <canvas class="st-txt" id="stTxt"></canvas>
               <div class="st-empty" id="stEmpty">Pretiahni sem klip z ľavého panela<br><small>alebo daj „+“ pri klipe</small></div>
+              <div class="st-tfo" id="stTfo" hidden><div class="st-tfb" id="stTfb"><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i><b data-h="rot"></b></div></div>
+            </div>
+            <button type="button" class="st-vz" id="stVz" hidden title="Priblíženie náhľadu (len pre teba, do videa sa nezapíše). Klik = celý obraz.">100 %</button>
             </div>
             <div class="st-trans">
               <span class="st-tc" id="stTime">00:00.00</span>
@@ -178,6 +188,7 @@ window.Studio = (function () {
               <span class="st-tc dim" id="stDur">00:00.00</span>
               ${UI.volCtl()}
               <button class="st-ico" id="stFs" aria-label="Celá obrazovka (F)" title="Prehrať na celú obrazovku (F)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button class="st-hq st-tfbtn${tfOn ? ' on' : ''}" id="stTf" title="Úpravy v náhľade (V): posun, veľkosť a otočenie priamo v obraze">${IC.tf}</button>
               <button class="st-hq${UI.previewFull() ? ' on' : ''}" id="stHq" title="Náhľad v plnej kvalite (inak rýchla kópia v 720p). Export je vždy v plnej kvalite.">HD</button>
             </div>
             <div class="st-fprog" id="stFprog"><i id="stFfill"></i></div>
@@ -198,6 +209,7 @@ window.Studio = (function () {
           <span class="grow"></span>
           <span class="st-load" id="stLoad" hidden></span>
           <span class="st-hint" id="stHint"></span>
+          <button class="st-ico st-keysb" id="stKeys" title="Klávesové skratky (?)" aria-label="Klávesové skratky">?</button>
           <button class="st-tool${snapOn ? ' on' : ''}" id="stSnap" title="Prichytávanie (N)">${IC.magnet}<span>Prichytávanie</span></button>
           <input type="range" id="stZoom" min="0" max="100" value="30" aria-label="Priblíženie časovej osi" title="Priblíženie (Ctrl + koliesko)">
         </div>
@@ -214,6 +226,7 @@ window.Studio = (function () {
             </div>
           </div>
           <div class="st-hbar" id="stHbar"><i></i></div>
+          <div class="st-ge" id="stGe" hidden></div>
         </div>
         <div class="st-layer" id="stLayer" hidden></div>
       </div>`;
@@ -373,6 +386,8 @@ window.Studio = (function () {
        Zvuk prepojený s videom preberá krivku videa. Z krivky sa spočíta tabuľka: čas na osi → čas zdroja. */
     const rampSrc = it => it.kind === 'audio' && it.g ? (P.items.find(x => x.g === it.g && x.kind === 'video') || it) : it;
     const ramped = it => it.kind !== 'text' && KF.animated(rampSrc(it), 'speed');
+    /* klip je niekde spomalený (pod 1×) → dá sa dopočítať medzisnímky */
+    const slowed = it => ramped(it) ? rampSrc(it).kf.speed.some(k => k.v < 0.99) : sp(it) < 0.99;
     function spAt(it, T) { const r = rampSrc(it); return clamp(KF.at(r, 'speed', T + (it.start - r.start)), 0.1, 4); }
     const RT = 1 / 120, rampCache = new WeakMap();
     function rampTable(it) {
@@ -403,6 +418,8 @@ window.Studio = (function () {
       return srcPos(it, T);
     }
     const end = it => it.start + len(it);
+    /* dĺžka roztmievania / stmievania (w = 'In' | 'Out'): nastavená, inak ako doteraz (max 0,5 s, najviac tretina položky) */
+    const fadeD = (it, w) => { const L = len(it); const d = it['fade' + w + 'D']; return d > 0 ? Math.min(d, L / 2) : Math.min(0.5, L / 3); };
     const duration = () => Math.max(0, ...P.items.map(end));
     const itemsOn = id => P.items.filter(it => it.lane === id).sort((a, b) => a.start - b.start);
     const fitMode = it => it.fit || (P.fmt === '16:9' ? 'fit' : 'cover');
@@ -669,7 +686,7 @@ window.Studio = (function () {
 
     /* ---------- médiá (knižnica) ---------- */
     /* médiá: rovnaké filtre ako pri pridávaní klipu v jednoduchom editore (text, dátum, hra, zoradenie) */
-    let mediaQ = '', mediaSort = 'new', mediaRange = null, mediaGame = '';
+    let mediaQ = '', mediaSort = 'new', mediaRange = null, mediaGame = '', mediaFolder = null; // null = všetky, '' = hlavný priečinok
     const SORT = { new: 'Najnovšie', old: 'Najstaršie', long: 'Najdlhšie', name: 'Podľa názvu' };
     const CMP = { new: (x, y) => (y.mtime || 0) - (x.mtime || 0), old: (x, y) => (x.mtime || 0) - (y.mtime || 0), long: (x, y) => (y.duration || 0) - (x.duration || 0), name: (x, y) => String(x.name).localeCompare(String(y.name), 'sk', { numeric: true }) };
     const nz = v => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -677,6 +694,7 @@ window.Studio = (function () {
       const words = nz(mediaQ).trim().split(/\s+/).filter(Boolean);
       return lib().filter(c => !/\.mkv$/i.test(c.path)).filter(c => {
         if (mediaGame && (c.game || '') !== mediaGame) return false;
+        if (mediaFolder != null && (c.folder || '') !== mediaFolder) return false;
         if (mediaRange && window.Cal && !Cal.inRange(c.mtime, mediaRange)) return false;
         if (!words.length) return true;
         const d = new Date(c.mtime || 0);
@@ -691,6 +709,7 @@ window.Studio = (function () {
           <label class="st-sq">${I.search}<input id="stMq" placeholder="Hľadať názov, hru, dátum…" spellcheck="false" autocomplete="off" aria-label="Hľadať klip"><button class="st-qx" id="stMqx" aria-label="Vymazať" hidden>${I.x}</button></label>
           <div class="st-mf">
             <button class="st-chipb" id="stMDate" type="button">${I.cal}<span>Dátum</span></button>
+            <button class="st-chipb" id="stMFolder" type="button" hidden>${I.folder}<span>Priečinok</span></button>
             <button class="st-chipb" id="stMGame" type="button"><span>Hra</span></button>
             <button class="st-chipb" id="stMSort" type="button"><span>${SORT[mediaSort]}</span></button>
           </div>
@@ -710,6 +729,11 @@ window.Studio = (function () {
           if (!window.Cal) return;
           if (e.target.closest('.dx')) { mediaRange = null; paintMedia(); return; }
           Cal.open(dBtn, { range: mediaRange, counts: () => Cal.countsOf(lib()) }, r => { mediaRange = r; paintMedia(); });
+        };
+        q('#stMFolder').onclick = e => {
+          const fs = [...new Set(lib().map(c => c.folder || ''))].filter(Boolean).sort((x, y) => x.localeCompare(y, 'sk', { numeric: true }));
+          const n = f => lib().filter(c => (c.folder || '') === f).length;
+          menu(e.currentTarget, [{ label: 'Všetky priečinky', v: null, checked: mediaFolder == null }, { sep: true }, { label: 'Hlavný priečinok', v: '', sub: String(n('')), checked: mediaFolder === '' }, ...fs.map(f => ({ label: f, v: f, sub: String(n(f)), checked: f === mediaFolder }))], it => { mediaFolder = it.v; paintMedia(); });
         };
         q('#stMGame').onclick = e => {
           const games = [...new Set(lib().map(c => c.game).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'sk'));
@@ -733,7 +757,7 @@ window.Studio = (function () {
     function paintMedia() {
       const used = new Set(P.items.map(i => i.src));
       // prekresli len keď sa niečo zmenilo (inak by náhľady blikali pri každej úprave)
-      const sig = [mediaQ, mediaSort, JSON.stringify(mediaRange), mediaGame, [...used].sort().join('|'), lib().length, [...src.values()].filter(m => m.music).length].join('§');
+      const sig = [mediaQ, mediaSort, JSON.stringify(mediaRange), mediaGame, String(mediaFolder), [...used].sort().join('|'), lib().length, [...src.values()].filter(m => m.music).length].join('§');
       if (sig === mediaSig) return; mediaSig = sig;
       const all = lib().filter(c => !/\.mkv$/i.test(c.path)).length;
       const clips = mediaList();
@@ -741,6 +765,10 @@ window.Studio = (function () {
       dBtn.classList.toggle('on', !!mediaRange);
       dBtn.innerHTML = `${I.cal}<span>${mediaRange && window.Cal ? esc(Cal.label(mediaRange)) : 'Dátum'}</span>${mediaRange ? `<i class="dx" title="Zrušiť">${I.x}</i>` : ''}`;
       const gB = q('#stMGame'); gB.classList.toggle('on', !!mediaGame); gB.querySelector('span').textContent = mediaGame || 'Hra';
+      // priečinky: len keď si si v knižnici nejaké vytvoril
+      const fB = q('#stMFolder'), hasF = lib().some(c => c.folder);
+      fB.hidden = !hasF; fB.classList.toggle('on', mediaFolder != null);
+      fB.querySelector('span').textContent = mediaFolder == null ? 'Priečinok' : mediaFolder || 'Hlavný';
       q('#stMSort span').textContent = SORT[mediaSort];
       q('#stMCount').textContent = clips.length === all ? `${all} ${all === 1 ? 'klip' : all < 5 ? 'klipy' : 'klipov'}` : `${clips.length} z ${all}`;
       q('#stMList').innerHTML = clips.slice(0, 300).map(c => `
@@ -922,16 +950,47 @@ window.Studio = (function () {
     /* ---------- náhľad ---------- */
     let fk = 1;
     function layoutFrame() {
-      const fsOn = document.fullscreenElement === stage;
-      const r = fsOn ? { w: stage.clientWidth, h: stage.clientHeight } : { w: stage.clientWidth - 32, h: stage.clientHeight - 70 };
-      if (r.w <= 0) return;
+      const view = q('#stView');
+      const fsOn = document.fullscreenElement === stage, pad = fsOn ? 0 : 20; // okraj pre úchyty rámika
+      const r = { w: view.clientWidth - pad, h: view.clientHeight - pad };
+      if (r.w <= 0 || r.h <= 0) return;
       const A = W / H;
       let fw = r.w, fh = fw / A;
       if (fh > r.h) { fh = r.h; fw = fh * A; }
       frame.style.width = fw + 'px'; frame.style.height = fh + 'px';
       fk = fw / W;
-      txtCv.width = Math.round(fw * devicePixelRatio); txtCv.height = Math.round(fh * devicePixelRatio);
+      const zr = Math.min(3, vz); // pri priblížení ostrejší text
+      txtCv.width = Math.round(fw * devicePixelRatio * zr); txtCv.height = Math.round(fh * devicePixelRatio * zr);
+      applyView();
       placeVideo(activeVideo());
+    }
+    /* ---------- priblíženie náhľadu (len zobrazenie, export sa nemení) ---------- */
+    let vz = 1, vpx = 0, vpy = 0;
+    function applyView() {
+      const view = q('#stView');
+      if (Math.abs(vz - 1) < 0.02) { vz = 1; vpx = 0; vpy = 0; }
+      else {
+        // nepúšťaj obraz úplne preč z pohľadu
+        const fw = frame.offsetWidth * vz, fh = frame.offsetHeight * vz, vw = view.clientWidth, vh = view.clientHeight;
+        const ox = frame.offsetLeft, oy = frame.offsetTop;
+        vpx = clamp(vpx, 60 - ox - fw, vw - 60 - ox);
+        vpy = clamp(vpy, 60 - oy - fh, vh - 60 - oy);
+      }
+      frame.style.transform = vz === 1 ? '' : `translate(${vpx}px,${vpy}px) scale(${vz})`;
+      frame.style.setProperty('--vz', vz);
+      view.classList.toggle('z', vz !== 1);
+      const b = q('#stVz'); b.hidden = vz === 1; b.textContent = Math.round(vz * 100) + ' %';
+      drawTf();
+    }
+    function zoomView(nz, cx, cy) {
+      nz = clamp(nz, 0.25, 8);
+      const r = frame.getBoundingClientRect();
+      const qx = (cx - r.left) / vz, qy = (cy - r.top) / vz;
+      const nl = cx - qx * nz, nt = cy - qy * nz;
+      vpx += nl - r.left; vpy += nt - r.top; vz = nz;
+      const sharp = Math.min(3, vz) !== Math.min(3, Number(frame.dataset.zr || 1));
+      frame.dataset.zr = vz;
+      if (sharp) { layoutFrame(); txtDrawn = true; drawFrame(); } else applyView();
     }
     const activeVideo = (time = t) => videoItems().filter(it => time >= it.start - 1e-4 && time < end(it) - 1e-4).sort((x, y) => layerOf(y.lane) - layerOf(x.lane))[0] || null;
 
@@ -989,9 +1048,9 @@ window.Studio = (function () {
         }
       }
       // obyčajné roztmievanie / stmievanie klipu (čierne)
-      const it = p.it, D = len(it), F2 = Math.min(0.5, D / 3), tt = time - it.start;
-      if (it.fadeIn && tt >= 0 && tt < F2) cf = { c: '#000', a: Math.max(cf && cf.c === '#000' ? cf.a : 0, 1 - tt / F2) };
-      if (it.fadeOut && tt <= D && D - tt < F2) cf = { c: '#000', a: Math.max(cf && cf.c === '#000' ? cf.a : 0, 1 - (D - tt) / F2) };
+      const it = p.it, D = len(it), Fi = fadeD(it, 'In'), Fo = fadeD(it, 'Out'), tt = time - it.start;
+      if (it.fadeIn && tt >= 0 && tt < Fi) cf = { c: '#000', a: Math.max(cf && cf.c === '#000' ? cf.a : 0, 1 - tt / Fi) };
+      if (it.fadeOut && tt <= D && D - tt < Fo) cf = { c: '#000', a: Math.max(cf && cf.c === '#000' ? cf.a : 0, 1 - (D - tt) / Fo) };
       return { a, dx, dy, sm, cf };
     }
     /* prehrávač pre vrstvu: hlavný prehrávač zdroja, alebo druhý (keď sa pri prechode stretnú dve časti toho istého klipu) */
@@ -1058,12 +1117,49 @@ window.Studio = (function () {
       const op = cf ? cf.a.toFixed(3) : '0', bg = cf ? cf.c : '#000';
       if (bl.style.opacity !== op) bl.style.opacity = op;
       if (cf && bl.style.background !== bg) bl.style.background = bg;
+      drawTf();
     }
     function placeVideo() { composeVideo(false); }
+    /* rámik úprav: čo sa upravuje (vybraný klip alebo text, ak je v tomto čase v obraze) */
+    function tfTarget() {
+      const it = inspIt && P.items.includes(inspIt) ? inspIt : null;
+      if (!it || (it.kind !== 'video' && it.kind !== 'text')) return null;
+      if (t < it.start - 1e-4 || t >= (it.kind === 'text' ? it.end : end(it)) - 1e-4) return null;
+      return it;
+    }
+    /* poloha rámika v px rámu: stred, šírka, výška, otočenie (rovnaké výpočty ako vykreslenie) */
+    function tfBox(it) {
+      const fw = W * fk, fh = H * fk, T = clamp(t - it.start, 0, it.kind === 'text' ? it.end - it.start : len(it));
+      const sc = KF.at(it, 'scale', T), r = KF.at(it, 'rot', T);
+      if (it.kind === 'text') {
+        const M = textMetrics(it, H), look = textLook(it);
+        const bw = (look.box ? M.w + M.padX * 2 : M.w) + 16, bh = (look.box ? M.h + M.padY * 2 : M.h) + 12;
+        return { cx: KF.at(it, 'x', T) * fw, cy: KF.at(it, 'y', T) * fh, w: bw * sc * fk, h: bh * sc * fk, r };
+      }
+      const s = src.get(it.src); if (!s) return null;
+      const zz = clamp(it.zoom || 1, 1, 4), sw0 = s.width || 1920, sh0 = s.height || 1080;
+      const k = fitMode(it) === 'cover' ? Math.max(fw * zz / sw0, fh * zz / sh0) : Math.min(fw * zz / sw0, fh * zz / sh0);
+      const sw = sw0 * k, sh = sh0 * k, cw = Math.min(sw, fw), ch = Math.min(sh, fh);
+      const x = (fw - cw) / 2 - (sw - cw) * (it.cx ?? 0.5), y = (fh - ch) / 2 - (sh - ch) * (it.cy ?? 0.5);
+      // stred zdroja → priblíženie a otočenie okolo stredu rámu → posun
+      const ex = x + sw / 2 - fw / 2, ey = y + sh / 2 - fh / 2, a = r * Math.PI / 180;
+      const rx = (ex * Math.cos(a) - ey * Math.sin(a)) * sc, ry = (ex * Math.sin(a) + ey * Math.cos(a)) * sc;
+      return { cx: fw / 2 + rx + KF.at(it, 'x', T) * fw, cy: fh / 2 + ry + KF.at(it, 'y', T) * fh, w: sw * sc, h: sh * sc, r };
+    }
+    function drawTf() {
+      const o = q('#stTfo'); if (!o) return;
+      const it = tfOn && !playing ? tfTarget() : null, b = it && tfBox(it);
+      if (!b) { if (!o.hidden) o.hidden = true; return; }
+      o.hidden = false;
+      const bx = q('#stTfb');
+      Object.assign(bx.style, { left: b.cx - b.w / 2 + 'px', top: b.cy - b.h / 2 + 'px', width: b.w + 'px', height: b.h + 'px', transform: `rotate(${b.r}deg)` });
+      bx.classList.toggle('text', it.kind === 'text');
+    }
     function applyMotion() { composeVideo(false); }
     let txtDrawn = false;
     function drawFrame() {
       const anyText = P.items.some(it => it.kind === 'text' && t >= it.start && t < it.end);
+      drawTf();
       if (!anyText && !txtDrawn) return; // nič na kreslenie → plátno netreba čistiť každú snímku
       txtDrawn = anyText;
       const g = txtCv.getContext('2d');
@@ -1078,7 +1174,7 @@ window.Studio = (function () {
         const cx = KF.at(it, 'x', T) * W, cy = KF.at(it, 'y', T) * H + a.dy;
         g.save(); g.globalAlpha = a.op; g.translate(cx, cy); g.rotate(kr * Math.PI / 180); g.scale(a.sc * ks, a.sc * ks);
         const M = drawText(g, it, 0, 0, H);
-        if (sel.has(it.id) && !playing) {
+        if (sel.has(it.id) && !playing && !tfOn) {
           const bw = (textLook(it).box ? M.w + M.padX * 2 : M.w) + 16, bh = (textLook(it).box ? M.h + M.padY * 2 : M.h) + 12;
           g.strokeStyle = '#ff9f0a'; g.lineWidth = 2 / k / ks; g.setLineDash([6 / k / ks, 4 / k / ks]); g.strokeRect(-bw / 2, -bh / 2, bw, bh);
         }
@@ -1102,10 +1198,10 @@ window.Studio = (function () {
         const l = lane(it.lane); if (!audible(l)) continue;
         const s = src.get(it.src); if (!s) continue;
         const a = s.audio.get(it.ti); if (!a) continue;
-        const D = len(it), F2 = Math.min(0.5, D / 3), tt = t - it.start;
+        const D = len(it), Fi = fadeD(it, 'In'), Fo = fadeD(it, 'Out'), tt = t - it.start;
         let fade = 1;
-        if (it.fadeIn && tt < F2) fade *= tt / F2;
-        if (it.fadeOut && D - tt < F2) fade *= (D - tt) / F2;
+        if (it.fadeIn && tt < Fi) fade *= tt / Fi;
+        if (it.fadeOut && D - tt < Fo) fade *= (D - tt) / Fo;
         want.set(a, { pos: srcPos(it, tt), rate: spAt(it, tt), vol: clamp((l.vol ?? 1) * KF.at(it, 'vol', tt) * fade, 0, 1) });
       }
       for (const s of src.values()) for (const a of s.audio.values()) {
@@ -1168,6 +1264,7 @@ window.Studio = (function () {
       const x = t * pps;
       headEl.style.transform = `translate3d(${x}px,0,0)`;
       const txt = tc(t); if (timeEl.textContent !== txt) timeEl.textContent = txt;
+      if (ge) geHead();
       if (fsFill && document.fullscreenElement === stage) { const dd = duration(); fsFill.style.width = (dd ? Math.min(100, t / dd * 100) : 0) + '%'; }
       if (follow) {
         const vw = scroll.clientWidth;
@@ -1390,7 +1487,7 @@ window.Studio = (function () {
     function blockHtml(b) {
       const it = b.items[0], x = b.start * pps, w = Math.max(3, (b.end - b.start) * pps);
       const off = it.src && offline.has(it.src), on = b.items.some(i => sel.has(i.id));
-      const fades = `${it.fadeIn ? '<i class="fi"></i>' : ''}${it.fadeOut ? '<i class="fo"></i>' : ''}`;
+      const fades = `${it.fadeIn ? `<i class="fi" style="width:${Math.max(6, fadeD(it, 'In') * pps)}px"></i>` : ''}${it.fadeOut ? `<i class="fo" style="width:${Math.max(6, fadeD(it, 'Out') * pps)}px"></i>` : ''}`;
       const names = b.items.map(i => (lane(i.lane) || {}).name).filter(Boolean).join(', ');
       return `<div class="st-item audio blk${on ? ' sel' : ''}${off ? ' offline' : ''}" data-id="${it.id}" data-blk="${b.items.map(i => i.id).join(',')}" style="left:${x}px;width:${w}px" title="${esc(names)} · Alt + klik = len zvuk, dvojklik na hlavičku = rozbaliť">${fades}<span class="st-il">${off ? 'Chýba' : ''}</span><b class="st-e l"></b><b class="st-e r"></b></div>`;
     }
@@ -1402,8 +1499,8 @@ window.Studio = (function () {
       if (it.kind === 'video') label = (off ? 'Chýba: ' : '') + srcName(it.src) + (ramped(it) ? ' · speed ramp' : sp(it) !== 1 ? ` · ${String(sp(it)).replace('.', ',')}×` : '');
       else if (it.kind === 'audio') label = off ? 'Chýba' : l && l.music ? srcName(it.src) || 'Hudba' : '';
       else label = String(it.text || '').replace(/\n/g, ' ') || 'Text';
-      const fades = `${it.fadeIn ? '<i class="fi"></i>' : ''}${it.fadeOut ? '<i class="fo"></i>' : ''}`;
-      const kfs = KF.times(it).map(T => `<i class="st-kfd${kfSel && kfSel.id === it.id && Math.abs(kfSel.t - T) < 1 / 120 ? ' on' : ''}" data-kt="${T}" style="left:${T * pps}px" title="Keyframe ${tc(it.start + T)} · ťahaj pre posun, klik = skok"></i>`).join('');
+      const fades = `${it.fadeIn ? `<i class="fi" style="width:${Math.max(6, fadeD(it, 'In') * pps)}px"></i>` : ''}${it.fadeOut ? `<i class="fo" style="width:${Math.max(6, fadeD(it, 'Out') * pps)}px"></i>` : ''}`;
+      const kfs = kTimes(it).map(T => `<i class="st-kfd${kfSel && kfSel.id === it.id && Math.abs(kfSel.t - T) < 1 / 120 ? ' on' : ''}" data-kt="${T}" style="left:${T * pps}px" title="Keyframe ${tc(it.start + T)} · ťahaj pre posun, klik = skok"></i>`).join('');
       const ld = loadingIds.has(it.id);
       if (ld) label = srcName(it.src);
       return `<div class="st-item ${it.kind}${sel.has(it.id) ? ' sel' : ''}${kfs ? ' haskf' : ''}${off ? ' offline' : ''}${ld ? ' loading' : ''}" data-id="${it.id}" style="left:${x}px;width:${w}px"${off ? ` title="Súbor sa nedá otvoriť: ${esc(it.src)}"` : ''}>${fades}<span class="st-il">${esc(label)}</span>${kfs}<b class="st-e l"></b><b class="st-e r"></b></div>`;
@@ -1434,7 +1531,7 @@ window.Studio = (function () {
       const step = () => {
         if (!glide || closed) return;
         const p = Math.min(1, (performance.now() - glide.t0) / glide.D);
-        for (const [id, b] of glide.from) { const it = P.items.find(i => i.id === id); const n = lanesEl.querySelector(`[data-id="${id}"]`); if (it && n) n.style.left = dispStart(it) * pps + 'px'; }
+        for (const [id, b] of glide.from) { const it = P.items.find(i => i.id === id); if (it) nodesOf(id).forEach(n => { if (!n.dataset.blk) n.style.left = dispStart(it) * pps + 'px'; }); }
         drawLanes();
         if (p < 1) requestAnimationFrame(step); else { glide = null; drawLanes(); }
       };
@@ -1536,6 +1633,22 @@ window.Studio = (function () {
         g.restore();
       }
     }
+    /* polohy uzlov položiek počas ťahania: samotné položky aj bloky zbaleného zvuku (rozsah všetkých ich stôp) */
+    function placeNodes(moving) {
+      const ids = new Set([...moving].map(m => m.id));
+      for (const n of lanesEl.querySelectorAll('.st-item[data-id]')) {
+        if (n.dataset.blk) {
+          const its = n.dataset.blk.split(',').map(id => P.items.find(i => i.id === id)).filter(Boolean);
+          if (!its.some(i => ids.has(i.id))) continue;
+          const a = Math.min(...its.map(i => i.start)), b = Math.max(...its.map(end));
+          n.style.left = a * pps + 'px'; n.style.width = Math.max(3, (b - a) * pps) + 'px';
+        } else if (ids.has(n.dataset.id)) {
+          const m = P.items.find(i => i.id === n.dataset.id); if (!m) continue;
+          n.style.left = m.start * pps + 'px'; n.style.width = Math.max(3, len(m) * pps) + 'px';
+        }
+      }
+    }
+    const nodesOf = id => lanesEl.querySelectorAll(`[data-id="${id}"]`);
     function flashItem(id) { const el = lanesEl.querySelector(`[data-id="${id}"]`); if (el) { el.classList.add('land'); setTimeout(() => el.classList.remove('land'), 600); } }
 
     /* ---------- ťahanie položiek (presun, orez) ---------- */
@@ -1628,7 +1741,7 @@ window.Studio = (function () {
       let tgt = null;
       const laneAtY = y => { for (const el of lanesEl.children) { const r = el.getBoundingClientRect(); if (y >= r.top - 2 && y < r.bottom + 2) return lane(el.dataset.lane); } return null; };
       let insertAt = null;
-      if (reorder) for (const m of moving) { const n = lanesEl.querySelector(`[data-id="${m.id}"]`); if (n) n.classList.add('dragging'); }
+      if (reorder) for (const m of moving) nodesOf(m.id).forEach(n => n.classList.add('dragging'));
       const move = ev => {
         const dt = (ev.clientX - x0) / pps;
         if (!changed && Math.abs(ev.clientX - x0) < 3) return;
@@ -1639,7 +1752,7 @@ window.Studio = (function () {
             tgt = nt;
             for (const m of vertMovers) m.lane = tgt || origLane;
             renderTimeline();
-            for (const m of moving) { const n = lanesEl.querySelector(`[data-id="${m.id}"]`); if (n) n.classList.add('dragging'); }
+            for (const m of moving) nodesOf(m.id).forEach(n => n.classList.add('dragging'));
             if (tgt) { const le = lanesEl.querySelector(`.st-lane[data-lane="${CSS.escape(tgt)}"]`); if (le) le.classList.add('tgt'); }
           }
         }
@@ -1704,8 +1817,8 @@ window.Studio = (function () {
             }
           }
         }
-        // rýchly prekreslenie: len pozície prvkov
-        for (const m of moving) { const n = lanesEl.querySelector(`[data-id="${m.id}"]`); if (n) { n.style.left = m.start * pps + 'px'; n.style.width = Math.max(3, len(m) * pps) + 'px'; } }
+        // rýchle prekreslenie: len pozície prvkov (položka môže byť na osi dvakrát: v rozbalenej stope aj v zbalenom bloku)
+        placeNodes(moving);
         requestDraw();
         if (!playing) { syncMedia(true); drawFrame(); }
       };
@@ -1809,7 +1922,7 @@ window.Studio = (function () {
     });
     q('#stHeads').addEventListener('pointerdown', e => { if (e.button === 0 && !e.target.closest('button, .st-lh')) clearSel(); });
     stage.addEventListener('pointerdown', e => {
-      if (e.button !== 0 || document.fullscreenElement === stage || e.target.closest('#stFrame, .st-trans, .st-fprog')) return;
+      if (e.button !== 0 || document.fullscreenElement === stage || e.target.closest('#stFrame, .st-trans, .st-fprog, .st-vz')) return;
       clearSel();
     });
     q('#stHead').addEventListener('pointerdown', e => { if (e.button === 0) scrub(e); });
@@ -1837,9 +1950,10 @@ window.Studio = (function () {
 
     scroll.addEventListener('wheel', e => {
       if (e.ctrlKey) { e.preventDefault(); const z = Number(q('#stZoom').value) - Math.sign(e.deltaY) * 6; q('#stZoom').value = String(clamp(z, 0, 100)); fillRange(q('#stZoom')); setZoom(clamp(z, 0, 100), e.clientX - scroll.getBoundingClientRect().left); return; }
-      // koliesko = posun v čase (Shift = hore/dole medzi stopami)
-      if (e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX)) return;
-      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      // koliesko = hore/dole medzi stopami; Alt (alebo Shift, alebo bočný posun touchpadu) = do strán v čase
+      const side = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      if (!e.altKey && !e.shiftKey && !side) return; // zvislý posun nechá prehliadač (plynulý)
+      const d = side ? e.deltaX : e.deltaY;
       if (!d) return;
       e.preventDefault();
       setSX(sx + d * (e.deltaMode === 1 ? 30 : 1), true);
@@ -2166,10 +2280,12 @@ window.Studio = (function () {
 
     /* ---------- keyframy v inšpektore ---------- */
     const itT = it => clamp(t - it.start, 0, len(it));
+    /* časy keyframov, ktoré sú v položke (mimo nej môžu byť susedné keyframy z rozdelenia — tie sa neukazujú) */
+    const kTimes = it => { const L = len(it); return KF.times(it).filter(x => x >= -1e-4 && x <= L + 1e-4); };
     // čas keyframu, s ktorým sa pracuje: vybraný na osi, inak ten pod prehrávacou hlavou
     function curKeyT(it) {
       if (kfSel && kfSel.id === it.id) return kfSel.t;
-      const T = itT(it); const k = KF.times(it).find(x => Math.abs(x - T) < 1 / 60); return k != null ? k : null;
+      const T = itT(it); const k = kTimes(it).find(x => Math.abs(x - T) < 1 / 60); return k != null ? k : null;
     }
     /* riadky vlastností: názov · hodnota · kosoštvorec (prázdny = bez animácie, obrys = animované, plný = keyframe na hlave) */
     function propRows(it, keys) {
@@ -2186,7 +2302,7 @@ window.Studio = (function () {
     /* pás keyframov: celá dĺžka položky, kosoštvorce, prehrávacia hlava; klik = skok, ťahanie kosoštvorca = posun */
     function kfStrip(it, keys) {
       const L = len(it) || 1, T = itT(it), kt = curKeyT(it);
-      const times = [...new Set(keys.flatMap(k => (it.kf && it.kf[k] || []).map(x => Math.round(x.t * 1000))))].map(x => x / 1000).sort((a, b) => a - b);
+      const times = [...new Set(keys.flatMap(k => (it.kf && it.kf[k] || []).map(x => Math.round(x.t * 1000))))].map(x => x / 1000).filter(x => x >= -1e-4 && x <= L + 1e-4).sort((a, b) => a - b);
       const prev = times.filter(x => x < T - 1 / 120).pop(), next = times.find(x => x > T + 1 / 120);
       return `<div class="st-kst">
           <button type="button" class="st-ico sm" data-kn="prev" ${prev == null ? 'disabled' : ''} title="Predošlý keyframe" aria-label="Predošlý keyframe">${IC.kprev}</button>
@@ -2198,7 +2314,7 @@ window.Studio = (function () {
     function curveFor(it) {
       const kt = curKeyT(it), times = KF.times(it);
       const idx = kt == null ? -1 : times.findIndex(x => Math.abs(x - kt) < 1 / 120);
-      if (idx < 0 || idx >= times.length - 1) return '';
+      if (idx < 0 || idx >= times.length - 1 || times[idx + 1] > len(it) + 1e-4) return '';
       const k0 = Object.values(it.kf || {}).map(tr => tr.find(x => Math.abs(x.t - kt) < 1 / 120)).find(Boolean) || {};
       return curveHtml(k0);
     }
@@ -2212,7 +2328,8 @@ window.Studio = (function () {
         ${curveFor(it)}
         ${n ? '' : `<p class="st-note sm st-ktip">${emptyTip}</p>`}`;
     }
-    const kfCount = (it, keys) => { const n = new Set(keys.flatMap(k => (it.kf && it.kf[k] || []).map(x => Math.round(x.t * 1000)))).size; return n ? `${n} ${n === 1 ? 'keyframe' : n < 5 ? 'keyframy' : 'keyframov'}` : 'bez animácie'; };
+    const kfCount = (it, keys) => { const L = len(it); const n = new Set(keys.flatMap(k => (it.kf && it.kf[k] || []).filter(x => x.t >= -1e-4 && x.t <= L + 1e-4).map(x => Math.round(x.t * 1000)))).size; return n ? `${n} ${n === 1 ? 'keyframe' : n < 5 ? 'keyframy' : 'keyframov'}` : 'bez animácie'; };
+    const graphBtn = keys => `<button type="button" class="st-ico sm st-secg" data-graph="${keys.join(',')}" title="Graf (G): krivky pohybu ako v After Effects" aria-label="Graf">${IC.graph}</button>`;
     const clearBtn = (it, keys) => keys.some(k => KF.animated(it, k)) ? `<button type="button" class="st-ico sm st-secx" data-kclear="${keys.join(',')}" title="Zrušiť animáciu" aria-label="Zrušiť animáciu">${IC.x}</button>` : '';
     function curveHtml(k) {
       const bz = KF.curveOf(k), hold = k.ease === 'hold';
@@ -2263,6 +2380,7 @@ window.Studio = (function () {
         if (b.dataset.kn === 'next') { const x = times.find(v => v > Tn + 1 / 120); if (x != null) { kfSel = { id: it.id, t: x }; seek(it.start + x, false); } }
         renderTimeline(); renderInsp(); syncMedia(true); txtDrawn = true; drawFrame();
       });
+      $$('[data-graph]', el).forEach(b => b.onclick = e => { e.stopPropagation(); const ks = b.dataset.graph.split(','); openGraph(it, ks.find(x => KF.animated(it, x)) || ks[0]); });
       $$('[data-kclear]', el).forEach(b => b.onclick = e => {
         e.stopPropagation();
         const Tn = T(), oe = end(it);
@@ -2318,7 +2436,6 @@ window.Studio = (function () {
       }
     }
     /* počas ťahania v náhľade aktualizuj hodnoty bez prekreslenia (položka, ktorú inšpektor ukazuje) */
-    let inspIt = null;
     function liveMotion() {
       const it = inspIt && P.items.includes(inspIt) ? inspIt : null; if (!it) return;
       const el = q('#stInsp'), T = itT(it);
@@ -2330,6 +2447,276 @@ window.Studio = (function () {
       const sh = el.querySelector('.st-ksh'); if (sh) sh.style.left = T / (len(it) || 1) * 100 + '%';
     }
 
+    /* ---------- graf (ako Graph Editor v After Effects) ----------
+       Hodnota jednej vlastnosti v čase. Kosoštvorce (keyframy) sa ťahajú v čase aj hodnote, úchyty menia
+       krivku úseku, dvojklik pridá keyframe, ťahaním v prázdnom mieste sa vyberie viac keyframov naraz. */
+    const GE_COL = { scale: '#ff9f0a', x: '#ff6961', y: '#30d158', rot: '#64d2ff', speed: '#bf5af2', vol: '#ffd60a' };
+    const geEl = () => q('#stGe');
+    const geLen = it => ge && ge.drag ? ge.drag.L : Math.max(0.05, len(it));
+    const geTrack = () => (ge.it.kf && ge.it.kf[ge.k]) || [];
+    const geProp = () => KF.propsOf(ge.it).find(p => p.k === ge.k);
+    function openGraph(it, k) {
+      if (!it || !KF.propsOf(it).length) return;
+      const props = KF.propsOf(it).map(p => p.k);
+      const pick = props.includes(k) ? k : props.find(x => KF.animated(it, x)) || props[0];
+      const el = geEl(), was = ge && !el.hidden;
+      ge = { it, k: pick, sel: new Set(), vr: null };
+      const kt = curKeyT(it);
+      if (kt != null) { const kk = geTrack().find(x => Math.abs(x.t - kt) < 1 / 120); if (kk) ge.sel.add(kk); }
+      el.classList.remove('out'); el.hidden = false;
+      if (!was) { el.classList.remove('in'); void el.offsetWidth; el.classList.add('in'); }
+      geRender(true);
+    }
+    function closeGraph() {
+      if (!ge) return;
+      ge = null;
+      const el = geEl(); el.classList.add('out');
+      setTimeout(() => { if (!ge) { el.hidden = true; el.classList.remove('out', 'in'); el.innerHTML = ''; } }, 200);
+    }
+    /* po zmene projektu (späť, iný výber) sa graf napojí na aktuálnu položku alebo zavrie */
+    function geSync() {
+      if (!ge || ge.drag) return;
+      if (!P.items.includes(ge.it)) { const n = P.items.find(i => i.id === ge.it.id); if (!n) { closeGraph(); return; } ge.it = n; ge.sel.clear(); }
+      geRender(false);
+    }
+    /* pekné delenie osi */
+    function niceTicks(lo, hi, n) {
+      const span = hi - lo; if (!(span > 0)) return [lo];
+      const raw = span / n, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p;
+      const st = (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p, out = [];
+      for (let v = Math.ceil(lo / st) * st; v <= hi + st * 1e-6; v += st) out.push(+v.toFixed(10));
+      return out;
+    }
+    const segBz = k => KF.curveOf(k).slice();
+    function setSeg(k, bz) {
+      const hit = Object.entries(KF.EASES).find(([, e]) => e.bz && e.bz.every((v, j) => Math.abs(v - bz[j]) < 2e-3));
+      if (hit) { k.ease = hit[0]; delete k.bz; } else { k.ease = 'custom'; k.bz = bz.map(v => +v.toFixed(3)); }
+    }
+    /* body úseku a → b ako Bézierova krivka v grafe (čas, hodnota) */
+    const segPts = (a, b) => { const bz = segBz(a), dt = b.t - a.t, dv = b.v - a.v; return [[a.t + bz[0] * dt, a.v + bz[1] * dv], [a.t + bz[2] * dt, a.v + bz[3] * dv]]; };
+    function geGeom(refit) {
+      const svg = geEl().querySelector('.st-gsvg'), W0 = svg.clientWidth || 600, H0 = svg.clientHeight || 200;
+      const it = ge.it, L = geLen(it), p = geProp(), tr = geTrack();
+      const ml = 58, mr = 20, mt = 28, mb = 18, pad = L * 0.025, t0 = -pad, t1 = L + pad;
+      if (refit || !ge.vr) {
+        const vals = [];
+        const N = 160; for (let i = 0; i <= N; i++) vals.push(KF.at(it, ge.k, i / N * L));
+        for (let i = 0; i < tr.length; i++) { vals.push(tr[i].v); if (i < tr.length - 1 && tr[i].ease !== 'hold') for (const q2 of segPts(tr[i], tr[i + 1])) vals.push(q2[1]); }
+        let lo = Math.min(...vals), hi = Math.max(...vals);
+        if (hi - lo < 1e-9) { const d = Math.max((p.max - p.min) * 0.05, Math.abs(lo) * 0.15, p.step * 10); lo -= d; hi += d; }
+        const m = (hi - lo) * 0.14; ge.vr = [lo - m, hi + m];
+      }
+      const [v0, v1] = ge.vr, w = W0 - ml - mr, h = H0 - mt - mb;
+      return {
+        W0, H0, ml, mr, mt, mb, L, t0, t1, v0, v1,
+        X: T => ml + (T - t0) / (t1 - t0) * w, T: x => t0 + (x - ml) / w * (t1 - t0),
+        Y: v => mt + (1 - (v - v0) / (v1 - v0)) * h, V: y => v0 + (1 - (y - mt) / h) * (v1 - v0)
+      };
+    }
+    const fmtS = s => (Math.round(s * 100) / 100).toString().replace('.', ',') + ' s';
+    function geRender(refit) {
+      if (!ge) return;
+      const el = geEl(), it = ge.it, props = KF.propsOf(it), p = geProp();
+      if (!p) { closeGraph(); return; }
+      if (!el.querySelector('.st-gsvg')) {
+        el.innerHTML = `<div class="st-geh">
+            <span class="st-get">${IC.graph}<b>Graf</b><em data-g="name"></em></span>
+            <div class="st-gep" data-g="props"></div>
+            <span class="grow"></span>
+            <div class="st-gee" data-g="eases">
+              <button type="button" data-ge="linear" title="Rovnomerne cez vybrané keyframy">Lineárne</button>
+              <button type="button" data-ge="easy" title="Plynulo do keyframu aj z neho (F9)">Plynulo <kbd>F9</kbd></button>
+              <button type="button" data-ge="in" title="Pred keyframom spomalí (Shift+F9)">Dobeh</button>
+              <button type="button" data-ge="out" title="Za keyframom sa pomaly rozbehne (Ctrl+Shift+F9)">Rozbeh</button>
+              <button type="button" data-ge="hold" title="Hodnota ostane až po ďalší keyframe, potom skočí">Skok</button>
+            </div>
+            <button type="button" class="st-ico sm" data-g="fit" title="Prispôsobiť výšku grafu" aria-label="Prispôsobiť">${IC.fitv}</button>
+            <button type="button" class="st-ico sm" data-g="x" title="Zavrieť graf (Esc / G)" aria-label="Zavrieť graf">${IC.x}</button>
+          </div>
+          <div class="st-geb"><svg class="st-gsvg"></svg><p class="st-gtip">Ťahaj kosoštvorce (Shift = len jedným smerom) · úchyty menia krivku · dvojklik pridá keyframe · Delete zmaže</p></div>`;
+        geBind(el);
+      }
+      el.querySelector('[data-g=name]').textContent = it.kind === 'text' ? String(it.text || 'Text').split('\n')[0].slice(0, 28) : String(it.name || (it.src || '').split(/[\\/]/).pop() || '').slice(0, 28);
+      const pe = el.querySelector('[data-g=props]');
+      const ph = props.map(x => `<button type="button" class="${x.k === ge.k ? 'on' : ''}${KF.animated(it, x.k) ? ' anim' : ''}" data-gk="${x.k}" style="--c:${GE_COL[x.k] || '#ff9f0a'}"><i></i>${x.l}</button>`).join('');
+      if (pe._h !== ph) { pe.innerHTML = ph; pe._h = ph; }
+      const tr = geTrack();
+      for (const s of [...ge.sel]) if (!tr.includes(s)) ge.sel.delete(s);
+      $$('[data-ge]', el).forEach(b => b.disabled = !ge.sel.size || tr.length < 2);
+      const G = geGeom(refit), c = GE_COL[ge.k] || '#ff9f0a';
+      let s = '';
+      // mriežka: hodnoty vľavo, čas hore
+      for (const v of niceTicks(G.v0, G.v1, Math.max(2, Math.round((G.H0 - G.mt - G.mb) / 46)))) {
+        const y = G.Y(v).toFixed(1); s += `<line class="gl" x1="${G.ml}" x2="${G.W0 - G.mr}" y1="${y}" y2="${y}"/><text class="gv" x="${G.ml - 8}" y="${y}">${esc(p.fmt(v))}</text>`;
+      }
+      for (const T of niceTicks(0, G.L, Math.max(2, Math.round((G.W0 - G.ml - G.mr) / 90)))) {
+        const x = G.X(T).toFixed(1); s += `<line class="gl" x1="${x}" x2="${x}" y1="${G.mt}" y2="${G.H0 - G.mb}"/><text class="gt" x="${x}" y="${G.mt - 10}">${fmtS(T)}</text>`;
+      }
+      // mimo položky
+      s += `<rect class="go" x="${G.ml}" y="${G.mt}" width="${Math.max(0, G.X(0) - G.ml)}" height="${G.H0 - G.mt - G.mb}"/><rect class="go" x="${G.X(G.L)}" y="${G.mt}" width="${Math.max(0, G.W0 - G.mr - G.X(G.L))}" height="${G.H0 - G.mt - G.mb}"/>`;
+      // krivka (rovnaký výpočet ako náhľad a export)
+      const n = Math.max(40, Math.round((G.X(G.L) - G.X(0)) / 2));
+      let d = ''; for (let i = 0; i <= n; i++) { const T = i / n * G.L; d += `${i ? 'L' : 'M'}${G.X(T).toFixed(1)},${G.Y(KF.at(it, ge.k, T)).toFixed(1)}`; }
+      s += `<path class="gc" d="${d}" style="stroke:${c}"/>`;
+      // úchyty vybraných keyframov
+      tr.forEach((k, i) => {
+        if (!ge.sel.has(k)) return;
+        const kx = G.X(k.t), ky = G.Y(k.v);
+        if (i < tr.length - 1 && k.ease !== 'hold') { const [p1] = segPts(k, tr[i + 1]); s += `<line class="gh" x1="${kx}" y1="${ky}" x2="${G.X(p1[0])}" y2="${G.Y(p1[1])}"/><circle class="gb" data-hh="${i}:o" cx="${G.X(p1[0])}" cy="${G.Y(p1[1])}" r="5"/><circle class="gx" data-hh="${i}:o" cx="${G.X(p1[0])}" cy="${G.Y(p1[1])}" r="10"/>`; }
+        if (i > 0 && tr[i - 1].ease !== 'hold') { const [, p2] = segPts(tr[i - 1], k); s += `<line class="gh" x1="${kx}" y1="${ky}" x2="${G.X(p2[0])}" y2="${G.Y(p2[1])}"/><circle class="gb" data-hh="${i}:i" cx="${G.X(p2[0])}" cy="${G.Y(p2[1])}" r="5"/><circle class="gx" data-hh="${i}:i" cx="${G.X(p2[0])}" cy="${G.Y(p2[1])}" r="10"/>`; }
+      });
+      tr.forEach((k, i) => {
+        const x = G.X(k.t), y = G.Y(k.v), on = ge.sel.has(k);
+        s += `<path class="gk${on ? ' on' : ''}" data-i="${i}" d="M${x - 6},${y}L${x},${y - 6}L${x + 6},${y}L${x},${y + 6}Z" style="--c:${c}"><title>${fmtS(k.t)} · ${esc(p.fmt(k.v))}</title></path><circle class="gx k" data-i="${i}" cx="${x}" cy="${y}" r="10"><title>${fmtS(k.t)} · ${esc(p.fmt(k.v))}</title></circle>`;
+      });
+      if (!tr.length) s += `<text class="ge0" x="${(G.ml + G.W0 - G.mr) / 2}" y="${(G.mt + G.H0 - G.mb) / 2 - 12}">${esc(p.l)} sa zatiaľ nemení</text><text class="ge0 sm" x="${(G.ml + G.W0 - G.mr) / 2}" y="${(G.mt + G.H0 - G.mb) / 2 + 10}">Dvojklikom do grafu pridáš prvý keyframe</text>`;
+      const hx = G.X(clamp(t - it.start, -1e9, 1e9));
+      s += `<line class="gph" data-g="ph" x1="${hx}" x2="${hx}" y1="${G.mt - 4}" y2="${G.H0 - G.mb}"/>`;
+      if (ge.box) { const b = ge.box; s += `<rect class="gm" x="${Math.min(b.x0, b.x1)}" y="${Math.min(b.y0, b.y1)}" width="${Math.abs(b.x1 - b.x0)}" height="${Math.abs(b.y1 - b.y0)}"/>`; }
+      const svg = el.querySelector('.st-gsvg');
+      svg.setAttribute('viewBox', `0 0 ${G.W0} ${G.H0}`);
+      svg.innerHTML = s;
+    }
+    function geHead() {
+      if (!ge) return;
+      const ph = geEl().querySelector('[data-g=ph]'); if (!ph) return;
+      const G = geGeom(false), x = G.X(t - ge.it.start);
+      ph.setAttribute('x1', x); ph.setAttribute('x2', x);
+    }
+    /* po zmene hodnôt: náhľad, hodnoty v inšpektore */
+    function geLive() { if (!playing) { syncMedia(false); txtDrawn = true; drawFrame(); } liveMotion(); }
+    function geDone(oe) {
+      const tr = geTrack(); tr.sort((a, b) => a.t - b.t);
+      if (ge.k === 'speed' && oe != null) afterLenChange(ge.it, oe);
+      commit(); renderTimeline(); renderInsp(); syncMedia(true); txtDrawn = true; drawFrame();
+      geRender(true);
+    }
+    /* plynulosť na vybraných keyframoch (obe strany keyframu ako v AE) */
+    function geEase(mode) {
+      if (!ge) return;
+      const tr = geTrack(), oe = end(ge.it); let n = 0;
+      tr.forEach((k, i) => {
+        if (!ge.sel.has(k)) return;
+        const out = i < tr.length - 1 ? k : null, inn = i > 0 ? tr[i - 1] : null;
+        const half = (seg, j, xy) => { if (!seg) return; const bz = seg.ease === 'hold' ? [0, 0, 1, 1] : segBz(seg); bz[j] = xy[0]; bz[j + 1] = xy[1]; setSeg(seg, bz); n++; };
+        if (mode === 'hold') { if (out) { out.ease = 'hold'; delete out.bz; n++; } return; }
+        if (mode === 'linear') { half(out, 0, [0, 0]); half(inn, 2, [1, 1]); }
+        if (mode === 'easy') { half(out, 0, [0.42, 0]); half(inn, 2, [0.58, 1]); }
+        if (mode === 'in') half(inn, 2, [0.58, 1]);
+        if (mode === 'out') half(out, 0, [0.42, 0]);
+      });
+      if (!n) { hint('Vyber keyframy, medzi ktorými je pohyb'); return; }
+      geDone(oe);
+      hint({ linear: 'Lineárne', easy: 'Plynulo', in: 'Dobeh pred keyframom', out: 'Rozbeh za keyframom', hold: 'Skok' }[mode]);
+    }
+    function geDelete() {
+      if (!ge || !ge.sel.size) return false;
+      const oe = end(ge.it), tr = geTrack();
+      for (const k of [...ge.sel]) KF.removeKey(ge.it, ge.k, k.t);
+      ge.sel.clear();
+      if (!(ge.it.kf && ge.it.kf[ge.k] && ge.it.kf[ge.k].length)) { /* posledný preč → vlastnosť ostane na hodnote */ }
+      geDone(oe); hint(tr.length > 1 ? 'Keyframy odstránené' : 'Keyframe odstránený');
+      return true;
+    }
+    function geBind(el) {
+      if (!el._gb) el._gb = true, el.addEventListener('click', e => {
+        const b = e.target.closest('button'); if (!b || !ge) return;
+        if (b.dataset.gk) { ge.k = b.dataset.gk; ge.sel.clear(); ge.vr = null; geRender(true); return; }
+        if (b.dataset.ge) { geEase(b.dataset.ge); return; }
+        if (b.dataset.g === 'fit') { geRender(true); return; }
+        if (b.dataset.g === 'x') closeGraph();
+      });
+      const svg = el.querySelector('.st-gsvg');
+      const pt = e => { const r = svg.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+      const snapT = (T, G, alt) => {
+        const ph = t - ge.it.start;
+        if (!alt && Math.abs(G.X(T) - G.X(ph)) < 7) return ph;
+        const f = P.fps || 30; return Math.round(T * f) / f;
+      };
+      svg.addEventListener('dblclick', e => {
+        if (!ge || e.target.closest('[data-i], [data-hh]')) return;
+        const G = geGeom(false), [x] = pt(e), T = clamp(snapT(G.T(x), G, e.altKey), 0, G.L), oe = end(ge.it);
+        KF.setKey(ge.it, ge.k, T, KF.at(ge.it, ge.k, T));
+        const k = geTrack().find(z => Math.abs(z.t - T) < 1e-6); ge.sel = new Set(k ? [k] : []);
+        geDone(oe); hint('Keyframe pridaný · ťahaj ho hore/dole');
+      });
+      svg.addEventListener('pointerdown', e => {
+        if (!ge || e.button !== 0) return;
+        e.preventDefault(); if (playing) pause();
+        const it = ge.it, tr = geTrack(), p = geProp(), [x0, y0] = pt(e);
+        const G = geGeom(false), oe = end(it);
+        ge.drag = { L: G.L };
+        svg.setPointerCapture(e.pointerId);
+        let move = null, moved = false;
+        const kEl = e.target.closest('[data-i]'), hEl = e.target.closest('[data-hh]');
+        if (hEl) {
+          // úchyt krivky: vodorovne = ako dlho sa rozbieha/dobieha, zvislo = prekmit
+          const [is, side] = hEl.dataset.hh.split(':'), i = Number(is), a = side === 'o' ? tr[i] : tr[i - 1], b2 = side === 'o' ? tr[i + 1] : tr[i];
+          const dt = b2.t - a.t, dv = b2.v - a.v, j = side === 'o' ? 0 : 2;
+          move = ev => {
+            const [x, y] = pt(ev); moved = true;
+            const bz = segBz(a);
+            bz[j] = clamp((G.T(x) - a.t) / dt, 0, 1);
+            if (Math.abs(dv) > 1e-9 && !ev.shiftKey) bz[j + 1] = clamp((G.V(y) - a.v) / dv, -2, 3);
+            setSeg(a, bz); geRender(false); geLive();
+          };
+        } else if (kEl) {
+          const k0 = tr[Number(kEl.dataset.i)];
+          if (e.shiftKey || e.ctrlKey) { if (ge.sel.has(k0)) ge.sel.delete(k0); else ge.sel.add(k0); }
+          else if (!ge.sel.has(k0)) ge.sel = new Set([k0]);
+          seek(it.start + k0.t, false);
+          geRender(false);
+          const ks = tr.filter(k => ge.sel.has(k)), o = ks.map(k => ({ k, t: k.t, v: k.v }));
+          // dovolený posun v čase: nesmú preskočiť nevybrané susedné keyframy
+          let lo = -1e9, hi = 1e9; const eps = 1 / 120;
+          tr.forEach((k, i) => {
+            if (!ge.sel.has(k)) return;
+            for (let j = i - 1; j >= 0; j--) if (!ge.sel.has(tr[j])) { lo = Math.max(lo, tr[j].t - k.t + eps); break; }
+            for (let j = i + 1; j < tr.length; j++) if (!ge.sel.has(tr[j])) { hi = Math.min(hi, tr[j].t - k.t - eps); break; }
+            lo = Math.max(lo, -k.t); hi = Math.min(hi, G.L - k.t);
+          });
+          move = ev => {
+            const [x, y] = pt(ev);
+            if (!moved && Math.hypot(x - x0, y - y0) < 3) return;
+            moved = true;
+            let dx = x - x0, dy = y - y0;
+            if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+            let dT = G.T(x0 + dx) - G.T(x0); const dV = G.V(y0 + dy) - G.V(y0);
+            if (dx) { const nt = snapT(k0.t + dT, G, ev.altKey); dT = nt - o.find(z => z.k === k0).t; }
+            dT = clamp(dT, lo, hi);
+            for (const z of o) { z.k.t = dx ? z.t + dT : z.t; z.k.v = dy ? clamp(z.v + dV, p.min, p.max) : z.v; }
+            hint(`${fmtS(k0.t)} · ${p.fmt(k0.v)}`);
+            geRender(false); geLive();
+          };
+        } else if (y0 < G.mt) {
+          // pás s časom hore: posun prehrávacej hlavy
+          const sk = ev => { const [x] = pt(ev); seek(it.start + clamp(G.T(x), 0, G.L), false); };
+          sk(e); move = ev => { moved = false; sk(ev); };
+        } else {
+          // ťahanie v prázdnom mieste: výber obdĺžnikom
+          const base = e.shiftKey ? new Set(ge.sel) : new Set();
+          ge.sel = new Set(base); geRender(false);
+          move = ev => {
+            const [x, y] = pt(ev);
+            if (!ge.box && Math.hypot(x - x0, y - y0) < 4) return;
+            ge.box = { x0, y0, x1: x, y1: y };
+            const xa = Math.min(x0, x), xb = Math.max(x0, x), ya = Math.min(y0, y), yb = Math.max(y0, y);
+            ge.sel = new Set(base); for (const k of tr) { const kx = G.X(k.t), ky = G.Y(k.v); if (kx >= xa && kx <= xb && ky >= ya && ky <= yb) ge.sel.add(k); }
+            geRender(false);
+          };
+        }
+        const up = () => {
+          svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', up); svg.removeEventListener('pointercancel', up);
+          if (!ge) return;
+          ge.drag = null;
+          if (ge.box) { ge.box = null; geRender(false); return; }
+          if (moved) geDone(oe); else geRender(false);
+        };
+        svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+      });
+      if (!el._ro) { el._ro = new ResizeObserver(() => { if (ge && !el.hidden) geRender(false); }); el._ro.observe(el); }
+    }
+
     /* ---------- inšpektor ----------
        Záložky podľa výberu: klip (video + jeho zvuk) = Klip a Zvuk; len zvuk = Zvuk; text = Text; nič = mix stôp. */
     let inspKey = '';
@@ -2339,7 +2726,25 @@ window.Studio = (function () {
       const ls = P.lanes.filter(l => l.kind === 'audio');
       return ls.length ? `<p class="st-note sm">Hlasitosť celej stopy v celom projekte. Nad 100 % počuť až v exporte.</p>${ls.map(l => pctRow(l.id, `${esc(laneLabel(l))}${l.mute ? ' <em>stlmené</em>' : ''}`, l.vol ?? 1, `data-lvol="${esc(l.id)}"`, l.c)).join('')}` : '<p class="st-note">Zatiaľ žiadny zvuk.</p>';
     }
+    /* prepínač stmievania + jeho dĺžka (posuvník sa ukáže, keď je zapnuté) */
+    function fadeRows(it, pre, lIn, lOut) {
+      const L = it._len || len(it), row = (w, lab) => {
+        const on = !!it['fade' + w], d = it._len ? (it['fade' + w + 'D'] > 0 ? Math.min(it['fade' + w + 'D'], L / 2) : Math.min(0.5, L / 3)) : fadeD(it, w);
+        const max = Math.max(0.2, Math.min(5, L / 2));
+        return `<div class="st-fd${on ? ' on' : ''}"><label class="toggle"><input type="checkbox" data-k="${pre}${w}"${on ? ' checked' : ''}><span>${lab}</span></label>
+          <div class="st-fdl"><div class="st-fdi"><input type="range" min="0.05" max="${max.toFixed(2)}" step="0.05" value="${d.toFixed(2)}" data-fd="${pre}${w}" aria-label="Dĺžka"><span class="st-tc">${d.toFixed(2).replace('.', ',')} s</span></div></div></div>`;
+      };
+      return `<div class="st-tg">${row('In', lIn)}${row('Out', lOut)}</div>`;
+    }
+    function bindFade(el, pre, items) {
+      $$(`[data-fd^=${pre}]`, el).forEach(r => {
+        const w = r.dataset.fd.slice(pre.length), lab = r.nextElementSibling;
+        r.oninput = () => { const d = Number(r.value); for (const m of items()) m['fade' + w + 'D'] = d; lab.textContent = d.toFixed(2).replace('.', ',') + ' s'; fillRange(r); if (!playing) { syncMedia(true); drawFrame(); } };
+        r.onchange = () => { commit(); renderTimeline(); };
+      });
+    }
     function renderInsp() {
+      geSync();
       if (ltab === 'fx') renderFx();
       const el = q('#stInsp');
       const picked = P.items.filter(i => sel.has(i.id));
@@ -2362,17 +2767,19 @@ window.Studio = (function () {
         body = sec('speed', 'Rýchlosť', ramped(v) ? (RAMPS.find(r => r.id === rampId(v)) || {}).l || 'premenlivá' : String(sp(v)).replace('.', ',') + '×', `
             <div class="seg" data-k="speed">${SPEEDS.map(r => `<button type="button" data-v="${r}" class="${!ramped(v) && sp(v) === r ? 'on' : ''}">${String(r).replace('.', ',')}×</button>`).join('')}</div>
             <div class="st-f"><span class="lbl">Plynulá zmena rýchlosti</span><div class="st-cchips">${RAMPS.map(r => `<button type="button" class="st-cchip${rampId(v) === r.id ? ' on' : ''}" data-ramp="${r.id}">${r.l}</button>`).join('')}</div></div>
-            ${ramped(v) ? `<div class="st-mo">${motionBody(v, ['speed'], '')}</div>` : ''}`, ramped(v) ? clearBtn(v, ['speed']) : '')
+            ${ramped(v) ? `<div class="st-mo">${motionBody(v, ['speed'], '')}</div>` : ''}
+            ${slowed(v) ? `<div class="st-f st-interp"><label class="toggle"><input type="checkbox" data-k="interp"${v.interp ? ' checked' : ''}><span>Plynulé spomalenie</span></label>
+              <p class="st-note sm">Dopočíta chýbajúce snímky, takže spomalený záber nebude trhaný. Prejaví sa až vo výslednom videu a export tohto klipu potrvá dlhšie.</p></div>` : ''}`, ramped(v) ? graphBtn(['speed']) + clearBtn(v, ['speed']) : '')
           + sec('frame', 'Obraz', fitMode(v) === 'cover' ? 'Vyplniť' : 'Zmestiť', `
             <div class="seg" data-k="fit"><button type="button" data-v="fit" class="${fitMode(v) === 'fit' ? 'on' : ''}">Zmestiť</button><button type="button" data-v="cover" class="${fitMode(v) === 'cover' ? 'on' : ''}">Vyplniť</button></div>
             ${(v.zoom || 1) > 1 ? `<div class="st-f"><div class="st-row"><label class="lbl" for="stZm">Priblíženie výrezu</label><span class="st-tc">${Math.round((v.zoom || 1) * 100)} %</span></div><input type="range" id="stZm" min="100" max="300" value="${Math.round((v.zoom || 1) * 100)}" data-k="zoom"></div>` : ''}
             ${cov ? `<div class="st-f"><div class="st-row"><label class="lbl" for="stCx">Výrez vodorovne</label><span class="st-tc">${Math.round((v.cx ?? 0.5) * 100)} %</span></div><input type="range" id="stCx" min="0" max="100" value="${Math.round((v.cx ?? 0.5) * 100)}" data-k="cx"></div>
             <div class="st-f"><div class="st-row"><label class="lbl" for="stCy">Výrez zvisle</label><span class="st-tc">${Math.round((v.cy ?? 0.5) * 100)} %</span></div><input type="range" id="stCy" min="0" max="100" value="${Math.round((v.cy ?? 0.5) * 100)}" data-k="cy"></div>
             <p class="st-note sm">Výrez posunieš aj ťahaním priamo v náhľade.</p>` : '<p class="st-note sm">Vyplniť oreže okraje, aby obraz zaplnil celý rám (napr. 9:16).</p>'}`)
-          + sec('motion', 'Pohyb', kfCount(v, ['scale', 'x', 'y', 'rot']), `<div class="st-mo">${motionBody(v, ['scale', 'x', 'y', 'rot'], 'Klikni na ◇ pri vlastnosti, posuň hlavu inam a zmeň hodnotu. Medzi keyframami vznikne pohyb.')}</div>`, clearBtn(v, ['scale', 'x', 'y', 'rot']))
+          + sec('motion', 'Pohyb', kfCount(v, ['scale', 'x', 'y', 'rot']), `<div class="st-mo">${motionBody(v, ['scale', 'x', 'y', 'rot'], 'Klikni na ◇ pri vlastnosti, posuň hlavu inam a zmeň hodnotu. Medzi keyframami vznikne pohyb.')}</div>`, graphBtn(['scale', 'x', 'y', 'rot']) + clearBtn(v, ['scale', 'x', 'y', 'rot']))
           + sec('trans', 'Prechod a stmievanie', [tr ? TRANS[tr.type].l : '', v.fadeIn ? 'roztmievanie' : '', v.fadeOut ? 'stmievanie' : ''].filter(Boolean).join(' · ') || 'žiadne', `
             ${prevAdj(v) ? `<button type="button" class="btn st-wide" data-act="trin">${IC.trOn}<span>${tr ? 'Prechod: ' + TRANS[tr.type].l : 'Pridať prechod pred klip'}</span></button>` : ''}
-            <div class="st-tg"><label class="toggle"><input type="checkbox" data-k="fadeIn"${v.fadeIn ? ' checked' : ''}><span>Roztmievanie na začiatku</span></label><label class="toggle"><input type="checkbox" data-k="fadeOut"${v.fadeOut ? ' checked' : ''}><span>Stmievanie na konci</span></label></div>`)
+            ${fadeRows(v, 'fade', 'Roztmievanie na začiatku', 'Stmievanie na konci')}`)
           + (group(v).length > 1 ? `<button class="btn ghost st-unlink" data-act="unlink">${IC.link}<span>Odpojiť zvuk od videa</span></button>` : orphanAudio(v).length ? `<button class="btn ghost st-unlink" data-act="relink">${IC.link}<span>Pripojiť zvuk späť k videu</span></button>` : '');
       } else if (tab === 'zvuk' && auds.length) {
         const one = auds.length === 1 && !v ? auds[0] : null;
@@ -2380,14 +2787,14 @@ window.Studio = (function () {
           item = one;
           const l = lane(one.lane) || {};
           head = `<div class="st-ih"><b>${esc(l.music ? srcName(one.src) : laneLabel(l) || 'Zvuk')}</b><span>${tc(one.start)} – ${tc(end(one))}</span></div>`;
-          body = sec('vol', 'Hlasitosť', KF.animated(one, 'vol') ? kfCount(one, ['vol']) : Math.round((one.vol ?? 1) * 100) + ' %', `<div class="st-mo">${motionBody(one, ['vol'], 'Hlasitosť v čase: klikni na ◇, posuň hlavu a zmeň hodnotu (napr. stíšenie hudby pod rečou).')}</div>`, clearBtn(one, ['vol']))
-            + sec('trans', 'Zosilnenie a stíšenie', [one.fadeIn ? 'na začiatku' : '', one.fadeOut ? 'na konci' : ''].filter(Boolean).join(' · ') || 'žiadne', `<div class="st-tg"><label class="toggle"><input type="checkbox" data-k="afadeIn"${one.fadeIn ? ' checked' : ''}><span>Zosilnenie na začiatku</span></label><label class="toggle"><input type="checkbox" data-k="afadeOut"${one.fadeOut ? ' checked' : ''}><span>Stíšenie na konci</span></label></div>`);
+          body = sec('vol', 'Hlasitosť', KF.animated(one, 'vol') ? kfCount(one, ['vol']) : Math.round((one.vol ?? 1) * 100) + ' %', `<div class="st-mo">${motionBody(one, ['vol'], 'Hlasitosť v čase: klikni na ◇, posuň hlavu a zmeň hodnotu (napr. stíšenie hudby pod rečou).')}</div>`, graphBtn(['vol']) + clearBtn(one, ['vol']))
+            + sec('trans', 'Zosilnenie a stíšenie', [one.fadeIn ? 'na začiatku' : '', one.fadeOut ? 'na konci' : ''].filter(Boolean).join(' · ') || 'žiadne', fadeRows(one, 'afade', 'Zosilnenie na začiatku', 'Stíšenie na konci'));
         } else {
           const ref = v || auds[0];
           head = `<div class="st-ih"><b>Zvuk klipu</b><span>${auds.length} ${auds.length === 1 ? 'stopa' : auds.length < 5 ? 'stopy' : 'stôp'} · ${tc(ref.start)} – ${tc(end(ref))}</span></div>`;
           body = sec('clipAudio', 'Hlasitosť stôp', auds.length + ' ' + (auds.length < 5 ? 'stopy' : 'stôp'), `<p class="st-note sm">Len v tomto klipe. Hlasitosť v čase nastavíš, keď klikneš na stopu s Alt.</p>
               ${auds.map(a => { const l = lane(a.lane) || {}; return pctRow(a.id, esc(l.name || 'Zvuk') + (KF.animated(a, 'vol') ? ' <em>animované</em>' : ''), KF.at(a, 'vol', itT(a)), `data-ivol="${a.id}"`, l.c); }).join('')}`)
-            + sec('trans', 'Zosilnenie a stíšenie', [auds.every(a => a.fadeIn) ? 'na začiatku' : '', auds.every(a => a.fadeOut) ? 'na konci' : ''].filter(Boolean).join(' · ') || 'žiadne', `<div class="st-tg"><label class="toggle"><input type="checkbox" data-k="gfadeIn"${auds.every(a => a.fadeIn) ? ' checked' : ''}><span>Zosilnenie na začiatku</span></label><label class="toggle"><input type="checkbox" data-k="gfadeOut"${auds.every(a => a.fadeOut) ? ' checked' : ''}><span>Stíšenie na konci</span></label></div>`);
+            + sec('trans', 'Zosilnenie a stíšenie', [auds.every(a => a.fadeIn) ? 'na začiatku' : '', auds.every(a => a.fadeOut) ? 'na konci' : ''].filter(Boolean).join(' · ') || 'žiadne', fadeRows({ fadeIn: auds.every(a => a.fadeIn), fadeOut: auds.every(a => a.fadeOut), fadeInD: auds[0].fadeInD, fadeOutD: auds[0].fadeOutD, _len: len(auds[0]) }, 'gfade', 'Zosilnenie na začiatku', 'Stíšenie na konci'));
         }
         body += sec('lanes', 'Celé stopy', '', lanesBody());
       } else if (tab === 'text' && tx) {
@@ -2401,13 +2808,14 @@ window.Studio = (function () {
             <div class="st-f"><div class="st-row"><label class="lbl" for="stTs">Veľkosť</label><span class="st-tc">${Math.round((tx.size || 0.08) * 100)}</span></div><input type="range" id="stTs" min="3" max="25" value="${Math.round((tx.size || 0.08) * 100)}" data-k="tsize"></div>
             <div class="seg" data-k="pos"><button type="button" data-v="0.15">Hore</button><button type="button" data-v="0.5">Stred</button><button type="button" data-v="${P.fmt === '9:16' ? 0.62 : 0.8}">Dole</button></div>
             <p class="st-note sm">Text môžeš potiahnuť aj priamo v náhľade.</p>`)
-          + sec('motion', 'Pohyb', kfCount(tx, ['x', 'y', 'scale', 'rot']), `<div class="st-mo">${motionBody(tx, ['x', 'y', 'scale', 'rot'], 'Klikni na ◇ pri vlastnosti, posuň hlavu inam a zmeň hodnotu. Medzi keyframami vznikne pohyb.')}</div>`, clearBtn(tx, ['x', 'y', 'scale', 'rot']))
+          + sec('motion', 'Pohyb', kfCount(tx, ['x', 'y', 'scale', 'rot']), `<div class="st-mo">${motionBody(tx, ['x', 'y', 'scale', 'rot'], 'Klikni na ◇ pri vlastnosti, posuň hlavu inam a zmeň hodnotu. Medzi keyframami vznikne pohyb.')}</div>`, graphBtn(['x', 'y', 'scale', 'rot']) + clearBtn(tx, ['x', 'y', 'scale', 'rot']))
           + sec('tanim', 'Objavenie a zmiznutie', [(ANIM_IN.find(x => x.v === (tx.animIn || 'none')) || ANIM_IN[0]).l, (ANIM_OUT.find(x => x.v === (tx.animOut || 'none')) || ANIM_OUT[0]).l].join(' · '), `<div class="st-row2">${UI.pb((ANIM_IN.find(x => x.v === (tx.animIn || 'none')) || ANIM_IN[0]).l, () => ANIM_IN.map(x => ({ label: x.l, v: x.v, checked: x.v === (tx.animIn || 'none') })), it => { tx.animIn = it.v; commit(); renderInsp(); drawFrame(); }, 'title="Ako sa text objaví"')}${UI.pb((ANIM_OUT.find(x => x.v === (tx.animOut || 'none')) || ANIM_OUT[0]).l, () => ANIM_OUT.map(x => ({ label: x.l, v: x.v, checked: x.v === (tx.animOut || 'none') })), it => { tx.animOut = it.v; commit(); renderInsp(); drawFrame(); }, 'title="Ako text zmizne"')}</div>`);
       } else {
         head = `<div class="st-ih"><b>Projekt</b><span>${tc(duration())} · ${P.fmt}</span></div>`;
-        body = `<p class="st-note st-empty">Klikni na klip, zvuk alebo text na časovej osi a tu ho upravíš.</p>` + sec('lanes', 'Hlasitosť stôp', '', lanesBody());
+        body = `<p class="st-note st-inote">Klikni na klip, zvuk alebo text na časovej osi a tu ho upravíš.</p>` + sec('lanes', 'Hlasitosť stôp', '', lanesBody());
       }
       inspIt = item;
+      drawTf();
       const key = tab + '|' + [...sel].sort().join(','), oldIb = el.querySelector('.st-ib'), keepScroll = oldIb && key === inspKey ? oldIb.scrollTop : 0;
       el.innerHTML = `${tabs.length > 1 ? `<div class="seg st-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" role="tab" data-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}<div class="st-ib${key !== inspKey ? ' anim' : ''}">${head}${body}</div>`;
       inspKey = key;
@@ -2420,16 +2828,19 @@ window.Studio = (function () {
       if (tab === 'klip' && v) {
         $$('[data-k=speed] button', el).forEach(b => b.onclick = () => { setSpeed(v, Number(b.dataset.v)); v.rampPreset = null; commit(); renderAll(); });
         $$('[data-ramp]', el).forEach(b => b.onclick = () => applyRamp(v, b.dataset.ramp));
+        const ip = el.querySelector('[data-k=interp]'); if (ip) ip.onchange = () => { v.interp = ip.checked; commit(); renderTimeline(); hint(ip.checked ? 'Plynulé spomalenie zapnuté (uvidíš ho vo výslednom videu)' : 'Plynulé spomalenie vypnuté'); };
         const ti = el.querySelector('[data-act=trin]'); if (ti) ti.onclick = () => selectTrans(v.id);
         $$('[data-k=fit] button', el).forEach(b => b.onclick = () => { v.fit = b.dataset.v; commit(); renderInsp(); syncMedia(true); });
         for (const k of ['zoom', 'cx', 'cy']) { const r = el.querySelector(`[data-k=${k}]`); if (!r) continue; const set = e => { const val = Number(e.target.value) / 100; v[k] = val; }; r.oninput = live(set); r.onchange = live(set, true); }
         $$('input[type=checkbox][data-k^=fade]', el).forEach(c => c.onchange = () => { for (const m of group(v)) m[c.dataset.k] = c.checked; commit(); renderTimeline(); renderInsp(); drawFrame(); });
+        bindFade(el, 'fade', () => group(v));
         const rl = el.querySelector('[data-act=relink]'); if (rl) rl.onclick = () => { relink(v); commit(); renderInsp(); hint('Zvuk je zase spojený s videom'); };
         const ul = el.querySelector('[data-act=unlink]'); if (ul) ul.onclick = () => { for (const m of group(v)) if (m !== v) m.g = uid(); v.g = uid(); sel = new Set([v.id]); commit(); renderTimeline(); renderInsp(); hint('Zvuk je odpojený, môžeš ho strihať a posúvať zvlášť'); };
       }
       if (tab === 'zvuk') {
         $$('input[type=checkbox][data-k^=afade]', el).forEach(c => c.onchange = () => { const a = auds[0]; a[c.dataset.k === 'afadeIn' ? 'fadeIn' : 'fadeOut'] = c.checked; commit(); renderTimeline(); renderInsp(); });
         $$('input[type=checkbox][data-k^=gfade]', el).forEach(c => c.onchange = () => { for (const a of auds) a[c.dataset.k === 'gfadeIn' ? 'fadeIn' : 'fadeOut'] = c.checked; commit(); renderTimeline(); renderInsp(); });
+        bindFade(el, 'gfade', () => auds); bindFade(el, 'afade', () => auds.slice(0, 1));
         $$('[data-ivol]', el).forEach(r => { const a = P.items.find(i => i.id === r.dataset.ivol); if (!a) return; const set = e => { KF.set(a, 'vol', itT(a), Number(e.target.value) / 100); }; r.oninput = live(set); r.onchange = live(set, true); });
       }
       $$('[data-lvol]', el).forEach(r => { const l = lane(r.dataset.lvol); const set = e => { l.vol = Number(e.target.value) / 100; }; r.oninput = live(set); r.onchange = live(set, true); });
@@ -2445,66 +2856,130 @@ window.Studio = (function () {
     }
 
     /* ---------- ťahanie v náhľade: text (posun) a video (výrez) ---------- */
-    frame.addEventListener('pointerdown', e => {
-      if (e.button !== 0) return;
+    /* čo je v náhľade pod kurzorom: text navrchu, potom najvyššia video vrstva */
+    function hitAt(e) {
       const r = frame.getBoundingClientRect();
       const px = (e.clientX - r.left) / r.width * W, py = (e.clientY - r.top) / r.height * H;
-      // text pod kurzorom (navrchu posledný)
       const texts = itemsOn('t').filter(it => t >= it.start && t < it.end && String(it.text || '').trim()).reverse();
-      let hit = null;
-      for (const it of texts) { const T = t - it.start, ks = KF.at(it, 'scale', T), M = textMetrics(it, H); const cx = KF.at(it, 'x', T) * W, cy = KF.at(it, 'y', T) * H; if (Math.abs(px - cx) < (M.w / 2 + M.padX) * ks && Math.abs(py - cy) < (M.h / 2 + M.padY) * ks) { hit = it; break; } }
-      if (hit) {
-        e.preventDefault(); if (playing) pause();
-        sel = new Set([hit.id]); tab = 'text'; renderTimelineSel(); renderInsp();
-        const T = clamp(t - hit.start, 0, len(hit));
-        const ox = KF.at(hit, 'x', T), oy = KF.at(hit, 'y', T), x0 = e.clientX, y0 = e.clientY;
-        let moved = false;
-        const move = ev => {
-          moved = true;
-          let nx = clamp01(ox + (ev.clientX - x0) / r.width), ny = clamp01(oy + (ev.clientY - y0) / r.height);
-          if (Math.abs(nx - 0.5) < 0.015) nx = 0.5; // prichytenie na stred
-          KF.set(hit, 'x', T, nx); KF.set(hit, 'y', T, ny); drawFrame(); liveMotion();
-        };
-        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); if (moved) { commit(); renderTimeline(); renderInsp(); } };
-        addEventListener('pointermove', move); addEventListener('pointerup', up);
-        return;
-      }
-      const v = activeVideo();
-      // posun obrazu (poloha X/Y, aj keyframy): keď je obraz zmenšený, posunutý, animovaný alebo v režime Zmestiť
-      const T0 = v ? clamp(t - v.start, 0, len(v)) : 0;
-      if (v && (KF.anyKf(v) || KF.at(v, 'scale', T0) !== 1 || KF.at(v, 'x', T0) || KF.at(v, 'y', T0) || (fitMode(v) === 'fit' && !((v.zoom || 1) > 1)))) {
-        e.preventDefault(); if (playing) pause();
-        sel = groupSel(v); tab = 'klip'; renderTimelineSel(); renderInsp();
-        const ox = KF.at(v, 'x', T0), oy = KF.at(v, 'y', T0), x0 = e.clientX, y0 = e.clientY;
-        let moved = false;
-        const move = ev => {
-          moved = true;
-          let nx = ox + (ev.clientX - x0) / r.width, ny = oy + (ev.clientY - y0) / r.height;
-          if (Math.abs(nx) < 0.012) nx = 0; if (Math.abs(ny) < 0.012) ny = 0; // prichytenie na stred
-          KF.set(v, 'x', T0, clamp(nx, -1, 1)); KF.set(v, 'y', T0, clamp(ny, -1, 1)); applyMotion(v); liveMotion();
-        };
-        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); if (moved) { commit(); renderTimeline(); renderInsp(); } };
-        addEventListener('pointermove', move); addEventListener('pointerup', up);
-        return;
-      }
-      if (v && (fitMode(v) === 'cover' || (v.zoom || 1) > 1)) {
-        e.preventDefault(); if (playing) pause();
-        sel = groupSel(v); tab = 'klip'; renderTimelineSel(); renderInsp();
-        const s = src.get(v.src), ocx = v.cx ?? 0.5, ocy = v.cy ?? 0.5, x0 = e.clientX, y0 = e.clientY;
-        // koľko px sa dá posunúť: rozdiel medzi veľkosťou zväčšeného zdroja a rámom
-        const fw = W * fk, fh = H * fk, z = v.zoom || 1, sw0 = s.width || 1920, sh0 = s.height || 1080;
-        const k = fitMode(v) === 'cover' ? Math.max(fw * z / sw0, fh * z / sh0) : Math.min(fw * z / sw0, fh * z / sh0);
-        const ex = Math.max(1, sw0 * k - fw), ey = Math.max(1, sh0 * k - fh);
-        let moved = false;
-        const move = ev => { moved = true; v.cx = clamp01(ocx - (ev.clientX - x0) / ex); v.cy = clamp01(ocy - (ev.clientY - y0) / ey); placeVideo(v); };
-        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); if (moved) { commit(); renderInsp(); } };
-        addEventListener('pointermove', move); addEventListener('pointerup', up);
-      }
+      for (const it of texts) { const T = t - it.start, ks = KF.at(it, 'scale', T), M = textMetrics(it, H); const cx = KF.at(it, 'x', T) * W, cy = KF.at(it, 'y', T) * H; if (Math.abs(px - cx) < (M.w / 2 + M.padX) * ks && Math.abs(py - cy) < (M.h / 2 + M.padY) * ks) return it; }
+      for (const L of [...layersNow].reverse()) { const rr = L.el.getBoundingClientRect(); if (e.clientX >= rr.left && e.clientX <= rr.right && e.clientY >= rr.top && e.clientY <= rr.bottom) return L.p.it; }
+      return activeVideo();
+    }
+    function pickInFrame(it) {
+      if (it.kind === 'text') { sel = new Set([it.id]); tab = 'text'; } else { sel = groupSel(it); tab = 'klip'; }
+      renderTimelineSel(); renderInsp();
+    }
+    /* posun položky (poloha X/Y) ťahaním; snap na stred */
+    function dragMove(it, e) {
+      e.preventDefault(); if (playing) pause();
+      const r = frame.getBoundingClientRect(), T = clamp(t - it.start, 0, it.kind === 'text' ? it.end - it.start : len(it));
+      const ox = KF.at(it, 'x', T), oy = KF.at(it, 'y', T), x0 = e.clientX, y0 = e.clientY;
+      const c0 = it.kind === 'text' ? 0.5 : 0, lo = it.kind === 'text' ? 0 : -1, hi = 1;
+      let moved = false;
+      const move = ev => {
+        if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 3) return;
+        moved = true;
+        let nx = ox + (ev.clientX - x0) / r.width, ny = oy + (ev.clientY - y0) / r.height;
+        if (!ev.altKey) { if (Math.abs(nx - c0) < 0.012) nx = c0; if (it.kind !== 'text' && Math.abs(ny) < 0.012) ny = 0; }
+        KF.set(it, 'x', T, clamp(nx, lo, hi)); KF.set(it, 'y', T, clamp(ny, lo, hi));
+        if (it.kind === 'text') { txtDrawn = true; drawFrame(); } else applyMotion(it);
+        liveMotion();
+      };
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); if (moved) { commit(); renderTimeline(); renderInsp(); } };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+    }
+    /* posun výrezu (Vyplniť / priblíženie výrezu): Alt + ťahanie v režime úprav */
+    function dragCrop(v, e) {
+      e.preventDefault(); if (playing) pause();
+      const s = src.get(v.src), ocx = v.cx ?? 0.5, ocy = v.cy ?? 0.5, x0 = e.clientX, y0 = e.clientY;
+      const fw = W * fk, fh = H * fk, z = v.zoom || 1, sw0 = (s && s.width) || 1920, sh0 = (s && s.height) || 1080;
+      const k = fitMode(v) === 'cover' ? Math.max(fw * z / sw0, fh * z / sh0) : Math.min(fw * z / sw0, fh * z / sh0);
+      const ex = Math.max(1, sw0 * k - fw), ey = Math.max(1, sh0 * k - fh);
+      let moved = false;
+      const move = ev => { moved = true; v.cx = clamp01(ocx - (ev.clientX - x0) / vz / ex); v.cy = clamp01(ocy - (ev.clientY - y0) / vz / ey); placeVideo(v); };
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); if (moved) { commit(); renderInsp(); } };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+    }
+    frame.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || e.target.closest('#stTfb')) return;
+      const it = hitAt(e);
+      if (!it) { clearSel(); return; }
+      // bez režimu úprav: klik len vyberie (nič sa omylom nepohne)
+      if (!tfOn) { pickInFrame(it); return; }
+      pickInFrame(it);
+      if (e.altKey && it.kind === 'video' && (fitMode(it) === 'cover' || (it.zoom || 1) > 1)) { dragCrop(it, e); return; }
+      dragMove(it, e);
     });
+    /* rámik: ťahanie vnútri = posun, rohy = veľkosť (od stredu), gulôčka = otočenie (Shift po 15°) */
+    q('#stTfb').addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const it = tfTarget(); if (!it) return;
+      e.stopPropagation();
+      const h = e.target.dataset && e.target.dataset.h;
+      if (!h) { dragMove(it, e); return; }
+      e.preventDefault(); if (playing) pause();
+      const bx = q('#stTfb'), rr = bx.getBoundingClientRect(), cx = rr.left + rr.width / 2, cy = rr.top + rr.height / 2;
+      const T = clamp(t - it.start, 0, it.kind === 'text' ? it.end - it.start : len(it));
+      const s0 = KF.at(it, 'scale', T), r0 = KF.at(it, 'rot', T), d0 = Math.hypot(e.clientX - cx, e.clientY - cy) || 1, a0 = Math.atan2(e.clientY - cy, e.clientX - cx);
+      bx.setPointerCapture(e.pointerId); bx.classList.add('busy');
+      let moved = false;
+      const move = ev => {
+        moved = true;
+        if (h === 'rot') {
+          let r = r0 + (Math.atan2(ev.clientY - cy, ev.clientX - cx) - a0) * 180 / Math.PI;
+          r = ((r + 540) % 360) - 180;
+          if (ev.shiftKey) r = Math.round(r / 15) * 15; else if (Math.abs(r) < 1.5) r = 0;
+          KF.set(it, 'rot', T, r); hint(`Otočenie ${Math.round(r)}°`);
+        } else {
+          let sc = clamp(s0 * Math.hypot(ev.clientX - cx, ev.clientY - cy) / d0, 0.1, 5);
+          if (!ev.altKey && Math.abs(sc - 1) < 0.02) sc = 1;
+          KF.set(it, 'scale', T, sc); hint(`Veľkosť ${Math.round(sc * 100)} %`);
+        }
+        if (it.kind === 'text') { txtDrawn = true; drawFrame(); } else applyMotion(it);
+        liveMotion();
+      };
+      const up = () => { bx.removeEventListener('pointermove', move); bx.removeEventListener('pointerup', up); bx.classList.remove('busy'); if (moved) { commit(); renderTimeline(); renderInsp(); } };
+      bx.addEventListener('pointermove', move); bx.addEventListener('pointerup', up);
+    });
+    function toggleTf() {
+      tfOn = !tfOn; try { localStorage.setItem('studio.tf', tfOn ? '1' : '0'); } catch (e) { }
+      q('#stTf').classList.toggle('on', tfOn);
+      txtDrawn = true; drawFrame(); drawTf();
+      hint(tfOn ? 'Úpravy v náhľade zapnuté: ťahaj, rohy = veľkosť, gulôčka = otočenie' : 'Úpravy v náhľade vypnuté: klik do obrazu len vyberie');
+    }
+    q('#stTf').onclick = toggleTf;
+    q('#stKeys').onclick = () => showKeys();
+    // priblíženie náhľadu: Ctrl + koliesko ku kurzoru; keď je priblížený, koliesko posúva; prostredné tlačidlo = posun
+    const viewEl = q('#stView');
+    viewEl.addEventListener('wheel', e => {
+      if (e.ctrlKey) { e.preventDefault(); zoomView(vz * Math.pow(1.0018, -e.deltaY * (e.deltaMode === 1 ? 30 : 1)), e.clientX, e.clientY); return; }
+      if (vz !== 1) { e.preventDefault(); vpx -= e.deltaX; vpy -= e.deltaY; applyView(); }
+    }, { passive: false });
+    viewEl.addEventListener('pointerdown', e => {
+      if (e.button !== 1 || vz === 1) return;
+      e.preventDefault(); const x0 = e.clientX - vpx, y0 = e.clientY - vpy; viewEl.classList.add('pan');
+      const move = ev => { vpx = ev.clientX - x0; vpy = ev.clientY - y0; applyView(); };
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); viewEl.classList.remove('pan'); };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+    });
+    q('#stVz').onclick = () => { vz = 1; frame.dataset.zr = 1; layoutFrame(); txtDrawn = true; drawFrame(); };
 
     /* ---------- export ---------- */
     function layer(html, cls = '') { const l = q('#stLayer'); l.className = 'st-layer ' + cls + (!document.hasFocus() || document.hidden ? ' noanim' : ''); l.innerHTML = html; l.hidden = false; return l; }
     function hideLayer() { UI.xhide(q('#stLayer')); }
+    /* prehľad klávesových skratiek (?) */
+    const KEYS = [
+      ['Prehrávanie', [['Medzerník', 'Prehrať / zastaviť'], ['J · L', '5 s späť / dopredu'], ['← →', 'O snímku (so Shiftom o 1 s)'], ['Home · End', 'Začiatok / koniec'], ['F', 'Celá obrazovka'], ['M', 'Stlmiť náhľad']]],
+      ['Strih', [['S', 'Rozdeliť na hlave'], ['Delete', 'Odstrániť (Shift = zavrieť medzeru)'], ['Ctrl + D', 'Duplikovať'], ['Ctrl + Z · Ctrl + Y', 'Späť / znova'], ['N', 'Prichytávanie'], ['Alt + klik', 'Vybrať len video bez zvuku']]],
+      ['Úsek a export', [['I · O', 'Začiatok / koniec úseku'], ['P', 'Uložiť úsek do zoznamu'], ['Alt + X', 'Zrušiť úsek'], ['Shift + medzerník', 'Prehrať úsek dokola']]],
+      ['Náhľad a animácia', [['V', 'Úpravy v náhľade (posun, veľkosť, otočenie)'], ['Ctrl + koliesko', 'Priblížiť náhľad'], ['G', 'Graf keyframov'], ['F9', 'Plynulo (v grafe)'], ['T', 'Pridať text']]],
+      ['Časová os', [['Koliesko', 'Hore / dole'], ['Alt alebo Shift + koliesko', 'Doľava / doprava'], ['Ctrl + koliesko · + −', 'Priblížiť os'], ['Z', 'Celá os']]]
+    ];
+    function showKeys() {
+      const sh = exSheet(`<div class="st-keysh"><h3>Klávesové skratky</h3><button type="button" class="st-ico" data-a="x" aria-label="Zavrieť">${IC.x}</button></div>
+        <div class="st-keys">${KEYS.map(([g, ks]) => `<section><h4>${g}</h4>${ks.map(([k, l]) => `<div><span>${l}</span><kbd>${k}</kbd></div>`).join('')}</section>`).join('')}</div>`);
+      sh.querySelector('[data-a=x]').onclick = hideLayer;
+    }
     /* okno exportu (spoločné s jednoduchým editorom, ui.js) */
     const exSheet = html => UI.xsheet(q('#stLayer'), 'st-layer center', html);
     /* snímka do hlavičky exportu: aktuálny obraz náhľadu, inak náhľad prvého klipu z knižnice */
@@ -2575,9 +3050,9 @@ window.Studio = (function () {
       const T = `(t-${n4(it.start)})`;
       let X = KF.exprOf(it, 'x', T), Y = KF.exprOf(it, 'y', T), S = KF.exprOf(it, 'scale', T), R = KF.exprOf(it, 'rot', T);
       const colorFades = [], alpha = [];
-      const D = len(it), F2 = Math.min(0.5, D / 3);
-      if (it.fadeIn) colorFades.push({ t: 'in', st: it.start, d: F2, c: 'black' });
-      if (it.fadeOut) colorFades.push({ t: 'out', st: it.start + D - F2, d: F2, c: 'black' });
+      const D = len(it), Fi = fadeD(it, 'In'), Fo = fadeD(it, 'Out');
+      if (it.fadeIn) colorFades.push({ t: 'in', st: it.start, d: Fi, c: 'black' });
+      if (it.fadeOut) colorFades.push({ t: 'out', st: it.start + D - Fo, d: Fo, c: 'black' });
       for (const e of p.env) {
         const E = `(3*pow(clip((t-${n4(e.w0)})/${n4(e.d)},0,1),2)-2*pow(clip((t-${n4(e.w0)})/${n4(e.d)},0,1),3))`;
         if (!e.ov) {
@@ -2620,7 +3095,7 @@ window.Studio = (function () {
       }
       return { file: it.src, start: p.rs, in: inR, out: outR, speed: ramped(it) ? 1 : sp(it), map, freezeHead: fh, freezeTail: ft,
         srcW: s.width || 0, srcH: s.height || 0, fit: fitMode(it), zoom: it.zoom || 1, cx: it.cx ?? 0.5, cy: it.cy ?? 0.5,
-        fadeIn: false, fadeOut: false, colorFades, alpha, motion: { s: S, x: X, y: Y, r: R }, layer: layerOf(it.lane) > 0 };
+        fadeIn: false, fadeOut: false, colorFades, alpha, motion: { s: S, x: X, y: Y, r: R }, layer: layerOf(it.lane) > 0, interp: !!it.interp && slowed(it) };
     }
     /* zvuk so speed rampom: úseky po 0,1 s s vlastným tempom (atempo), rovnaké tempá sa zlúčia */
     function audioChunks(it) {
@@ -2731,6 +3206,14 @@ window.Studio = (function () {
         if (e.key === 'Enter') { e.preventDefault(); pvAdd(false); return; }
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); const st = e.shiftKey ? 5 : 1; UI.smoothSeek(pv.v, clamp((pv.v.currentTime || 0) + (e.key === 'ArrowLeft' ? -st : st), 0, pv.D || 1e9)); pvPaint(); return; }
       }
+      if (ge) {
+        if (e.key === 'Escape') { e.preventDefault(); closeGraph(); return; }
+        if (e.key === 'F9') { e.preventDefault(); geEase(e.shiftKey && e.ctrlKey ? 'out' : e.shiftKey ? 'in' : 'easy'); return; }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && ge.sel.size) { e.preventDefault(); geDelete(); return; }
+        if (k === 'a' && e.ctrlKey) { e.preventDefault(); ge.sel = new Set(geTrack()); geRender(false); return; }
+      }
+      if (e.key === '?') { e.preventDefault(); showKeys(); return; }
+      if (k === 'g' && !e.ctrlKey && !e.altKey) { e.preventDefault(); if (ge) closeGraph(); else { const it = inspIt && P.items.includes(inspIt) ? inspIt : null; if (it) openGraph(it); else hint('Najprv vyber klip, text alebo zvuk'); } return; }
       if (e.ctrlKey && k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
       if (e.ctrlKey && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); doRedo(); return; }
       if (e.key === ' ' && e.shiftKey) { e.preventDefault(); playLoop(); return; }
@@ -2751,6 +3234,7 @@ window.Studio = (function () {
       }
       if (k === 'x' && e.altKey) { e.preventDefault(); clearIO(); return; }
       if (k === 'p' && !e.ctrlKey && !e.altKey) { e.preventDefault(); addRange(); return; }
+      if (k === 'v' && !e.ctrlKey && !e.altKey) { e.preventDefault(); toggleTf(); return; }
       if (k === 't' && !e.ctrlKey) { e.preventDefault(); addText(); return; }
       if (k === 'd' && e.ctrlKey) { e.preventDefault(); duplicateSel(); return; }
       if (k === 'n' && !e.ctrlKey) { toggleSnap(); return; }
@@ -2773,7 +3257,7 @@ window.Studio = (function () {
     function toggleSnap() { snapOn = !snapOn; q('#stSnap').classList.toggle('on', snapOn); hint(snapOn ? 'Prichytávanie zapnuté' : 'Prichytávanie vypnuté'); }
     document.addEventListener('keydown', onKey, true);
     const ro = new ResizeObserver(() => { layoutFrame(); txtDrawn = true; drawFrame(); setSX(sx, false); });
-    ro.observe(stage); ro.observe(scroll);
+    ro.observe(stage); ro.observe(scroll); ro.observe(q('#stView'));
 
     q('#stPlay').onclick = () => playing ? pause() : play();
     const volApi = UI.wireVol(root, () => { try { syncMedia(false); } catch (e) { } });
