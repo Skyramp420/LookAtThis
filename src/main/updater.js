@@ -33,6 +33,7 @@ function init(opts) {
   send = opts.send || send; notify = opts.notify || notify; getSettings = opts.getSettings || getSettings; log = opts.log || log;
   if (!supported().ok) return status();
   try { au = require('electron-updater').autoUpdater; } catch (e) { log.warn('update: electron-updater chýba', e.message); return status(); }
+  au.disableWebInstaller = true; // inštalujeme z GitHub Releases, nie cez web installer (inak varovanie pri každej kontrole)
   au.logger = { info: m => log.info('update:', m), warn: m => log.warn('update:', m), error: m => log.error('update:', m), debug: () => { } };
   if (process.env.LAT_UPDATE_TEST) {
     au.forceDevUpdateConfig = true;

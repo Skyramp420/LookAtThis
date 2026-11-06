@@ -38,14 +38,15 @@ class Proxies {
   key(file) { const st = fs.statSync(file); return crypto.createHash('sha1').update(file + '|' + st.mtimeMs + '|' + st.size).digest('hex').slice(0, 16); }
   /* vráti cestu k proxy (hneď, ak už existuje; inak ju vyrobí — jedna naraz, v poradí) */
   get(file) {
+    if (!fs.existsSync(file)) return Promise.reject(new Error('proxy: súbor neexistuje'));
     const k = this.key(file);
     const out = path.join(this.dir, k + '.mp4');
-    if (fs.existsSync(out) && fs.statSync(out).size > 0) return Promise.resolve(out);
+    if (fs.existsSync(out) && fs.statSync(out).size > 0) { try { const now = new Date(); fs.utimesSync(out, now, now); } catch (e) { } return Promise.resolve(out); }
     if (this.jobs.has(k)) return this.jobs.get(k);
     const job = this.queue.then(() => this.make(file, out));
     this.queue = job.catch(() => { });
     this.jobs.set(k, job);
-    job.finally(() => this.jobs.delete(k));
+    job.then(() => this.jobs.delete(k), () => this.jobs.delete(k)); // (finally by vytvoril novú, neošetrenú chybu)
     return job;
   }
   async make(file, out) {
@@ -72,7 +73,7 @@ class Proxies {
   /* drž priečinok do ~6 GB, najstaršie preč */
   prune() {
     try {
-      const files = fs.readdirSync(this.dir).filter(f => f.endsWith('.mp4') && !f.includes('.part')).map(f => { const p = path.join(this.dir, f), st = fs.statSync(p); return { p, t: st.atimeMs || st.mtimeMs, s: st.size }; }).sort((a, b) => b.t - a.t);
+      const files = fs.readdirSync(this.dir).filter(f => f.endsWith('.mp4') && !f.includes('.part')).map(f => { const p = path.join(this.dir, f), st = fs.statSync(p); return { p, t: Math.max(st.atimeMs || 0, st.mtimeMs), s: st.size }; }).sort((a, b) => b.t - a.t);
       let sum = 0;
       for (const f of files) { sum += f.s; if (sum > 6e9) try { fs.unlinkSync(f.p); } catch (e) { } }
     } catch (e) { }

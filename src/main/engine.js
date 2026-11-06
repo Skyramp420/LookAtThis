@@ -8,6 +8,7 @@ const path = require('path');
 
 const Games = require('../shared/games');
 const TS = require('./tsprobe');
+const STALL_MS = 8000; // bez nového segmentu (vzniká každé 2 s) = snímanie obrazu stojí
 const SEG = 2; // dĺžka segmentu v sekundách = aj interval kľúčových snímok
 
 // vysoká = cq 21: vizuálne takmer rovnaké ako 19, ale zhruba polovičný zápis na disk
@@ -51,7 +52,11 @@ class Engine extends EventEmitter {
     this.state = 'off';        // off | starting | on | error
     this.error = '';
     this.encoderUsed = '';
-    this.recording = null;     // { startIdx, since }
+    this.recording = null;     // { parts: [{ dir, startIdx }], since }
+    // predošlé behy bufferu (reštart po zaseknutí obrazu, zamknutí PC…): { dir, endedAt, trackOrder } — clip si z nich
+    // vezme to, čo v aktuálnom behu ešte nie je, nahrávka cez reštart pokračuje; mažú sa, keď už nie sú potrebné
+    this.past = [];
+    this.dirTracks = new Map(); // priečinok behu → poradie zvukových stôp v ňom
     this.tracks = {};          // id -> { status, name, how, level }
     this.proc = null; this.helpers = [];
     this.dir = null; this.settings = null;
@@ -201,8 +206,15 @@ class Engine extends EventEmitter {
     if (gen !== this.gen) return;
 
     const s = settings;
+    // doterajší beh si odlož (ak v ňom niečo je), nový ide do nového priečinka
+    if (this.dir && this.dir !== this._pastPushed) {
+      if (this.segments().length) this.past.push({ dir: this.dir, endedAt: Date.now(), trackOrder: this.trackOrder || [] });
+      else try { fs.rmSync(this.dir, { recursive: true, force: true }); } catch (e) { }
+      this._pastPushed = this.dir;
+    }
     this.dir = path.join(this.tmpRoot, String(Date.now()));
     fs.mkdirSync(this.dir, { recursive: true });
+    if (this.recording) this.recording.parts.push({ dir: this.dir, startIdx: 0 });
     const tracks = (s.tracks || []).filter(t => t.on);
     this.tracks = {};
     const enc = this.pickEncoder(s);
@@ -267,6 +279,7 @@ class Engine extends EventEmitter {
     this.proc = proc;
     this.liveSince = Date.now();
     this.trackOrder = pipes.map(p => p.t);
+    this.dirTracks.set(this.dir, this.trackOrder);
     const startedAt = Date.now();
     proc.stderr.on('data', d => { errTail = (errTail + d).slice(-3000); });
     proc.on('error', e => { errTail += e.message; });
@@ -322,7 +335,7 @@ class Engine extends EventEmitter {
       if (this.state !== 'on') return;
       const sg = this.segments(), idx = sg.length ? sg[sg.length - 1].idx : -1;
       if (idx !== lastIdx) { lastIdx = idx; lastNew = Date.now(); return; }
-      if (Date.now() - lastNew > 12000) {
+      if (Date.now() - lastNew > STALL_MS) {
         this.log.warn(`obraz sa zasekol (${Math.round((Date.now() - lastNew) / 1000)} s bez nového segmentu), reštartujem buffer`);
         this.emit('stall');
         lastNew = Date.now();
@@ -405,11 +418,11 @@ class Engine extends EventEmitter {
   }
 
   /* ---------- segmenty ---------- */
-  segments() {
-    if (!this.dir) return [];
+  segments(dir = this.dir) {
+    if (!dir) return [];
     let files = [];
-    try { files = fs.readdirSync(this.dir).filter(f => /^seg\d+\.ts$/.test(f)); } catch (e) { return []; }
-    return files.map(f => ({ f, idx: Number(f.slice(3, -3)) })).sort((a, b) => a.idx - b.idx);
+    try { files = fs.readdirSync(dir).filter(f => /^seg\d+\.ts$/.test(f)); } catch (e) { return []; }
+    return files.map(f => ({ f, idx: Number(f.slice(3, -3)), dir })).sort((a, b) => a.idx - b.idx);
   }
   /* koľko sekúnd je v buffri: podľa skutočného času od štartu ffmpeg (po 1 s), nie po 2-s segmentoch */
   bufferedSeconds() {
@@ -417,20 +430,32 @@ class Engine extends EventEmitter {
     return Math.min(Math.floor((Date.now() - this.liveSince) / 1000), (this.settings && this.settings.bufferSeconds) || 60);
   }
   clean() {
+    const bufS = (this.settings && this.settings.bufferSeconds) || 60;
+    // predošlé behy: kým ich môže potrebovať clip (aktuálny beh je kratší ako buffer) alebo nahrávka
+    const live = this.liveSince ? (Date.now() - this.liveSince) / 1000 : 0;
+    this.past = this.past.filter(pb => {
+      const usedByRec = this.recording && this.recording.parts.some(x => x.dir === pb.dir);
+      const need = usedByRec || (live < bufS + 10 && Date.now() - pb.endedAt < (bufS + 60) * 1000);
+      if (!need) { try { fs.rmSync(pb.dir, { recursive: true, force: true }); } catch (e) { } this.dirTracks.delete(pb.dir); }
+      return need;
+    });
     const segs = this.segments(); if (!segs.length) return;
-    const keep = Math.ceil(((this.settings && this.settings.bufferSeconds) || 60) / SEG) + 2;
+    const keep = Math.ceil(bufS / SEG) + 2;
     const maxIdx = segs[segs.length - 1].idx;
+    const rp = this.recording && this.recording.parts.find(x => x.dir === this.dir);
     for (const s of segs) {
       if (s.idx >= maxIdx - keep) continue;
-      if (this.recording && s.idx >= this.recording.startIdx) continue;
+      if (rp && s.idx >= rp.startIdx) continue;
       try { fs.unlinkSync(path.join(this.dir, s.f)); } catch (e) { }
     }
   }
   removeOld() {
+    if (!this.recording) { this.past = []; }
+    const keepDirs = new Set([this.proc ? this.dir : null, ...(this.recording ? this.recording.parts.map(x => x.dir) : [])].filter(Boolean));
     try {
       for (const d of fs.readdirSync(this.tmpRoot)) {
         const p = path.join(this.tmpRoot, d);
-        if (p !== this.dir || !this.proc) fs.rmSync(p, { recursive: true, force: true });
+        if (!keepDirs.has(p)) fs.rmSync(p, { recursive: true, force: true });
       }
     } catch (e) { }
   }
@@ -438,7 +463,8 @@ class Engine extends EventEmitter {
   /* poskladaj segmenty do mp4: TS sa dá spojiť za sebou bajt po bajte, tak ich len pošleme ffmpegu do stdin */
   async mux(segs, outPath, meta) {
     const s = this.settings;
-    const order = this.trackOrder || [];
+    const sdir = (segs[0] && segs[0].dir) || this.dir;
+    const order = this.dirTracks.get(sdir) || this.trackOrder || [];
     const names = order.map(t => t.name);
     const sysI = order.findIndex(t => t.id === 'system');
     const micI = order.findIndex(t => t.id === 'mic');
@@ -459,7 +485,7 @@ class Engine extends EventEmitter {
       feed: async p => {
         p.stdin.on('error', () => { });
         for (const sg of segs) {
-          const file = path.join(dir, sg.f);
+          const file = path.join(sg.dir || dir, sg.f);
           if (!fs.existsSync(file)) continue;
           await new Promise(res => {
             const rs = fs.createReadStream(file);
@@ -472,6 +498,21 @@ class Engine extends EventEmitter {
     });
     if (r.code !== 0) throw new Error(lastLine(r.err) || 'Skladanie clipu zlyhalo');
     return outPath;
+  }
+
+  /* časti z rôznych behov bufferu → jeden súbor (concat bez prekódovania). Pri chybe vráti false (časti ostanú). */
+  async joinParts(parts, outPath) {
+    const list = outPath.replace(/\.mp4$/i, '.parts.txt');
+    fs.writeFileSync(list, parts.map(f => `file '${f.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
+    const r = await run(this.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-map', '0', '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', outPath]);
+    try { fs.unlinkSync(list); } catch (e) { }
+    if (r.code !== 0) { this.log.warn('spájanie častí zlyhalo: ' + lastLine(r.err)); try { fs.unlinkSync(outPath); } catch (e) { } return false; }
+    return true;
+  }
+  /* rovnaké stopy v oboch behoch = časti sa dajú spojiť */
+  sameTracks(a, b) {
+    const x = (this.dirTracks.get(a) || []).map(t => t.id).join('|'), y = (this.dirTracks.get(b) || []).map(t => t.id).join('|');
+    return x === y;
   }
 
   /* posledných pár sekúnd dvoch stôp ako 16-bit mono PCM (na synchronizáciu tlieskaním) */
@@ -518,7 +559,7 @@ class Engine extends EventEmitter {
      pri diere v čase (spánok PC) alebo pri zaseknutom segmente (obraz stál, kým zvuk bežal) */
   selectSegments(segs, want, n) {
     const cand = segs.slice(-(n + 4));
-    const info = cand.map(sg => TS.range(path.join(this.dir, sg.f)));
+    const info = cand.map(sg => TS.range(path.join(sg.dir || this.dir, sg.f)));
     const res = { pick: segs.slice(-n), seconds: 0, suspicious: false, notes: [] };
     const bad = r => !r || r.vFirst == null || r.vLast == null;
     // segment má mať ~2 s obrazu a zvuk len o chvíľu pred ním/za ním; hranice sú voľné (hitch hry nesmie clip zbytočne skrátiť)
@@ -607,7 +648,7 @@ class Engine extends EventEmitter {
     // kontrola výsledného súboru: keď sa pri výbere našlo niečo čudné, alebo je súbor podozrivo veľký oproti segmentom
     let outSize = 0, inSize = 0;
     try { outSize = fs.statSync(o.path).size; } catch (e) { }
-    for (const sg of pick) { try { inSize += fs.statSync(path.join(this.dir, sg.f)).size; } catch (e) { } }
+    for (const sg of pick) { try { inSize += fs.statSync(path.join(sg.dir || this.dir, sg.f)).size; } catch (e) { } }
     // kontrola výsledného súboru: dĺžka musí sedieť s bufferom (obraz bez zvuku, diera, spánok…), inak ho skrátime
     try {
       const info = await probe(this.ffmpeg, o.path);
@@ -617,6 +658,25 @@ class Engine extends EventEmitter {
         if (fixed) secs = Math.round(fixed); else this.log.error('clip: dĺžku sa nepodarilo opraviť, súbor ostáva tak, ako je');
       } else if (info.duration) secs = Math.round(info.duration);
     } catch (e) { this.log.warn('kontrola clipu: ' + e.message); }
+    // buffer sa medzitým reštartoval (zaseknutý obraz, zamknutý PC) a aktuálny beh je kratší ako clip →
+    // pridaj koniec predošlého behu pred to (inak by sa stratilo práve to, čo sa stalo pred zaseknutím)
+    const prev = this.past[this.past.length - 1];
+    if (prev && !sel.suspicious && secs < want - SEG && pick[0] && pick[0].idx <= 1 && this.liveSince - prev.endedAt < 60000 && this.sameTracks(prev.dir, this.dir)) {
+      const ps = this.segments(prev.dir), rest = want - secs;
+      const psel = this.selectSegments(ps, rest, Math.ceil(rest / SEG) + 1);
+      if (psel.pick.length) {
+        const a = o.path.replace(/\.mp4$/i, '.p1.mp4'), b = o.path.replace(/\.mp4$/i, '.p2.mp4');
+        try {
+          await this.mux(psel.pick, a, o);
+          fs.renameSync(o.path, b);
+          if (await this.joinParts([a, b], o.path)) {
+            secs = Math.round(secs + (psel.seconds || psel.pick.length * SEG));
+            this.log.info(`clip: pridaných ${Math.round(psel.seconds || 0)} s z predošlého behu bufferu (pred reštartom)`);
+          } else fs.renameSync(b, o.path);
+        } catch (e) { this.log.warn('clip: predošlý beh sa nepodarilo pridať: ' + e.message); if (!fs.existsSync(o.path) && fs.existsSync(b)) fs.renameSync(b, o.path); }
+        for (const f of [a, b]) try { fs.unlinkSync(f); } catch (e) { }
+      }
+    }
     this.log.info(`clip: ${secs} s (${pick.length} segmentov, ${Math.round(outSize / 1e6)} MB), výber ${t1 - t0} ms, skladanie ${t2 - t1} ms, spolu ${Date.now() - t0} ms${sel.suspicious ? ', POZOR: ' + sel.notes.join('; ') : ''}`);
     return { path: o.path, game: o.game, seconds: secs };
   }
@@ -629,7 +689,7 @@ class Engine extends EventEmitter {
       if (this.state !== 'on') throw new Error(this.error || 'Nahrávanie sa nepodarilo spustiť');
     }
     const segs = this.segments();
-    this.recording = { startIdx: segs.length ? segs[segs.length - 1].idx : 0, since: Date.now() };
+    this.recording = { parts: [{ dir: this.dir, startIdx: segs.length ? segs[segs.length - 1].idx : 0 }], since: Date.now() };
     this.setState(this.state);
   }
 
@@ -637,12 +697,27 @@ class Engine extends EventEmitter {
     if (!this.recording) return null;
     const rec = this.recording;
     await sleep(400);
-    const segs = this.segments().filter(s => s.idx >= rec.startIdx);
+    // nahrávka môže mať viac častí (buffer sa medzitým reštartoval): každú poskladaj zvlášť a potom ich spoj
+    const parts = rec.parts.map(pt => this.segments(pt.dir).filter(s => s.idx >= pt.startIdx)).filter(x => x.length);
     this.recording = null;
     this.setState(this.state);
     fs.mkdirSync(dir, { recursive: true });
     const o = this.outName(dir, 'Nahrávka');
-    await this.mux(segs, o.path, o);
+    if (parts.length <= 1) {
+      if (!parts.length) throw new Error('Nahrávka je prázdna');
+      await this.mux(parts[0], o.path, o);
+    } else {
+      this.log.info(`nahrávka: ${parts.length} časti (buffer sa medzičasom reštartoval), spájam`);
+      const files = [];
+      for (let i = 0; i < parts.length; i++) {
+        const f = o.path.replace(/\.mp4$/i, ` (časť ${i + 1}).mp4`);
+        await this.mux(parts[i], f, o); files.push(f);
+      }
+      const same = parts.every(pt => this.sameTracks(pt[0].dir, parts[0][0].dir));
+      if (same && await this.joinParts(files, o.path)) { for (const f of files) try { fs.unlinkSync(f); } catch (e) { } }
+      else { this.log.warn('nahrávka: časti sa nedali spojiť, ostávajú ako samostatné súbory'); return { path: files[files.length - 1], parts: files, game: o.game, seconds: Math.round((Date.now() - rec.since) / 1000) }; }
+    }
+    this.clean();
     return { path: o.path, game: o.game, seconds: Math.round((Date.now() - rec.since) / 1000) };
   }
 }

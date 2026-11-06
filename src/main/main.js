@@ -43,7 +43,23 @@ const ENC_FILE = path.join(USER, 'encoders.json');
 const GAME_ICONS = path.join(USER, 'gameicons');
 const TMP = path.join(app.getPath('temp'), 'LookAtThis-buffer');
 const LOGF = path.join(USER, 'lookatthis.log');
-const EDIT = path.join(app.getPath('temp'), 'LookAtThis-edit');
+const EDIT = path.join(app.getPath('temp'), 'LookAtThis-edit');      // dočasné súbory exportov (pri štarte sa maže)
+// cache editorov: náhľadové kópie (proxy) a vytiahnuté zvukové stopy. Pri štarte sa NEMAŽE (inak sa po každom
+// reštarte PC všetko kódovalo znova), stráži sa veľkosťou.
+const CACHE = path.join(app.getPath('temp'), 'LookAtThis-cache');
+/* drž priečinok pod limitom: najdlhšie nepoužité preč (podpriečinky stôp sa počítajú ako celok) */
+function pruneDir(dir, limit) {
+  try {
+    const items = fs.readdirSync(dir).map(n => {
+      const p = path.join(dir, n), st = fs.statSync(p);
+      let size = st.size, t = st.mtimeMs;
+      if (st.isDirectory()) { size = 0; for (const f of fs.readdirSync(p)) { try { const s2 = fs.statSync(path.join(p, f)); size += s2.size; t = Math.max(t, s2.mtimeMs); } catch (e) { } } }
+      return { p, size, t };
+    }).sort((a, b) => b.t - a.t);
+    let sum = 0;
+    for (const it of items) { sum += it.size; if (sum > limit) try { fs.rmSync(it.p, { recursive: true, force: true }); } catch (e) { } }
+  } catch (e) { }
+}
 const PROJ = path.join(USER, 'projects');
 const STRIPS = path.join(USER, 'strips'); // pásy náhľadov pre časovú os advanced editora
 const stripKey = file => { const st = fs.statSync(file); return crypto.createHash('sha1').update(file + '|' + st.mtimeMs + '|' + st.size).digest('hex').slice(0, 16); };
@@ -1002,7 +1018,8 @@ async function runAction(type, p = {}) {
     }
     case 'extractTracks': {
       const st = fs.statSync(p.path);
-      const dir = path.join(EDIT, crypto.createHash('sha1').update(p.path + '|' + st.mtimeMs).digest('hex').slice(0, 16));
+      const dir = path.join(CACHE, 'tracks', crypto.createHash('sha1').update(p.path + '|' + st.mtimeMs).digest('hex').slice(0, 16));
+      try { fs.utimesSync(dir, new Date(), new Date()); } catch (e) { } // naposledy použité (pre upratovanie)
       return extractTracks(FFMPEG, p.path, dir);
     }
     case 'hdrCheck': { try { return !!(await probe(FFMPEG, p.path)).hdr; } catch (e) { return false; } }
@@ -1050,8 +1067,13 @@ async function runAction(type, p = {}) {
     case 'deleteClips': {
       const failed = [];
       for (const f of p.paths || []) {
-        try { if (p.permanent) fs.unlinkSync(f); else await shell.trashItem(f); store.setMeta(f, null); }
-        catch (e) { failed.push(path.basename(f)); log.warn('mazanie', f, e.message); }
+        // náhľad v okne môže mať súbor ešte chvíľu otvorený (EBUSY / EPERM) → pár pokusov s krátkou pauzou
+        let err = null;
+        for (let k = 0; k < 4; k++) {
+          try { if (p.permanent) fs.unlinkSync(f); else await shell.trashItem(f); store.setMeta(f, null); err = null; break; }
+          catch (e) { err = e; if (!/EBUSY|EPERM|being used|používa/i.test(String(e.message))) break; await new Promise(r => setTimeout(r, 400 * (k + 1))); }
+        }
+        if (err) { failed.push(path.basename(f)); log.warn('mazanie', f, err.message); }
       }
       pushState();
       if (failed.length) throw new Error(`Nepodarilo sa: ${failed.join(', ')}`);
@@ -1507,7 +1529,7 @@ app.whenReady().then(async () => {
   engine = new Engine({ ffmpeg: FFMPEG, fxaudio: FXAUDIO, tmpRoot: TMP, log });
   obs = new Obs({ log });
   checkObs();
-  proxies = new Proxies({ ffmpeg: FFMPEG, dir: path.join(EDIT, 'proxy'), log, pickFam: () => engine.pickEncoder(store.get()).fam });
+  proxies = new Proxies({ ffmpeg: FFMPEG, dir: path.join(CACHE, 'proxy'), log, pickFam: () => engine.pickEncoder(store.get()).fam });
   setInterval(() => obsWatch().catch(() => {}), 5000);
   // skutočné rozlíšenie monitora v pixeloch (enkodéry majú strop šírky, napr. H.264 do 4096 px)
   engine.monitorPx = idx => { try { return monitors().find(m => m.idx === (Number(idx) || 0)) || null; } catch (e) { return null; } };
@@ -1519,6 +1541,8 @@ app.whenReady().then(async () => {
   fs.mkdirSync(TMP, { recursive: true });
   engine.removeOld();
   try { fs.rmSync(EDIT, { recursive: true, force: true }); } catch (e) { }
+  // cache editorov ostáva, len sa udrží pod limitom (stopy ~3 GB, proxy si stráži sám ~6 GB)
+  setTimeout(() => { pruneDir(path.join(CACHE, 'tracks'), 3e9); proxies.prune(); }, 20000);
   engine.on('state', () => pushState());
   engine.on('track', t => {
     const cur = store.get();
@@ -1538,7 +1562,7 @@ app.whenReady().then(async () => {
   for (const ev of ['unlock-screen', 'resume', 'user-did-become-active']) powerMonitor.on(ev, () => engine.wake());
   // po spánku sa hodiny obrazu a zvuku rozídu o celý čas spánku → buffer začni nanovo (inak v ňom ostane diera a nesúvislý zvuk)
   powerMonitor.on('resume', () => engine.afterResume());
-  engine.on('stall', () => toast('warn', 'Obraz sa zasekol', 'Snímanie obrazovky prestalo dodávať snímky (hra asi zmenila režim zobrazenia). Buffer som reštartoval.'));
+  engine.on('stall', () => toast('warn', 'Obraz sa zasekol', 'Snímanie obrazovky na chvíľu prestalo (hra asi zmenila režim zobrazenia). Buffer beží ďalej, clip aj nahrávka si vezmú aj to, čo bolo pred tým.'));
   engine.on('state', st => { if (st.state === 'error') { toast('error', 'Buffer spadol', st.error); notify('LookAtThis: buffer spadol', st.error); } });
 
   if (!HIDDEN || !s.onboarded) createWindow(true);

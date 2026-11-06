@@ -1,6 +1,13 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.38', items: [
+      'Opravené (dôležité): keď sa buffer reštartoval po zaseknutí obrazu (hra zmenila režim obrazovky) alebo po zamknutí PC, všetko pred reštartom sa stratilo. Clip si teraz vezme aj zábery spred zaseknutia a nahrávka pokračuje cez reštart a uloží sa celá (predtým mohla prísť skoro o všetko). Zaseknutie sa zistí rýchlejšie (8 s namiesto 12 s).',
+      'Opravené: staré priečinky bufferu po každom zaseknutí ostávali v Tempe až do reštartu appky (stovky MB). Teraz sa mažú priebežne.',
+      'Rýchlejšie editory po reštarte PC: náhľadové kópie a zvukové stopy klipov sa pri štarte appky už nemažú (predtým sa po každom štarte kódovali znova). Cache sa stráži veľkosťou.',
+      'Opravené: zmazanie klipu, ktorý mal ešte otvorený prehrávač, občas zlyhalo. Teraz to appka skúsi znova.',
+      'Drobnosti: náhľad zmazaného klipu už nespôsobí chybu v logu, aktualizácie nepíšu zbytočné varovanie.'
+    ] },
     { v: '1.0.37', items: [
       'Opravené: advanced editor nenačítal celý projekt. Projekt si zoznam klipov ukladal len z toho, čo už bolo načítané, takže uloženie počas otvárania niektoré klipy „stratilo“ (ostali na osi bez obrazu a zvuku). Teraz sa nič nestratí a už pokazené projekty sa pri otvorení samé opravia.',
       'Klip, ktorý chýba na disku, sa už z projektu nevymaže. Ostane na osi šrafovaný s nápisom Chýba a export ho vynechá.',
