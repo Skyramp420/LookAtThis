@@ -1047,7 +1047,18 @@ window.Player = (function () {
     /* vrstva nad editorom (výber klipu, skratky, ukladanie, neuložené zmeny) */
     let layerClose = null;
     function showLayer(html, cls = '', onClose) {
-      layer.className = 'ed-layer ' + cls; layer.innerHTML = html; layer.hidden = false; layerClose = onClose || null;
+      // ďalší krok toho istého okna (ukladám → uložené): nevyskakuj znova, len vymeň obsah a plynulo zmeň výšku
+      const swap = !layer.hidden && !!layer.firstElementChild && cls.split(' ').includes('sv-layer') && layer.classList.contains('sv-layer');
+      const h0 = swap ? layer.firstElementChild.offsetHeight : 0;
+      layer.className = 'ed-layer ' + cls + (swap ? ' swap' : ''); layer.innerHTML = html; layer.hidden = false; layerClose = onClose || null;
+      if (swap) {
+        const c = layer.firstElementChild, h1 = c.offsetHeight;
+        if (Math.abs(h1 - h0) > 1) {
+          Object.assign(c.style, { height: h0 + 'px', overflow: 'hidden' }); void c.offsetHeight;
+          c.style.transition = 'height .4s var(--glide)'; c.style.height = h1 + 'px';
+          setTimeout(() => Object.assign(c.style, { height: '', overflow: '', transition: '' }), 450);
+        }
+      }
       return layer;
     }
     function hideLayer() { if (layer.hidden) return; Cal.close(); layer.hidden = true; layer.innerHTML = ''; const f = layerClose; layerClose = null; f && f(); }

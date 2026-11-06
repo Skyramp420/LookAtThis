@@ -1,6 +1,14 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.39', items: [
+      'Advanced editor: klik na klip vyberie video aj jeho zvuk naraz, ako v strihových programoch. S Alt vyberieš len to, na čo klikneš.',
+      'Zvukové stopy klipu sú zbalené do jedného riadku „Zvuk“ (všetky stopy klipu v jednom bloku, každá vo svojej farbe). Šípkou ho rozbalíš na Systém, Hru, Discord a Mikrofón. Klipy na vrstve Video 2 majú vlastný riadok „Zvuk 2“, takže pri skladaní viacerých videí na seba nevznikne chaos.',
+      'Rýchly náhľad: klik na klip v paneli Médiá ho prehrá v náhľade bez pridania na os. Klávesmi I a O vyberieš len časť, Enter ju pridá na koniec, Esc ťa vráti späť. Dvojklik alebo pretiahnutie pridá klip ako doteraz.',
+      'Pridaný klip je na osi hneď s animáciou načítavania, zvuk sa doplní, keď je pripravený (už to nevyzerá, že appka zamrzla). Stopy sa pripravujú rýchlejšie a pri náhľade už vopred.',
+      'Export má nový vzhľad v štýle appky: náhľad obrazu, veľkosť ako karty s informáciou, čo pri nej vyjde (rozlíšenie, fps, kvalita), a priebeh aj Hotovo v tom istom okne bez skákania.',
+      'Opravené animácie: karty v knižnici už po štarte a pri návrate na Klipy znova neposkakujú, stopy v advanced editore neposkakujú počas načítavania projektu a okno ukladania v simple editore sa pri dokončení neotvára nanovo.'
+    ] },
     { v: '1.0.38', items: [
       'Opravené (dôležité): keď sa buffer reštartoval po zaseknutí obrazu (hra zmenila režim obrazovky) alebo po zamknutí PC, všetko pred reštartom sa stratilo. Clip si teraz vezme aj zábery spred zaseknutia a nahrávka pokračuje cez reštart a uloží sa celá (predtým mohla prísť skoro o všetko). Zaseknutie sa zistí rýchlejšie (8 s namiesto 12 s).',
       'Opravené: staré priečinky bufferu po každom zaseknutí ostávali v Tempe až do reštartu appky (stovky MB). Teraz sa mažú priebežne.',

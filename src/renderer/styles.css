@@ -950,7 +950,7 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .kb-r span { flex: none; min-width: 92px; }
 .kb-r em { font-style: normal; color: var(--muted); }
 .kb-r kbd { font-family: var(--tc); }
-.sv { width: min(400px, 100%); padding: 26px 26px 22px; text-align: center; }
+.sv { width: min(440px, 100%); padding: 26px 26px 22px; text-align: center; }
 .sv h3 { font: 700 18px var(--display); margin: 12px 0 4px; }
 .sv p { color: var(--muted); font-size: 12.5px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sv-ring { position: relative; width: 84px; height: 84px; margin: 0 auto; }
@@ -1307,3 +1307,8 @@ button.kbd.listening { background: color-mix(in srgb, var(--accent) 22%, transpa
 /* ukladanie v simple editore: odhad času a zrušenie */
 .sv .sv-eta { min-height: 1.2em; margin-top: -2px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .sv .sv-cancel { margin-top: 12px; }
+
+/* okno ukladania v simple editore: ďalší krok sa len plynulo vymení (nevyskakuje znova) */
+.ed-layer.swap, .ed-layer.swap > div { animation: none; }
+.ed-layer.swap > div > * { animation: edSwap .3s var(--glide) both; }
+@keyframes edSwap { from { opacity: 0; transform: translateY(4px); } }

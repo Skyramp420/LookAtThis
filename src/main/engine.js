@@ -818,14 +818,14 @@ async function extractTracksFresh(ffmpeg, file, outDir) {
     const r = await run(ffmpeg, args);
     if (r.code !== 0) throw new Error(lastLine(r.err) || 'Stopy sa nepodarilo pripraviť');
   }
-  // obálka hlasitosti pre metre v editore: špička každých 50 ms, 0–255
-  for (const t of tracks) {
+  // obálka hlasitosti pre metre v editore: špička každých 50 ms, 0–255 (všetky stopy naraz)
+  await Promise.all(tracks.map(async t => {
     const lv = t.file.replace(/\.m4a$/, '.lvl');
     try {
       if (!fs.existsSync(lv)) fs.writeFileSync(lv, await envelope(ffmpeg, t.file));
       t.levels = fs.readFileSync(lv).toString('base64');
     } catch (e) { t.levels = ''; }
-  }
+  }));
   return { ...meta, tracks };
 }
 function envelope(ffmpeg, file) {

@@ -1661,10 +1661,13 @@
   }
 
   /* ---------- render ---------- */
+  /* podpis knižnice: čo sa musí zmeniť, aby sa karty prekreslili */
+  const clipsSig = () => (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + c.game + (gameF === '__fav' && c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
   function render() {
     if (!S) return;
     renderChrome();
-    if (view === 'clips') renderClips();
+    // karty naskočia len pri prvom zobrazení; pri návrate na Klipy (a pri prvom stave z appky po štarte) už nie
+    if (view === 'clips') { const quiet = !!lastSig; lastSig = clipsSig(); lastFavN = favCount(); renderClips(quiet); }
     else if (view === 'projects') { if (!$('#view-projects').childElementCount || projDirty) renderProjects(); }
     else if (view === 'audio') renderAudio();
     else renderSettings();
@@ -1682,7 +1685,7 @@
     // klipy prekresli len keď sa naozaj zmenili (inak by karty pri každej zmene stavu znova naskakovali)
     // náhľady pribúdajú po dávkach: vtedy len doplň obrázky, celú knižnicu neprekresľuj
     // hviezdičky sú v podpise len v zobrazení Obľúbené (inde ich karta prepne sama, bez prekreslenia)
-    const sig = (S.folders || []).join('/') + folderF + S.clips.map(c => c.path + c.mtime + c.game + (gameF === '__fav' && c.fav ? '★' : '')).join('|') + S.settings.hotkeys.clip + S.settings.bufferSeconds + JSON.stringify(S.settings.gameNames || {}) + (S.installed || []).map(g => g.name + (g.icon || '')).join();
+    const sig = clipsSig();
     if (view === 'clips') {
       if (sig !== lastSig) {
         // zmena na pozadí (nový clip, presun…): prekresli potichu, bez nábehovej animácie a so zachovaným posunom
