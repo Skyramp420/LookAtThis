@@ -142,7 +142,6 @@ window.Player = (function () {
           <button class="ed-ico" id="bHelp" title="Klávesové skratky (?)">${IC.kbd}</button>
           <span id="srcActions"></span>
           <span class="save-size" id="fmtPb"></span>
-          <span class="save-size" id="saveSize"></span>
           <button class="btn ed-adv" id="bAdv" title="Preniesť do advanced editora (viac stôp, hudba, shorty)"><svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 14.5h6M3 17h9M12 14.5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Advanced</span></button>
           <button class="btn primary ed-save" id="plSave">${IC.save}<span>Uložiť</span></button>
           <button class="ed-ico ed-x" id="plClose" aria-label="Zavrieť" title="Zavrieť">${I.x}</button>
@@ -1697,31 +1696,49 @@ window.Player = (function () {
     $('#bHelp', m).onclick = showHelp;
 
     /* ================= uloženie ================= */
-    const sizeLabel = () => (SAVE_SIZES.find(x => x.v === saveMB) || SAVE_SIZES[0]).l;
+    /* uloženie: rovnaké okno ako export v advanced editore (veľkosť sa vyberá v ňom, nie v hornej lište) */
+    const LBASE = 'ed-layer sv-layer';
+    let thumbUrl = '';
+    const outDims = () => [OW < W ? OW : W, H];
+    const svHead = (title, sub, extra) => UI.xhead({ thumb: thumbUrl, ratio: `${outDims()[0]}/${outDims()[1]}`, title, sub, extra });
+    function saveDialog() {
+      if (saving || !segs.length) return;
+      pause();
+      const D = total(), [ow, oh] = outDims();
+      thumbUrl = UI.xthumb([...sources.values()].map(x => x.video));
+      const sub = `${dur(D)} · ${ow}×${oh}${overlays.length ? ` · ${overlays.length} ${plural(overlays.length, 'objekt', 'objekty', 'objektov')}` : ''}`;
+      const sh = UI.xsheet(layer, LBASE, `${svHead('Uložiť strih', sub)}
+        <div class="xs-f"><span class="xs-lbl">Veľkosť</span>${UI.xsizes(saveMB)}<p class="xs-note xs-qn" data-xs="q">${UI.xquality(saveMB, D, ow, oh, FPS)}</p></div>
+        <label class="toggle xs-keep" data-xs="keep"${saveMB ? ' hidden' : ''}><input type="checkbox"${keepTracks ? ' checked' : ''}><span>Pridať aj každú zvukovú stopu zvlášť (pre DaVinci, Premiere)</span></label>
+        <div class="xs-acts"><button class="btn" data-a="x">Zrušiť</button><button class="btn primary" data-a="go">${IC.save}<span>Uložiť</span></button></div>`);
+      layerClose = null;
+      UI.xbindSizes(sh, mb => {
+        saveMB = mb; LS.set('saveMB', saveMB);
+        sh.querySelector('[data-xs=q]').innerHTML = UI.xquality(saveMB, D, ow, oh, FPS);
+        sh.querySelector('[data-xs=keep]').hidden = !!saveMB;
+      });
+      const kc = sh.querySelector('[data-xs=keep] input');
+      kc.onchange = () => { keepTracks = kc.checked; const k2 = $('#keep', m); if (k2) k2.checked = keepTracks; };
+      sh.querySelector('[data-a=x]').onclick = () => UI.xhide(layer);
+      sh.querySelector('[data-a=go]').onclick = save;
+      setTimeout(() => { const g = sh.querySelector('[data-a=go]'); if (g) g.focus(); }, 60);
+    }
     async function save() {
       if (saving || !segs.length) return;
       pause();
       saving = true;
-      const D = total();
-      const l = showLayer(`<div class="sv">
-        <div class="sv-ring"><svg viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27"/><circle class="fg" id="svRing" cx="32" cy="32" r="27"/></svg><b id="svPct">0 %</b></div>
-        <h3>Ukladám strih…</h3><p>${dur(D)} · ${esc(sizeLabel())}${overlays.length ? ` · ${overlays.length} ${plural(overlays.length, 'objekt', 'objekty', 'objektov')}` : ''}</p>
-        <p class="sv-eta" id="svEta">&nbsp;</p><button class="btn sv-cancel" data-a="cancel">Zrušiť</button></div>`, 'locked sv-layer');
-      // odhad zostávajúceho času z doterajšieho tempa (vyhladený)
-      const t0 = performance.now(); let etaS = null, etaAt = 0, cancelling = false;
-      const setP = v => {
-        const r = $('#svRing', l), pct = $('#svPct', l); if (r) r.style.strokeDashoffset = String(170 * (1 - v)); if (pct) pct.textContent = Math.round(v * 100) + ' %';
-        const now = performance.now(), el = (now - t0) / 1000;
-        if (v > 0.02 && el > 2.5 && now - etaAt > 900) {
-          etaAt = now; const rem = el * (1 - v) / v; etaS = etaS == null ? rem : etaS * 0.7 + rem * 0.3;
-          const e = $('#svEta', l); if (e) e.textContent = UI.eta(etaS);
-        }
-      };
-      Player._onEvent = ev => { if (ev.type === 'exportProgress' && !cancelling) setP(ev.value); };
+      const D = total(), [ow, oh] = outDims();
+      if (!thumbUrl) thumbUrl = UI.xthumb([...sources.values()].map(x => x.video));
+      const sz = SAVE_SIZES.find(x => x.v === saveMB);
+      const l = UI.xsheet(layer, LBASE + ' locked', UI.xprogress(svHead('Ukladám strih…', `${dur(D)} · ${ow}×${oh}${saveMB ? ` · ${saveMB} MB` : ''}`)));
+      let cancelling = false;
+      const track = UI.xtracker(l);
+      Player._onEvent = ev => { if (ev.type === 'exportProgress' && !cancelling) track(ev.value); };
       const cbt = l.querySelector('[data-a=cancel]');
       cbt.onclick = () => {
         if (cancelling) return;
         cancelling = true; cbt.disabled = true; cbt.textContent = 'Ruším…'; l.querySelector('h3').textContent = 'Ruším ukladanie…';
+        const e2 = l.querySelector('[data-xs=eta]'); if (e2) e2.textContent = '';
         api.action('cancelExport').catch(() => { });
       };
       try {
@@ -1731,7 +1748,7 @@ window.Player = (function () {
           ovs.push({ ...r, start: o.start, end: o.end, animIn: o.animIn || 'none', animOut: o.animOut || 'none' });
         }
         const out = await api.action('exportSequence', {
-          W, H, fps: FPS, keepTracks, targetMB: saveMB, cropW: OW < W ? OW : 0, region: RG,
+          W, H, fps: FPS, keepTracks: keepTracks && !saveMB, targetMB: saveMB, cropW: OW < W ? OW : 0, region: RG,
           offsets: Object.fromEntries(mixer.filter(x => x.off).map(x => [x.i, x.off])),
           segments: segs.map(s => { const src = sources.get(s.src); return { file: src.path, in: s.in, out: s.out, cropX: OW < W ? cropLeft(s) : null, speed: sp(s), fadeIn: !!s.fadeIn, fadeOut: !!s.fadeOut, audio: src.tracks.length || (src.ready ? 0 : 1) }; }),
           overlays: ovs,
@@ -1740,28 +1757,25 @@ window.Player = (function () {
         });
         saving = false; savedSnap = snap();
         const name = String(out).split(/[\\/]/).pop();
-        showLayer(`<div class="sv done">
-          <svg class="cmp-check" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M21 33l7.5 7L43 25"/></svg>
-          <h3>Uložené</h3><p title="${esc(out)}">${esc(name)}</p>
-          <div class="sv-acts">
-            <button class="btn" data-a="copy">${IC.copy}<span>Kopírovať pre Discord</span></button>
-            <button class="btn" data-a="reveal">${I.folder}<span>Ukázať v priečinku</span></button>
-          </div>
-          <div class="sv-acts"><button class="btn ghost" data-a="more">Upravovať ďalej</button><button class="btn primary" data-a="close">Zavrieť editor</button></div></div>`, 'sv-layer');
-        const cb = l.querySelector('[data-a=copy]');
+        const d = UI.xsheet(layer, LBASE, `${svHead('Uložené', esc(name), UI.XS_CHECK)}
+          <div class="xs-acts xs-done"><button class="btn" data-a="copy">${IC.copy}<span>Kopírovať pre Discord</span></button><button class="btn" data-a="reveal">${I.folder}<span>Ukázať v priečinku</span></button></div>
+          <div class="xs-acts xs-fin"><button class="btn ghost" data-a="more">Upravovať ďalej</button><button class="btn primary" data-a="close">Zavrieť editor</button></div>`);
+        d.querySelector('[data-xs=sub]').title = out;
+        const cb = d.querySelector('[data-a=copy]');
         cb.onclick = async () => { try { await api.action('copyFile', { path: out }); cb.classList.add('ok'); cb.querySelector('span').textContent = 'Skopírované, vlož cez Ctrl+V'; } catch (er) { toast('error', 'Kopírovanie zlyhalo', er.message); } };
-        l.querySelector('[data-a=reveal]').onclick = () => api.action('reveal', { path: out });
-        l.querySelector('[data-a=more]').onclick = hideLayer;
-        l.querySelector('[data-a=close]').onclick = () => closeModal(true);
+        d.querySelector('[data-a=reveal]').onclick = () => api.action('reveal', { path: out });
+        d.querySelector('[data-a=more]').onclick = () => UI.xhide(layer);
+        d.querySelector('[data-a=close]').onclick = () => closeModal(true);
+        if (sz && sz.v) d.querySelector('[data-xs=sub]').textContent = `${name} · ${sz.l}`;
       } catch (e) {
         saving = false;
-        hideLayer();
+        UI.xhide(layer);
         if (cancelling) toast('info', 'Uloženie zrušené', 'Nedokončený súbor som zmazal.');
         else toast('error', 'Uloženie zlyhalo', e.message);
       }
       Player._onEvent = null;
     }
-    $('#plSave', m).onclick = save;
+    $('#plSave', m).onclick = saveDialog;
     $('#hqBtn', m).onclick = e => { const on = !UI.previewFull(); UI.setPreviewFull([...sources.values()].map(x => x.video), on); e.currentTarget.classList.toggle('on', on); toast('info', on ? 'Náhľad v plnej kvalite' : 'Rýchly náhľad', on ? 'Skákanie po klipe bude pomalšie.' : 'Náhľad z ľahkej kópie, uložené video je stále v plnej kvalite.'); };
     /* prenos do advanced editora: úseky, text, nastavenie stôp; video „preletí“ z tohto rámu */
     $('#bAdv', m).onclick = () => {
@@ -1786,12 +1800,7 @@ window.Player = (function () {
       closeModal(true);
       window.openStudio(input, { fromRect, fromImage: img });
     };
-    // voľba veľkosti pri uložení (Pôvodná / 20 MB pre Discord …)
-    function renderSaveSize() {
-      $('#saveSize', m).innerHTML = UI.pb(sizeLabel(), () => SAVE_SIZES.map(x => ({ label: x.l, v: x.v, checked: x.v === saveMB })), it => { saveMB = it.v; LS.set('saveMB', saveMB); renderSaveSize(); }, 'title="Veľkosť uloženého klipu"');
-    }
     saveMB = Number(LS.get('saveMB', 0)) || 0;
-    renderSaveSize();
 
     /* neuložené úpravy: spýtaj sa pred zatvorením */
     function beforeClose() {
@@ -1830,7 +1839,7 @@ window.Player = (function () {
     function onKey(e) {
       if (!document.body.contains(m)) return;
       if (!layer.hidden) {
-        if (e.key === 'Escape') { e.stopImmediatePropagation(); if (!layer.classList.contains('locked')) hideLayer(); }
+        if (e.key === 'Escape') { e.stopImmediatePropagation(); if (!layer.classList.contains('locked')) { if (layer.querySelector('.xs')) UI.xhide(layer); else hideLayer(); } }
         return;
       }
       if (e.target.closest('input:not([type=range]):not([type=checkbox]), textarea')) return;
@@ -1838,7 +1847,7 @@ window.Player = (function () {
       if (ctrl && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
       if (ctrl && k === 'y') { e.preventDefault(); redo(); return; }
       if (ctrl && k === 'd') { e.preventDefault(); duplicate(paneSeg()); return; }
-      if (ctrl && k === 's') { e.preventDefault(); save(); return; }
+      if (ctrl && k === 's') { e.preventDefault(); if (layer.querySelector('.xs') && !layer.hidden && !saving) save(); else saveDialog(); return; }
       if (ctrl || e.altKey && !['arrowleft', 'arrowright'].includes(k)) return;
       if (e.key === ' ') { e.preventDefault(); toggle(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); seek(t - (e.shiftKey ? 1 : 1 / FPS * (e.altKey ? 1 : 10)), false); }

@@ -367,6 +367,79 @@ window.UI = (function () {
     return { toggleMute };
   }
   function pvSave() { try { localStorage.setItem('previewVol', String(PV.vol)); localStorage.setItem('previewMute', PV.mute ? '1' : '0'); } catch (e) { } }
+  /* ---------- okno exportu: rovnaké v oboch editoroch ----------
+     Jedno okno, ktoré pri ďalšom kroku (nastavenia → priebeh → hotovo) nevyskakuje znova, len vymení obsah a plynulo zmení výšku. */
+  const XS_SIZES = [{ v: 0, l: 'Pôvodná', s: 'plná kvalita' }, { v: 20, l: 'Discord', s: '20 MB' }, { v: 10, l: '10 MB', s: 'staré limity' }, { v: 50, l: 'Nitro Basic', s: '50 MB' }, { v: 100, l: 'Nitro', s: '100 MB' }];
+  const XS_EXP = '<svg viewBox="0 0 20 20"><path d="M10 3v9.5M6 8.5l4 4 4-4M4 15.5h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function xsheet(layer, base, html) {
+    let sh = !layer.hidden && !layer.classList.contains('xs-out') ? layer.querySelector('.xs') : null;
+    const noanim = !document.hasFocus() || document.hidden || layer.classList.contains('noanim');
+    layer.className = base + (noanim ? ' noanim' : '');
+    if (!sh) {
+      layer.innerHTML = `<div class="xs" role="dialog"><div class="xs-b">${html}</div></div>`;
+      layer.hidden = false;
+      return layer.querySelector('.xs');
+    }
+    const b = sh.querySelector('.xs-b'), h0 = sh.offsetHeight;
+    b.innerHTML = html;
+    sh.style.height = 'auto'; const h1 = sh.offsetHeight;
+    b.classList.remove('swap'); void b.offsetWidth; b.classList.add('swap');
+    if (Math.abs(h1 - h0) > 1 && !noanim) {
+      sh.style.height = h0 + 'px'; void sh.offsetHeight; sh.style.height = h1 + 'px';
+      const done = () => { sh.style.height = ''; sh.removeEventListener('transitionend', done); };
+      sh.addEventListener('transitionend', done); setTimeout(done, 520);
+    } else sh.style.height = '';
+    return sh;
+  }
+  function xhide(layer, after) {
+    if (layer.hidden) { if (after) after(); return; }
+    const fin = () => { layer.hidden = true; layer.innerHTML = ''; layer.classList.remove('xs-out'); if (after) after(); };
+    if (!layer.querySelector('.xs') || layer.classList.contains('noanim')) { fin(); return; }
+    layer.classList.add('xs-out');
+    setTimeout(() => { if (layer.classList.contains('xs-out')) fin(); }, 190);
+  }
+  /* snímka z prehrávača do hlavičky okna */
+  function xthumb(videos) {
+    try {
+      const v = [...videos].find(x => x && x.videoWidth && x.readyState >= 2 && getComputedStyle(x).visibility !== 'hidden') || [...videos].find(x => x && x.videoWidth);
+      if (!v) return '';
+      const c = document.createElement('canvas'); c.width = 320; c.height = Math.round(320 * v.videoHeight / v.videoWidth);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.8);
+    } catch (e) { return ''; }
+  }
+  const xhead = o => `<div class="xs-hd">
+      <div class="xs-th" style="aspect-ratio:${o.ratio || '16/9'}">${o.thumb ? `<img src="${esc(o.thumb)}" alt="">` : `<i>${XS_EXP}</i>`}${o.extra || ''}</div>
+      <div class="xs-ti"><h3>${o.title}</h3><p class="xs-note" data-xs="sub">${o.sub || ''}</p></div></div>`;
+  const xsizes = mb => `<div class="xs-q">${XS_SIZES.map(x => `<button type="button" class="xs-c${x.v === mb ? ' on' : ''}" data-mb="${x.v}"><b>${x.l}</b><small>${x.s}</small></button>`).join('')}</div>`;
+  /* čo pri zvolenej veľkosti vyjde (rovnaký výpočet ako pri exporte) */
+  function xquality(mb, D, w, h, fps) {
+    if (!mb) return `${w}×${h} · ${fps} fps · bez straty kvality`;
+    if (!window.Compress) return '';
+    const pl = Compress.plan({ duration: D, width: w, height: h, fps, targetMB: mb });
+    return pl.ok ? `Vyjde ${pl.height}p · ${pl.fps} fps · kvalita ${pl.quality}` : `<span class="warn">Na ${mb} MB je to pridlhé (najviac ${Math.floor(pl.maxSeconds / 60)} min ${pl.maxSeconds % 60} s)</span>`;
+  }
+  /* karty veľkosti: klik vyberie, onPick(mb) */
+  function xbindSizes(sh, onPick) {
+    sh.querySelectorAll('.xs-c').forEach(b => b.onclick = () => { sh.querySelectorAll('.xs-c').forEach(x => x.classList.toggle('on', x === b)); onPick(Number(b.dataset.mb)); });
+  }
+  const xprogress = (head, cancel = true) => `${head}
+      <div class="xs-st"><b data-xs="pct">0 %</b><span data-xs="eta">pripravujem…</span></div>
+      <div class="xs-bar"><i data-xs="fill"></i></div>
+      ${cancel ? '<div class="xs-acts"><button class="btn" data-a="cancel">Zrušiť</button></div>' : ''}`;
+  /* priebeh: v = 0–1; odhad času sa počíta sám (vyhladený) */
+  function xtracker(sh) {
+    const t0 = performance.now(); let etaS = null, etaAt = 0;
+    return v => {
+      const f = sh.querySelector('[data-xs=fill]'), p = sh.querySelector('[data-xs=pct]');
+      if (f) f.style.transform = `scaleX(${v})`; if (p) p.textContent = Math.round(v * 100) + ' %';
+      const now = performance.now(), el = (now - t0) / 1000;
+      if (v > 0.02 && el > 2.5 && now - etaAt > 900) {
+        etaAt = now; const rem = el * (1 - v) / v; etaS = etaS == null ? rem : etaS * 0.7 + rem * 0.3;
+        const e = sh.querySelector('[data-xs=eta]'); if (e) e.textContent = eta(etaS);
+      }
+    };
+  }
+  const XS_CHECK = '<svg class="cmp-check" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M21 33l7.5 7L43 25"/></svg>';
   /* odhad zostávajúceho času: „ešte ~40 s“, „ešte ~2 min 30 s“ */
   function eta(sec) {
     if (!isFinite(sec) || sec < 0) return '';
@@ -374,5 +447,5 @@ window.UI = (function () {
     const m = Math.floor(sec / 60), r = Math.round((sec % 60) / 10) * 10;
     return m >= 10 ? `ešte ~${m + (r >= 30 ? 1 : 0)} min` : `ešte ~${m} min${r && r < 60 ? ` ${r} s` : ''}`;
   }
-  return { eta, pvol, volCtl, wireVol, $, $$, esc, I, menu, smoothSeek, useProxy, setPreviewFull, previewFull, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
+  return { xsheet, xhide, xthumb, xhead, xsizes, xquality, xbindSizes, xprogress, xtracker, XS_CHECK, XS_EXP, eta, pvol, volCtl, wireVol, $, $$, esc, I, menu, smoothSeek, useProxy, setPreviewFull, previewFull, closeMenu, pb, seg, placeThumbs, onSeg, toast, modal, closeModal, confirm, trashDialog, sound, SOUNDS, dur, durMs, size, dayLabel, time, fileUrl };
 })();

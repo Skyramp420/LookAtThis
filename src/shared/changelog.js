@@ -1,6 +1,16 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.40', items: [
+      'Simple editor ukladá cez rovnaké okno ako export v advanced editore. Veľkosť (Pôvodná, Discord 20 MB…) vyberáš priamo v ňom a hneď vidíš, aká kvalita pri nej vyjde. Výber veľkosti z hornej lišty zmizol.',
+      'Inšpektor v advanced editore je prerobený: prehľadné sekcie Rýchlosť, Obraz, Pohyb a Prechod a stmievanie, ktoré sa plynulo zbaľujú a rozbaľujú (a pamätajú si to). Zbalená sekcia ukáže stručný stav, napríklad „1,5×“ alebo „2 keyframy“.',
+      'Keyframy majú vlastný pás s kosoštvorcami a prehrávacou hlavou: klik skočí na keyframe, ťahaním ho posunieš, šípky skáču medzi keyframami. Krivka priebehu sa ukáže pri vybranom keyframe.',
+      'Opravené: keď bol rozbalený zvuk a klikol si na klip, keyframe sa pridal na zvukovú stopu namiesto videa.',
+      'Záložky inšpektora sa ukazujú podľa výberu: klip = Klip a Zvuk (hlasitosť každej stopy tohto klipu), samotný zvuk = Zvuk, text = Text. Bez výberu ukáže hlasitosť stôp.',
+      'Text sa pridáva na jednom mieste: panel Text vľavo (alebo kláves T). Duplicitné tlačidlá zmizli z lišty aj z inšpektora.',
+      'In a Out: oba úchyty sú vždy vidno a dajú sa potiahnuť (predtým sa po nastavení len In nedal Out upraviť). Pri zapnutom prichytávaní sa chytia na začiatok a koniec klipov.',
+      'Plynulejší editor: rozbalený zvuk sa vyroluje a pri zbalení zaroluje, nové a odstránené stopy sa vysunú a zasunú, klip pridaný z médií preletí na svoje miesto na osi a tlačidlá jemne reagujú na stlačenie. Kosoštvorec „poskočí“ len pri pridaní keyframu, nie pri každej zmene.'
+    ] },
     { v: '1.0.39', items: [
       'Advanced editor: klik na klip vyberie video aj jeho zvuk naraz, ako v strihových programoch. S Alt vyberieš len to, na čo klikneš.',
       'Zvukové stopy klipu sú zbalené do jedného riadku „Zvuk“ (všetky stopy klipu v jednom bloku, každá vo svojej farbe). Šípkou ho rozbalíš na Systém, Hru, Discord a Mikrofón. Klipy na vrstve Video 2 majú vlastný riadok „Zvuk 2“, takže pri skladaní viacerých videí na seba nevznikne chaos.',
