@@ -328,6 +328,12 @@ typedef struct {
   IAudioClient *client; IAudioCaptureClient *cap; HANDLE evt;
   int is16;              /* záloha: zdroj nám dáva 16-bit PCM */
   int srcCh;
+  /* vlastný formát zariadenia: prevod (kanály, vzorkovanie) robíme tu, nie v audiodg.
+     Prevod vo Windows beží v tom istom vlákne, ktoré hrá zvuk do reproduktorov, a pri plne
+     vyťaženom procesore sa potom sekal aj samotný systémový zvuk. */
+  int native, nCh, bits, isFloat, rate, block;
+  DWORD mask;
+  double pos; float last[2]; int haveLast; float lp[2][2];
 } Source;
 
 static void src_close(Source *s) {
@@ -350,9 +356,44 @@ static void make_fmt(WAVEFORMATEXTENSIBLE *f, int is16) {
   f->SubFormat = is16 ? KSDATAFORMAT_SUBTYPE_PCM_ : KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_;
 }
 
-/* inicializuj klienta vo formáte 48k float stereo; Windows si prevod spraví sám (AUTOCONVERTPCM) */
-static int src_start(Source *s, IAudioClient *client, int loopback) {
-  s->client = client; s->is16 = 0; s->srcCh = CH;
+/* zariadenie v jeho vlastnom formáte (bez prevodu vo Windows); 0 = formát nepoznáme, skús prevod vo Windows */
+static int native_init(Source *s, IAudioClient *client, int loopback) {
+  WAVEFORMATEX *mf = NULL;
+  if (FAILED(IAudioClient_GetMixFormat(client, &mf)) || !mf) return 0;
+  int isFloat = 0, isPcm = 0, bits = mf->wBitsPerSample; DWORD mask = 0;
+  if (mf->wFormatTag == WAVE_FORMAT_EXTENSIBLE && mf->cbSize >= 22) {
+    WAVEFORMATEXTENSIBLE *x = (WAVEFORMATEXTENSIBLE *)mf;
+    isFloat = IsEqualGUID(&x->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_);
+    isPcm = IsEqualGUID(&x->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM_);
+    mask = x->dwChannelMask;
+  } else if (mf->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) isFloat = 1;
+  else if (mf->wFormatTag == WAVE_FORMAT_PCM) isPcm = 1;
+  int ok = mf->nChannels >= 1 && mf->nChannels <= 16 && mf->nSamplesPerSec >= 8000 && mf->nSamplesPerSec <= 384000 &&
+           ((isFloat && bits == 32) || (isPcm && (bits == 16 || bits == 24 || bits == 32)));
+  HRESULT hr = E_FAIL;
+  if (ok) {
+    DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | (loopback ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0);
+    hr = IAudioClient_Initialize(client, AUDCLNT_SHAREMODE_SHARED, flags, 10000000 /* 1 s */, 0, mf, NULL);
+  }
+  if (SUCCEEDED(hr)) {
+    s->native = 1; s->nCh = mf->nChannels; s->bits = bits; s->isFloat = isFloat; s->rate = (int)mf->nSamplesPerSec;
+    s->block = mf->nBlockAlign; s->mask = mask; s->pos = 0; s->haveLast = 0; memset(s->lp, 0, sizeof s->lp);
+    fprintf(stderr, "{\"ev\":\"fmt\",\"rate\":%d,\"ch\":%d,\"bits\":%d,\"float\":%d,\"native\":1}\n", s->rate, s->nCh, bits, isFloat); fflush(stderr);
+  }
+  CoTaskMemFree(mf);
+  return SUCCEEDED(hr);
+}
+
+/* inicializuj klienta: zariadenie najprv v jeho vlastnom formáte, inak (a pri zvuku jednej appky)
+   vo formáte 48k float stereo a prevod spraví Windows (AUTOCONVERTPCM) */
+static int src_start(Source *s, IAudioClient *client, int loopback, int device) {
+  s->client = client; s->is16 = 0; s->srcCh = CH; s->native = 0;
+  if (device && native_init(s, client, loopback)) {
+    IAudioClient_SetEventHandle(client, s->evt);
+    if (FAILED(IAudioClient_GetService(client, &IID_IAudioCaptureClient_, (void **)&s->cap))) { src_close(s); return 0; }
+    if (FAILED(IAudioClient_Start(client))) { src_close(s); return 0; }
+    return 1;
+  }
   DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
   if (loopback) flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
   WAVEFORMATEXTENSIBLE f; HRESULT hr = E_FAIL;
@@ -394,6 +435,70 @@ static size_t ring_pop(float *dst, size_t frames) {
 }
 static void ring_drop(size_t frames) { if (frames > g_count) frames = g_count; g_head = (g_head + frames) % RING_FRAMES; g_count -= frames; }
 
+/* jedna vzorka kanála c z rámca p ako float */
+static float smp(const Source *s, const BYTE *p, int c) {
+  if (s->isFloat) return ((const float *)p)[c];
+  if (s->bits == 16) return ((const short *)p)[c] / 32768.f;
+  if (s->bits == 24) { const BYTE *b = p + c * 3; int v = (int)((unsigned)b[0] << 8 | (unsigned)b[1] << 16 | (unsigned)b[2] << 24) >> 8; return v / 8388608.f; }
+  return (float)(((const int *)p)[c] / 2147483648.0);
+}
+/* rámec zariadenia → stereo (viackanálový zvuk sa zmieša: stred a zadné do oboch strán, LFE vynecháme) */
+static void to_stereo(const Source *s, const BYTE *p, float *L, float *R) {
+  if (s->nCh == 1) { *L = *R = smp(s, p, 0); return; }
+  if (s->nCh == 2) { *L = smp(s, p, 0); *R = smp(s, p, 1); return; }
+  static const DWORD order[8] = { SPEAKER_FRONT_LEFT, SPEAKER_FRONT_RIGHT, SPEAKER_FRONT_CENTER, SPEAKER_LOW_FREQUENCY, SPEAKER_BACK_LEFT, SPEAKER_BACK_RIGHT, SPEAKER_SIDE_LEFT, SPEAKER_SIDE_RIGHT };
+  float l = 0, r = 0; DWORD m = s->mask; int bit = 0;
+  for (int c = 0; c < s->nCh; c++) {
+    DWORD sp = 0;
+    if (m) { while (bit < 32 && !(m & (1u << bit))) bit++; sp = bit < 32 ? (1u << bit) : 0; bit++; }
+    else sp = c < 8 ? order[c] : 0;
+    float v = smp(s, p, c);
+    switch (sp) {
+      case SPEAKER_FRONT_LEFT: case SPEAKER_FRONT_LEFT_OF_CENTER: l += v; break;
+      case SPEAKER_FRONT_RIGHT: case SPEAKER_FRONT_RIGHT_OF_CENTER: r += v; break;
+      case SPEAKER_FRONT_CENTER: l += 0.7071f * v; r += 0.7071f * v; break;
+      case SPEAKER_BACK_LEFT: case SPEAKER_SIDE_LEFT: l += 0.7071f * v; break;
+      case SPEAKER_BACK_RIGHT: case SPEAKER_SIDE_RIGHT: r += 0.7071f * v; break;
+      case SPEAKER_BACK_CENTER: l += 0.5f * v; r += 0.5f * v; break;
+      default: break; /* LFE a ostatné */
+    }
+  }
+  *L = l; *R = r;
+}
+/* paket zariadenia → 48 kHz stereo do kruhového buffra (lineárne prevzorkovanie, pri zmenšovaní s jemným filtrom) */
+#define NMAX 384000
+static void native_push(Source *s, const BYTE *data, UINT32 frames) {
+  static float in[(NMAX + 1) * CH], outb[(RATE + 64) * CH];
+  if (frames > (UINT32)s->rate) frames = (UINT32)s->rate; /* max 1 s naraz */
+  if (!frames) return;
+  float *x = in + CH; /* x[-1] = posledná vzorka predošlého paketu */
+  for (UINT32 i = 0; i < frames; i++) {
+    float L = 0, R = 0;
+    if (data) to_stereo(s, data + (size_t)i * s->block, &L, &R);
+    x[i * CH] = L; x[i * CH + 1] = R;
+  }
+  if (s->rate == RATE) { ring_push(x, frames); return; }
+  double step = (double)s->rate / RATE;
+  if (step >= 1.5) { /* zmenšovanie (napr. 96 kHz): [1 2 1]/4, aby neprenikali vysoké tóny */
+    for (UINT32 i = 0; i < frames; i++) for (int c = 0; c < CH; c++) {
+      float v = x[i * CH + c], y = 0.25f * s->lp[c][0] + 0.5f * s->lp[c][1] + 0.25f * v;
+      s->lp[c][0] = s->lp[c][1]; s->lp[c][1] = v; x[i * CH + c] = y;
+    }
+  }
+  if (!s->haveLast) { s->last[0] = x[0]; s->last[1] = x[1]; s->haveLast = 1; s->pos = 1; }
+  in[0] = s->last[0]; in[1] = s->last[1];
+  /* y[0] = posledná vzorka, y[k] = x[k-1]; pos v rozsahu [0, frames) */
+  size_t n = 0; double pos = s->pos;
+  while (pos < frames && n < RATE + 32) {
+    size_t i = (size_t)pos; float f = (float)(pos - i);
+    for (int c = 0; c < CH; c++) outb[n * CH + c] = in[i * CH + c] * (1 - f) + in[(i + 1) * CH + c] * f;
+    n++; pos += step;
+  }
+  s->pos = pos - frames;
+  s->last[0] = x[(frames - 1) * CH]; s->last[1] = x[(frames - 1) * CH + 1];
+  ring_push(outb, n);
+}
+
 /* vyber všetky čakajúce pakety zo zdroja; vráti 0, ak zariadenie zmizlo */
 static int src_drain(Source *s) {
   static float conv[RATE * CH];
@@ -405,6 +510,7 @@ static int src_drain(Source *s) {
     BYTE *data = NULL; UINT32 frames = 0; DWORD fl = 0;
     hr = IAudioCaptureClient_GetBuffer(s->cap, &data, &frames, &fl, NULL, NULL);
     if (FAILED(hr)) return 0;
+    if (s->native) { native_push(s, (fl & AUDCLNT_BUFFERFLAGS_SILENT) ? NULL : data, frames); IAudioCaptureClient_ReleaseBuffer(s->cap, frames); continue; }
     if (frames > RATE) frames = RATE;
     if ((fl & AUDCLNT_BUFFERFLAGS_SILENT) || !data) ring_push(NULL, frames);
     else if (s->is16) {
@@ -513,12 +619,12 @@ int main(void) {
         IMMDevice *d = resolve_device(devId, devName, flow, useDefault, &how, got);
         if (d) {
           IAudioClient *c = NULL;
-          if (SUCCEEDED(IMMDevice_Activate(d, &IID_IAudioClient_, CLSCTX_ALL, NULL, (void **)&c)) && src_start(&src, c, flow == eRender)) ev_dev(got, how, d);
+          if (SUCCEEDED(IMMDevice_Activate(d, &IID_IAudioClient_, CLSCTX_ALL, NULL, (void **)&c)) && src_start(&src, c, flow == eRender, 1)) ev_dev(got, how, d);
           IMMDevice_Release(d);
         } else ev("missing", devName ? devName : L"", "device");
       } else if (mode == 1) {
         DWORD pid = find_root_pid(procExe);
-        if (pid) { IAudioClient *c = activate_process_loopback(pid); if (c && src_start(&src, c, 1)) { boundPid = pid; ev("bound", procExe, "process"); } }
+        if (pid) { IAudioClient *c = activate_process_loopback(pid); if (c && src_start(&src, c, 1, 0)) { boundPid = pid; ev("bound", procExe, "process"); } }
         else ev("missing", procExe, "process");
       }
     }
@@ -535,7 +641,7 @@ int main(void) {
         if (isGame && root != boundPid) {
           src_close(&src);
           IAudioClient *c = activate_process_loopback(root);
-          if (c && src_start(&src, c, 1)) { boundPid = root; ev("bound", exe, "foreground"); }
+          if (c && src_start(&src, c, 1, 0)) { boundPid = root; ev("bound", exe, "foreground"); }
           else boundPid = 0;
         }
       }

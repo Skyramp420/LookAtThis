@@ -355,6 +355,7 @@ class Engine extends EventEmitter {
   onHelper(t, m) {
     const tr = this.tracks[t.id]; if (!tr) return;
     if (m.ev === 'lvl') { tr.level = m.v; return; }
+    if (m.ev === 'fmt') { this.log.info(`stopa ${t.id}: zariadenie ${m.rate} Hz, ${m.ch} ${m.ch === 1 ? 'kanál' : m.ch < 5 ? 'kanály' : 'kanálov'}, ${m.float ? 'float' : m.bits + '-bit'}, prevod robí LookAtThis (nie Windows)`); return; }
     if (m.ev === 'epoch') { this.log.info(`stopa ${t.id}: zarovnaná na spoločný začiatok (+${m.shift} ms)`); return; }
     if (m.ev === 'bound') {
       tr.status = 'bound'; tr.name = m.name; tr.how = m.how;

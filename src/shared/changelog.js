@@ -1,6 +1,9 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.42', items: [
+      'Opravené: pri náročnej hre alebo renderovaní sa so zapnutou stopou Systém sekal zvuk celého PC. Prevod zvuku (vzorkovanie a kanály) robil Windows priamo vo vlákne, ktoré hrá zvuk do reproduktorov, a pri plnom procesore to nestíhal. Teraz LookAtThis berie zvuk zo zariadenia v jeho vlastnom formáte a prevod si robí sám vo svojom procese, takže zvuk PC to nezdržuje. Platí aj pre mikrofón.'
+    ] },
     { v: '1.0.41', items: [
       'Graf keyframov ako v After Effects (kláves G alebo ikonka krivky pri sekcii Pohyb): vidíš, ako sa hodnota mení v čase, kosoštvorce ťaháš v čase aj hodnote (so Shiftom len jedným smerom), úchytmi tvaruješ krivku, dvojklik pridá keyframe, ťahaním v prázdnom mieste vyberieš viac naraz. F9 = plynulo, Delete zmaže, Esc zavrie.',
       'Úpravy v náhľade ako v DaVinci: prepínač pod náhľadom (kláves V). Keď je zapnutý, vybraný klip alebo text dostane rámik: ťahaním ho posunieš, rohmi zmeníš veľkosť, guličkou nad ním otočíš (so Shiftom po 15°). Keď je vypnutý, klik do obrazu len vyberie a nič sa omylom nepohne.',
