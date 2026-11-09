@@ -1244,7 +1244,7 @@
   /* okno zo Zvuku → Mikrofón */
   function clapSync() {
     let w = null;
-    const m = UI.modal(`<div class="cal"><h2>Synchronizácia mikrofónu</h2>
+    const m = UI.modal(`<div class="cal-sync"><h2>Synchronizácia mikrofónu</h2>
       <p>Appka zahrá 8 úderov. Prvé 4 len počúvaj, pri ďalších 4 <b>tlesni presne s úderom</b>, blízko mikrofónu. Najlepšie so slúchadlami a bez hudby v pozadí.</p>
       <div data-host></div></div>`, 'small cal-modal', () => w && w.stop());
     w = clapWidget(m.querySelector('[data-host]'), { closeBtn: true, onDone: () => { if (view === 'audio') renderAudio(); } });
