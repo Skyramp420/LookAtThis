@@ -2,8 +2,9 @@
 
    job = {
      out, W, H, fps, duration,
-     video:   [{ file, start, in, out, speed, srcW, srcH, fit: 'fit'|'cover', zoom, cx, cy, fadeIn, fadeOut, interp }],
-     audio:   [{ file, stream, lane, start, in, out, speed, vol, fadeIn, fadeOut }],
+     video:   [{ file, start, in, out, speed, srcW, srcH, fit: 'fit'|'cover', zoom, cx, cy, fadeIn, fadeOut, interp,
+                 adj: { b, c, s } (jas, kontrast, sýtosť; 1 = bez zmeny), opacity (0–1) }],
+     audio:   [{ file, stream, lane, start, in, out, speed, vol, fadeIn, fadeOut, fadeInD, fadeOutD }],
      lanes:   [{ id, title }]            poradie samostatných stôp (keepTracks)
      overlays:[{ png, cx, cy, start, end, animIn, animOut }],
      keepTracks,
@@ -20,6 +21,36 @@ const even = x => Math.max(2, Math.round(x / 2) * 2);
 const clamp01 = x => Math.max(0, Math.min(1, Number(x)));
 const spd = x => Math.max(0.25, Math.min(4, Number(x) || 1));
 const n3 = x => Number(x).toFixed(3);
+const fs = require('fs'), path = require('path');
+/* text z editora: PNG do dočasného priečinka + všetko, čo k nemu patrí (poloha, animácia, keyframy polohy/veľkosti/otočenia).
+   Jedno miesto pre hlavný proces aj testy — predtým sa tu keyframy textu strácali a text sa exportoval nehybný. */
+function prepOverlays(list, dir) {
+  return (list || []).map((o, i) => {
+    const f = path.join(dir, `t${i}.png`);
+    fs.writeFileSync(f, Buffer.from(String(o.png).replace(/^data:image\/png;base64,/, ''), 'base64'));
+    const ex = k => o[k] == null ? null : String(o[k]);
+    return { png: f, start: Number(o.start), end: Number(o.end), cx: Number(o.cx), cy: Number(o.cy), animIn: o.animIn || 'none', animOut: o.animOut || 'none',
+      xe: ex('xe'), ye: ex('ye'), se: ex('se'), re: ex('re') };
+  });
+}
+/* farby klipu ako v náhľade (CSS brightness → contrast → saturate v sRGB): presne tie isté vzorce, takže export sedí s náhľadom */
+function adjFilters(adj) {
+  if (!adj) return [];
+  const lim = (x, a, b) => Math.max(a, Math.min(b, Number.isFinite(Number(x)) ? Number(x) : 1));
+  const B = lim(adj.b, 0, 3), C = lim(adj.c, 0, 3), S = lim(adj.s, 0, 3);
+  const f = [];
+  if (Math.abs(B - 1) < 1e-3 && Math.abs(C - 1) < 1e-3 && Math.abs(S - 1) < 1e-3) return f;
+  f.push('format=gbrp');
+  if (Math.abs(B - 1) >= 1e-3 || Math.abs(C - 1) >= 1e-3) {
+    const e = `clip((clip(val*${B.toFixed(4)},0,255)-127.5)*${C.toFixed(4)}+127.5,0,255)`;
+    f.push(`lutrgb=r='${e}':g='${e}':b='${e}'`);
+  }
+  if (Math.abs(S - 1) >= 1e-3) {
+    const m = [0.213 + 0.787 * S, 0.715 - 0.715 * S, 0.072 - 0.072 * S, 0.213 - 0.213 * S, 0.715 + 0.285 * S, 0.072 - 0.072 * S, 0.213 - 0.213 * S, 0.715 - 0.715 * S, 0.072 + 0.928 * S].map(x => x.toFixed(5));
+    f.push(`colorchannelmixer=rr=${m[0]}:rg=${m[1]}:rb=${m[2]}:gr=${m[3]}:gg=${m[4]}:gb=${m[5]}:br=${m[6]}:bg=${m[7]}:bb=${m[8]}`);
+  }
+  return f;
+}
 /* výrazy z editora (keyframy): len čísla, t, operátory a funkcie ffmpeg (if, lt, gte, …) — nič iné do filtra nepustíme */
 const safeE = (e, def) => { const s = String(e == null ? def : e).trim(); return /^[0-9a-z_.+\-*/(),\s]*$/i.test(s) && s.length < 60000 ? s : String(def); };
 const isConst = (e, v) => { const n = Number(e); return Number.isFinite(n) && Math.abs(n - v) < 1e-6; };
@@ -53,11 +84,12 @@ function videoChain(it, W, H, F) {
     f.push(`scale=${sw}:${sh}`);
     if (cw < sw || ch < sh) f.push(`crop=${cw}:${ch}:${x}:${y}`);
     if (it.interp) f.push(mi);
+    f.push(...adjFilters(it.adj));
     if (cw < W || ch < H) { if (it.layer) f.push('format=yuva420p'); f.push(`pad=${W}:${H}:${(W - cw) / 2 | 0}:${(H - ch) / 2 | 0}:color=${it.layer ? 'black@0' : 'black'}`); }
   } else {
     f.push(`scale=${even(tw)}:${even(th)}:force_original_aspect_ratio=${it.fit === 'cover' ? 'increase' : 'decrease'}:force_divisible_by=2`,
       `crop='min(iw,${W})':'min(ih,${H})':'(iw-min(iw,${W}))*${cx}':'(ih-min(ih,${H}))*${cy}'`,
-      ...(it.interp ? [mi] : []),
+      ...(it.interp ? [mi] : []), ...adjFilters(it.adj),
       ...(it.layer ? ['format=yuva420p'] : []), `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${it.layer ? 'black@0' : 'black'}`);
   }
   // vrstva nad hlavným videom: okolie ostane priehľadné (pod ním je vidno spodné video, ako v náhľade)
@@ -68,7 +100,11 @@ function videoChain(it, W, H, F) {
   f.push(`setpts=PTS+${n3(it.start)}/TB`);
   // stmievania (aj prechody cez čiernu/bielu) a priehľadnosť prechodu — v čase osi
   for (const c of it.colorFades || []) if (c.d > 0.005) f.push(`fade=t=${c.t === 'out' ? 'out' : 'in'}:st=${n3(c.st)}:d=${n3(c.d)}:color=${c.c === 'white' ? 'white' : 'black'}`);
-  if ((it.alpha || []).length) { f.push('format=rgba'); for (const a of it.alpha) f.push(`fade=t=in:st=${n3(a.st)}:d=${n3(a.d)}:alpha=1`); }
+  // priehľadnosť v čase: prechod (objavenie) a roztmievanie / stmievanie vrstvy nad videom (vrstva sa stráca, nečernie)
+  const al = (it.alpha || []).filter(a => a.d > 0.005);
+  if (al.length) { f.push('format=rgba'); for (const a of al) f.push(`fade=t=${a.t === 'out' ? 'out' : 'in'}:st=${n3(a.st)}:d=${n3(a.d)}:alpha=1`); }
+  const op = it.opacity == null ? 1 : clamp01(it.opacity);
+  if (op < 0.999) f.push('format=yuva420p', `lut=a='val*${op.toFixed(3)}'`);
   return f;
 }
 
@@ -86,7 +122,8 @@ function skipAudio(a, A) {
   if (!(A > 0) || (Array.isArray(a.chunks) && a.chunks.length) || a.volE) return a;
   const r = spd(a.speed), od = a.dur > 0 ? a.dur : (a.out - a.in) / r;
   const skip = A - a.start - 0.5;
-  if (skip <= 0.5 || skip >= od - 0.05) return a; // ≥ 0,5 s: stmievanie na začiatku (max 0,5 s) je celé pred novým začiatkom
+  // preskočiť sa dá len to, čo je za zosilnením na začiatku (inak by sa zosilnenie v úseku stratilo)
+  if (skip <= Math.max(0.5, a.fadeIn ? Number(a.fadeInD) || 0 : 0) || skip >= od - 0.05) return a;
   return { ...a, in: a.in + skip * r, start: a.start + skip, dur: od - skip, fadeIn: false };
 }
 
@@ -160,7 +197,8 @@ function buildArgs(job, encArgs, opt = {}) {
     args.push('-ss', n3(a.in), '-t', n3(a.out - a.in), '-i', a.file);
     const idx = nIn++;
     const r = spd(a.speed), od = a.dur > 0 ? a.dur : (a.out - a.in) / r, F2 = Math.min(0.5, od / 3);
-    const Fi = a.fadeInD > 0 ? Math.min(a.fadeInD, od / 2) : F2, Fo = a.fadeOutD > 0 ? Math.min(a.fadeOutD, od / 2) : F2;
+    // dĺžku určuje editor (už obmedzenú na polovicu položky); tu len poistka na dĺžku toho, čo sa naozaj kóduje
+    const Fi = a.fadeInD > 0 ? Math.min(a.fadeInD, od) : F2, Fo = a.fadeOutD > 0 ? Math.min(a.fadeOutD, od) : F2;
     const f = ['aformat=sample_rates=48000:channel_layouts=stereo', 'asetpts=PTS-STARTPTS', ...atempo(r)];
     let pre = '';
     // speed ramp: úseky s vlastným tempom za sebou
@@ -244,4 +282,4 @@ async function exportProject(ffmpeg, job, enc, videoEncArgs, onProgress, ctl) {
   return job.out;
 }
 
-module.exports = { exportProject, buildArgs, videoChain };
+module.exports = { exportProject, buildArgs, videoChain, prepOverlays, adjFilters };

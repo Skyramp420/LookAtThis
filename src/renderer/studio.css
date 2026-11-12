@@ -367,7 +367,8 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-ksel svg { width: 11px; height: 11px; }
 
 /* ---------- prechody ---------- */
-.st-tr { position: absolute; top: 50%; z-index: 5; width: 22px; height: 22px; margin: -11px 0 0 -11px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: var(--panel); color: var(--muted); box-shadow: 0 0 0 .5px var(--line), 0 2px 6px rgba(0, 0, 0, .35); opacity: 0; transform: scale(.7); transition: opacity .18s var(--ease), transform .3s var(--spring), background .15s, color .15s; }
+/* značka prechodu sedí dole na strihu, aby neprekrývala úchyty orezania klipov */
+.st-tr { position: absolute; top: auto; bottom: 3px; z-index: 5; width: 20px; height: 20px; margin: 0 0 0 -10px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: var(--panel); color: var(--muted); box-shadow: 0 0 0 .5px var(--line), 0 2px 6px rgba(0, 0, 0, .35); opacity: 0; transform: scale(.7); transition: opacity .18s var(--ease), transform .3s var(--spring), background .15s, color .15s; }
 .st-tr svg { width: 11px; height: 11px; }
 .st-lane.video:hover .st-tr, .st-tr.on, .st-tr.sel { opacity: 1; transform: none; }
 .st-tr:hover { transform: scale(1.15); color: var(--text); }
@@ -621,3 +622,12 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-keys div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: .5px solid var(--line); font: 500 12.5px/1.3 var(--body); }
 .st-keys div:last-child { border-bottom: 0; }
 .st-keys kbd { flex: none; }
+
+/* značky z nahrávania na klipe */
+.st-mk { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1.5px dashed var(--accent); pointer-events: none; z-index: 2; }
+.st-mk::before { content: ''; position: absolute; top: 0; left: -5.5px; border: 5px solid transparent; border-top: 7px solid var(--accent); border-bottom: 0; }
+/* vlastná farba textu */
+.st-swc { position: relative; width: 24px; height: 24px; border-radius: 50%; overflow: hidden; cursor: pointer; background: conic-gradient(#ff453a, #ffd60a, #30d158, #64d2ff, #0a84ff, #bf5af2, #ff453a); box-shadow: 0 0 0 .5px var(--line); transition: transform .2s var(--spring); }
+.st-swc:hover { transform: scale(1.1); }
+.st-swc.on { background: var(--sw); box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px var(--accent); }
+.st-swc input { position: absolute; inset: -8px; width: 40px; height: 40px; padding: 0; border: 0; opacity: 0; cursor: pointer; }

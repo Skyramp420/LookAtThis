@@ -1,6 +1,18 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.44', items: [
+      'Opravené (dôležité): text, ktorý si v advanced editore zväčšil, otočil alebo rozhýbal keyframami či efektom, sa vyexportoval nehybný v pôvodnej veľkosti. Export teraz sedí s náhľadom a zväčšený text je ostrý.',
+      'Opravené: dĺžka zosilnenia a stíšenia zvuku sa v exporte ignorovala (vždy pol sekundy).',
+      'Opravené: roztmievanie klipu na vrchnej video vrstve stmavilo v náhľade celý obraz a v exporte spravilo čierny obdĺžnik. Vrstva sa teraz plynulo objaví a stratí, rovnako v náhľade aj vo videu.',
+      'Opravené: po kliknutí na posuvník (priblíženie osi, hlasitosť, dĺžka stmievania) prestali fungovať klávesové skratky. Esc pri hľadaní v médiách zavrel celý editor, Enter nepotvrdil premenovanie stopy ani názov pri exporte.',
+      'Opravené: zmena pohybu alebo veľkosti na duplikáte klipu menila aj originál. Prázdna stopa, ktorú si si pridal, zmizla pri najbližšom mazaní. Okraj klipu sa na strihu nedal chytiť, lebo ho prekrývalo tlačidlo prechodu (je teraz dole).',
+      'Rýchly strih: Q odreže začiatok klipu po prehrávaciu hlavu, W koniec od hlavy, a medzera sa hneď zavrie. Šípky hore a dole skáču po strihoch a značkách.',
+      'Kopírovať, vystrihnúť a vložiť (Ctrl+C, X, V), aj medzi projektmi. Pravý klik do prázdna na stope: Vložiť sem a Zavrieť medzeru.',
+      'Značky z nahrávania (skratka Značka) vidno na klipoch na časovej osi.',
+      'Viac textov naraz: „+ Stopa“ → Textová stopa. Texty medzi stopami presunieš ťahaním, text má aj vlastnú farbu.',
+      'Farby klipu: jas, kontrast a sýtosť (sekcia Farby). Pribudla aj nepriehľadnosť klipu, napr. pre obraz v obraze.'
+    ] },
     { v: '1.0.42', items: [
       'Opravené: pri náročnej hre alebo renderovaní sa so zapnutou stopou Systém sekal zvuk celého PC. Prevod zvuku (vzorkovanie a kanály) robil Windows priamo vo vlákne, ktoré hrá zvuk do reproduktorov, a pri plnom procesore to nestíhal. Teraz LookAtThis berie zvuk zo zariadenia v jeho vlastnom formáte a prevod si robí sám vo svojom procese, takže zvuk PC to nezdržuje. Platí aj pre mikrofón.'
     ] },

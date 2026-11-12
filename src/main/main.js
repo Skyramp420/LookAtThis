@@ -11,7 +11,7 @@ const { Engine, toSdr, thumbnail, probe, trim, extractTracks, exportSequence, co
 const { Obs, findObs, findObsDeep, killStaleOurs } = require('./obs');
 const { Perf } = require('./perf');
 const { mergeObsWithTracks } = require('./obs-merge');
-const { exportProject } = require('./project-export');
+const { exportProject, prepOverlays } = require('./project-export');
 const { Proxies } = require('./proxy');
 const ObsConfig = require('./obs-config');
 const Compress = require('../shared/compress');
@@ -1196,11 +1196,7 @@ async function runAction(type, p = {}) {
       while (fs.existsSync(out)) out = `${base} (${k++}).mp4`;
       const tmp = path.join(EDIT, 'px-' + Date.now());
       fs.mkdirSync(tmp, { recursive: true });
-      const overlays = (p.overlays || []).map((o, i) => {
-        const f = path.join(tmp, `t${i}.png`);
-        fs.writeFileSync(f, Buffer.from(String(o.png).replace(/^data:image\/png;base64,/, ''), 'base64'));
-        return { png: f, start: Number(o.start), end: Number(o.end), cx: Number(o.cx), cy: Number(o.cy), animIn: o.animIn || 'none', animOut: o.animOut || 'none' };
-      });
+      const overlays = prepOverlays(p.overlays, tmp); // aj s keyframami textu (poloha, veľkosť, otočenie)
       const enc = engine.pickEncoder(store.get());
       const ctl = exportCtl();
       const tExp = Date.now();
