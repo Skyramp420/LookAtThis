@@ -29,11 +29,18 @@ async function findExes(dir, depth = 3) {
       } else if (/\.exe$/i.test(it.name) && !SKIP_EXE.test(it.name)) {
         try { const st = await fsp.stat(p); out.push({ p, size: st.size }); } catch (e) { }
       }
-      if (out.length > 40) return;
+      if (out.length > 120) return;
     }
   }
   await walk(dir, 0);
-  return out.sort((a, b) => b.size - a.size).slice(0, 8);
+  // najväčšie exe + ich varianty (napr. „Discovery-d.exe“ pri THE FINALS, „_dx12“, „-Win64-Shipping“): hra často
+  // beží pod iným menom než jej najväčší súbor, a keby ostalo len prvých 8 podľa veľkosti, variant by vypadol
+  out.sort((a, b) => b.size - a.size);
+  const top = out.slice(0, 8);
+  const stem = n => n.replace(/[-_ ](win64|win32|x64)?[-_ ]?shipping$/i, '').replace(/[-_](dx1[12]|vulkan|eac|eos|d)$/i, '');
+  const stems = new Set(top.map(e => stem(exeName(e.p))).filter(s => s.length >= 4));
+  const more = out.slice(8).filter(e => stems.has(stem(exeName(e.p))));
+  return [...top, ...more].slice(0, 16);
 }
 const exeName = p => path.basename(p).replace(/\.exe$/i, '').toLowerCase();
 

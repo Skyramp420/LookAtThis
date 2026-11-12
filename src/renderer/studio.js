@@ -16,6 +16,10 @@ window.Studio = (function () {
   };
   const AUDIO_C = ['#30d158', '#ffb340', '#bf5af2', '#64d2ff', '#ff375f', '#ffd60a', '#8e8e93', '#40c8e0'];
   const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
+  /* obrázky (logo, meme, vodoznak): na osi sa správajú ako video položka bez zvuku a bez rýchlosti.
+     „Zdroj“ má fiktívnu dĺžku a položka začína v jeho strede, takže sa dá ľubovoľne naťahovať na obe strany. */
+  const IMG_RE = /\.(png|jpe?g|webp|bmp)$/i, IMG_D = 100000, IMG_IN = 50000;
+  const isImg = pth => IMG_RE.test(String(pth || ''));
   const HEAD_W = 176;
   const LANE_H = { video: 62, text: 30, audio: 44 };
   const STYLES = {
@@ -51,6 +55,7 @@ window.Studio = (function () {
     split: '<svg viewBox="0 0 16 16"><circle cx="4.5" cy="4.5" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="4.5" cy="11.5" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.2 5.6 13.5 12M6.2 10.4 13.5 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     del: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     text: '<svg viewBox="0 0 16 16"><path d="M3 4V2.8h10V4M8 2.8v10.4M6 13.2h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    image: '<svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="5.6" cy="6.4" r="1.2" fill="currentColor"/><path d="M2.8 11.6 6.4 8.4l2.4 2 2-1.8 2.6 2.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     music: '<svg viewBox="0 0 16 16"><path d="M6 12V3.5l7-1.5V10.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4.3" cy="12" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="11.3" cy="10.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
     magnet: '<svg viewBox="0 0 16 16"><path d="M3.5 2.5v5a4.5 4.5 0 0 0 9 0v-5M3.5 5h3M9.5 5h3M6.5 2.5v5a1.5 1.5 0 0 0 3 0v-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
     prev: '<svg viewBox="0 0 16 16"><path d="M11 3 6 8l5 5M4 3v10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -205,6 +210,7 @@ window.Studio = (function () {
           <button class="st-tool" id="stSplit" title="Rozdeliť na prehrávacej hlave (S)">${IC.split}<span>Rozdeliť</span><kbd>S</kbd></button>
           <button class="st-tool" id="stDel" title="Odstrániť vybrané (Delete, Shift+Delete zavrie medzeru)">${IC.del}<span>Odstrániť</span></button>
           <button class="st-tool" id="stAddMusic" title="Pridať hudbu zo súboru">${IC.music}<span>Hudba</span></button>
+          <button class="st-tool" id="stAddImg" title="Pridať obrázok, logo alebo meme (PNG, JPG, WebP) na vrstvu nad videom">${IC.image}<span>Obrázok</span></button>
           <span class="st-sep"></span>
           <button class="st-tool" id="stIn" title="Začiatok úseku na prehrávacej hlave (I) · Shift+I = skok naň">${IC.ioIn}<span>In</span><kbd>I</kbd></button>
           <button class="st-tool" id="stOut" title="Koniec úseku na prehrávacej hlave (O) · Shift+O = skok naň">${IC.ioOut}<span>Out</span><kbd>O</kbd></button>
@@ -434,7 +440,7 @@ window.Studio = (function () {
     const itemsOn = id => P.items.filter(it => it.lane === id).sort((a, b) => a.start - b.start);
     const fitMode = it => it.fit || (P.fmt === '16:9' ? 'fit' : 'cover');
     function outSize() {
-      const v = P.items.find(i => i.kind === 'video'), s = v && src.get(v.src);
+      const v = P.items.find(i => i.kind === 'video' && !isImg(i.src)), s = v && src.get(v.src); // veľkosť projektu určuje video, nie obrázok
       const sh = (s && s.height) || 1080;
       if (P.fmt === '16:9') { const h = sh >= 1440 ? 1440 : 1080; return [Math.round(h * 16 / 9 / 2) * 2, h]; }
       if (P.fmt === '9:16') return [1080, 1920];
@@ -470,6 +476,7 @@ window.Studio = (function () {
       offline.delete(meta.path);
       const s = { path: meta.path, name: meta.name || meta.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''), duration: meta.duration || 0, width: meta.width || 0, height: meta.height || 0, fps: meta.fps || 60, tracks: [], levels: [], music: !!music, audio: new Map(), audioX: new Map(), thumbs: [], ready: false };
       src.set(meta.path, s);
+      if (isImg(meta.path)) return loadImageNow(s);
       try {
         const r = await (trkPre.get(meta.path) || trkLimit(() => api.action('extractTracks', { path: meta.path })));
         trkPre.delete(meta.path);
@@ -499,6 +506,21 @@ window.Studio = (function () {
       }
       for (const tr of s.tracks) { const a = new Audio(fileUrl(tr.file)); a.preload = 'auto'; s.audio.set(tr.i, a); }
       s.ready = true;
+      return s;
+    }
+    async function loadImageNow(s) {
+      s.image = true; s.duration = IMG_D; s.imgs = [];
+      Object.assign(known.get(s.path), { duration: IMG_D, image: true });
+      const im = new Image(); im.decoding = 'async'; im.draggable = false; im.alt = ''; im.src = fileUrl(s.path);
+      try { await im.decode(); } catch (e) { src.delete(s.path); offline.add(s.path); throw new Error('Obrázok sa nedá otvoriť'); }
+      s.width = im.naturalWidth || 1; s.height = im.naturalHeight || 1;
+      if (closed) return s;
+      im.style.visibility = 'hidden'; vids.appendChild(im); s.imgs.push(im);
+      // náhľad na časovej osi: ten istý obrázok vedľa seba
+      const th = 54, tw = Math.max(8, Math.round(th * s.width / s.height)), c = document.createElement('canvas');
+      c.width = tw; c.height = th;
+      try { c.getContext('2d').drawImage(im, 0, 0, tw, th); s.thumbs = [c]; s.thumbW = tw; s.thumbN = 1; } catch (e) { }
+      s.ready = true; requestDraw();
       return s;
     }
     /* uložený pás náhľadov (JPEG z disku) → políčka pre časovú os; false = treba vyrobiť */
@@ -1067,6 +1089,12 @@ window.Studio = (function () {
     }
     /* prehrávač pre vrstvu: hlavný prehrávač zdroja, alebo druhý (keď sa pri prechode stretnú dve časti toho istého klipu) */
     function playerFor(s, used) {
+      if (s.image) {
+        // obrázok: jeden prvok na každé súčasné použitie (ten istý obrázok môže byť v obraze viackrát)
+        let el = s.imgs.find(x => !used.has(x));
+        if (!el && s.imgs.length && s.imgs.length < 8) { el = s.imgs[0].cloneNode(); el.style.visibility = 'hidden'; el._pk = ''; vids.appendChild(el); s.imgs.push(el); }
+        return el || null;
+      }
       if (s.video && !used.has(s.video)) return s.video;
       if (!s.video2) {
         const v = document.createElement('video'); v.preload = 'auto'; v.muted = true; v.playsInline = true;
@@ -1114,6 +1142,7 @@ window.Studio = (function () {
       layersNow = layers;
       for (const L of layers) {
         placeLayer(L.el, L.p.it, L.st, L.z);
+        if (L.el.tagName === 'IMG') continue; // obrázok nemá čas ani prehrávanie
         const it = L.p.it, v = L.el, want = srcAtRender(it, t), rate = spAt(it, clamp(t - it.start, 0, len(it)));
         if (playing) {
           if (Math.abs(v.playbackRate - rate) > 0.01) v.playbackRate = rate;
@@ -1125,9 +1154,9 @@ window.Studio = (function () {
           if (Math.abs(cur - want) > 1e-3 || (force && v._want == null)) UI.smoothSeek(v, want);
         }
       }
-      for (const s of src.values()) for (const v of [s.video, s.video2]) {
+      for (const s of src.values()) for (const v of [s.video, s.video2, ...(s.imgs || [])]) {
         if (!v || used.has(v)) continue;
-        if (!v.paused) v.pause();
+        if (v.pause && !v.paused) v.pause();
         if (v.style.visibility !== 'hidden') { v.style.visibility = 'hidden'; v._pk = ''; }
       }
       const bl = q('#stBlack');
@@ -1708,10 +1737,7 @@ window.Studio = (function () {
       const trb = e.target.closest('.st-tr');
       if (trb) { e.preventDefault(); selectTrans(trb.dataset.tb); return; }
       const el = e.target.closest('.st-item');
-      if (!el) { // klik do prázdna: zruš výber a skoč na čas
-        if (!e.shiftKey) clearSel();
-        scrub(e); return;
-      }
+      if (!el) { marquee(e); return; } // prázdne miesto: klik = zruš výber a skoč na čas, ťahanie = výber obdĺžnikom
       const it = P.items.find(i => i.id === el.dataset.id); if (!it) return;
       e.preventDefault();
       // kosoštvorec keyframu: klik = skok na neho, ťahanie = posun v čase
@@ -1936,6 +1962,36 @@ window.Studio = (function () {
         for (const o of P.items) if (!moving.has(o) && o.start >= Math.min(...clash.map(c => c.start)) - 1e-3) { o.start += push; if (o.kind === 'text') o.end += push; }
       }
     }
+    /* výber obdĺžnikom: ťahaním z prázdneho miesta na osi sa vyberie všetko, čoho sa obdĺžnik dotkne (Shift pridá k výberu).
+       Bez ťahania je to obyčajný klik: zruší výber a hlava skočí na to miesto. Po čase sa ťahá za pravítko alebo hlavu. */
+    function marquee(e) {
+      const x0 = e.clientX, y0 = e.clientY, base = e.shiftKey ? new Set(sel) : new Set();
+      let box = null;
+      const move = ev => {
+        if (!box && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+        if (!box) { box = document.createElement('div'); box.className = 'st-marq'; root.appendChild(box); trSel = null; kfSel = null; }
+        const l = Math.min(x0, ev.clientX), tp = Math.min(y0, ev.clientY), w = Math.abs(ev.clientX - x0), hh = Math.abs(ev.clientY - y0);
+        Object.assign(box.style, { left: l + 'px', top: tp + 'px', width: w + 'px', height: hh + 'px' });
+        const ns = new Set(base);
+        for (const n of lanesEl.querySelectorAll('.st-item')) {
+          const r = n.getBoundingClientRect();
+          if (r.right < l || r.left > l + w || r.bottom < tp || r.top > tp + hh) continue;
+          for (const id of (n.dataset.blk ? n.dataset.blk.split(',') : [n.dataset.id])) { const it = P.items.find(i => i.id === id); if (it) for (const m of group(it)) ns.add(m.id); }
+        }
+        sel = ns; renderTimelineSel();
+      };
+      const up = () => {
+        removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+        if (!box) { if (!e.shiftKey) clearSel(); seek(clamp(timeAt(e.clientX), 0, duration())); return; }
+        box.remove();
+        const first = P.items.find(i => sel.has(i.id) && i.kind === 'video') || P.items.find(i => sel.has(i.id));
+        if (first) tab = tabFor(first);
+        renderTimeline(); renderInsp();
+        const n = P.items.filter(i => sel.has(i.id) && (i.kind !== 'audio' || !P.items.some(v => v.kind === 'video' && v.g === i.g && sel.has(v.id)))).length;
+        if (n) hint(`Vybrané: ${n} ${n === 1 ? 'položka' : n < 5 ? 'položky' : 'položiek'}`);
+      };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+    }
     function renderTimelineSel() { $$('.st-item', lanesEl).forEach(n => n.classList.toggle('sel', sel.has(n.dataset.id))); drawFrame(); }
     function scrub(e) {
       const go = ev => seek(clamp(timeAt(ev.clientX), 0, duration()));
@@ -2085,6 +2141,25 @@ window.Studio = (function () {
         P.items.push(it); sel = new Set([it.id]); tab = 'zvuk';
       }
       if (files.length) { commit(); renderAll(); }
+    }
+    /* obrázok zo súboru: 5 s na prehrávacej hlave, na vrstve nad videom (keď žiadna voľná nie je, pridá sa) */
+    async function addImage() {
+      const files = await api.action('pickFiles', { kind: 'image' }).catch(e => { toast('error', 'Výber súboru zlyhal', e.message); return []; });
+      let last = null;
+      for (const f of files || []) {
+        if (!isImg(f)) { toast('warn', 'Tento formát obrázka nejde', 'Podporované sú PNG, JPG, WebP a BMP.'); continue; }
+        let s; try { s = await loadSource({ path: f }); } catch (e) { toast('error', 'Obrázok sa nepodarilo otvoriť', e.message); continue; }
+        if (closed) return;
+        const L = 5, at = Math.max(0, t);
+        let ln = vLanes().filter(l => l.id !== 'v').reverse().find(l => Math.abs(freeStart(l.id, at, L) - at) < 1e-3);
+        if (!ln) { ln = { id: 'v' + uid(), kind: 'video', name: `Video ${vLanes().length + 1}`, custom: true }; P.lanes.splice(Math.max(0, P.lanes.findIndex(x => x.kind === 'video')), 0, ln); }
+        last = { id: uid(), lane: ln.id, kind: 'video', src: s.path, start: at, in: IMG_IN, out: IMG_IN + L, speed: 1, g: uid(), zoom: 1, cx: 0.5, cy: 0.5, fit: 'fit', fadeIn: false, fadeOut: false, tf: { scale: 0.5 } };
+        P.items.push(last);
+      }
+      if (!last) return;
+      sel = new Set([last.id]); tab = 'klip';
+      commit(); renderAll(); flashItem(last.id);
+      hint(tfOn ? 'Obrázok pridaný · ťahaj ho v náhľade, rohy menia veľkosť' : 'Obrázok pridaný · stlač V a uprav ho priamo v náhľade');
     }
     function setSpeed(it, r) {
       if (it.kf && it.kf.speed) delete it.kf.speed; // konštantná rýchlosť = bez speed rampu
@@ -2330,7 +2405,7 @@ window.Studio = (function () {
       if (it.kind === 'video') {
         if (group(it).length > 1) items.push({ label: 'Odpojiť zvuk od videa', v: 'unlink' });
         else if (orphanAudio(it).length) items.push({ label: 'Pripojiť zvuk späť k videu', v: 'link' });
-        items.push({ sep: true }, { head: 'Rýchlosť' }, ...SPEEDS.map(r => ({ label: String(r).replace('.', ',') + '×', v: 'spd:' + r, checked: sp(it) === r })));
+        if (!isImg(it.src)) items.push({ sep: true }, { head: 'Rýchlosť' }, ...SPEEDS.map(r => ({ label: String(r).replace('.', ',') + '×', v: 'spd:' + r, checked: sp(it) === r })));
       }
       if (it.kind === 'audio' && group(it).length > 1) items.push({ label: 'Odpojiť od videa', v: 'unlinkA' });
       if (it.kind === 'audio' && group(it).length === 1 && !lane(it.lane).music && videoFor(it)) items.push({ label: 'Pripojiť k videu', v: 'linkA' });
@@ -2944,14 +3019,15 @@ window.Studio = (function () {
       if (tab === 'klip' && v) {
         item = v;
         const s = src.get(v.src) || {}, cov = fitMode(v) === 'cover' || (v.zoom || 1) > 1;
-        head = `<div class="st-ih"><b title="${esc(s.name || srcName(v.src))}">${esc(s.name || srcName(v.src))}</b><span>${tc(v.start)} – ${tc(end(v))} · zo zdroja ${tc(v.in)} – ${tc(v.out)}</span></div>`;
+        const img = isImg(v.src);
+        head = `<div class="st-ih"><b title="${esc(s.name || srcName(v.src))}">${esc(s.name || srcName(v.src))}</b><span>${tc(v.start)} – ${tc(end(v))} · ${img ? 'obrázok · ' + tc(len(v)) : `zo zdroja ${tc(v.in)} – ${tc(v.out)}`}</span></div>`;
         const tr = transOf(v);
-        body = sec('speed', 'Rýchlosť', ramped(v) ? (RAMPS.find(r => r.id === rampId(v)) || {}).l || 'premenlivá' : String(sp(v)).replace('.', ',') + '×', `
+        body = (img ? '' : sec('speed', 'Rýchlosť', ramped(v) ? (RAMPS.find(r => r.id === rampId(v)) || {}).l || 'premenlivá' : String(sp(v)).replace('.', ',') + '×', `
             <div class="seg" data-k="speed">${SPEEDS.map(r => `<button type="button" data-v="${r}" class="${!ramped(v) && sp(v) === r ? 'on' : ''}">${String(r).replace('.', ',')}×</button>`).join('')}</div>
             <div class="st-f"><span class="lbl">Plynulá zmena rýchlosti</span><div class="st-cchips">${RAMPS.map(r => `<button type="button" class="st-cchip${rampId(v) === r.id ? ' on' : ''}" data-ramp="${r.id}">${r.l}</button>`).join('')}</div></div>
             ${ramped(v) ? `<div class="st-mo">${motionBody(v, ['speed'], '')}</div>` : ''}
             ${slowed(v) ? `<div class="st-f st-interp"><label class="toggle"><input type="checkbox" data-k="interp"${v.interp ? ' checked' : ''}><span>Plynulé spomalenie</span></label>
-              <p class="st-note sm">Dopočíta chýbajúce snímky, takže spomalený záber nebude trhaný. Prejaví sa až vo výslednom videu a export tohto klipu potrvá dlhšie.</p></div>` : ''}`, ramped(v) ? graphBtn(['speed']) + clearBtn(v, ['speed']) : '')
+              <p class="st-note sm">Dopočíta chýbajúce snímky, takže spomalený záber nebude trhaný. Prejaví sa až vo výslednom videu a export tohto klipu potrvá dlhšie.</p></div>` : ''}`, ramped(v) ? graphBtn(['speed']) + clearBtn(v, ['speed']) : ''))
           + sec('frame', 'Obraz', fitMode(v) === 'cover' ? 'Vyplniť' : 'Zmestiť', `
             <div class="seg" data-k="fit"><button type="button" data-v="fit" class="${fitMode(v) === 'fit' ? 'on' : ''}">Zmestiť</button><button type="button" data-v="cover" class="${fitMode(v) === 'cover' ? 'on' : ''}">Vyplniť</button></div>
             ${(v.zoom || 1) > 1 ? `<div class="st-f"><div class="st-row"><label class="lbl" for="stZm">Priblíženie výrezu</label><span class="st-tc">${Math.round((v.zoom || 1) * 100)} %</span></div><input type="range" id="stZm" min="100" max="300" value="${Math.round((v.zoom || 1) * 100)}" data-k="zoom"></div>` : ''}
@@ -3166,7 +3242,7 @@ window.Studio = (function () {
     /* prehľad klávesových skratiek (?) */
     const KEYS = [
       ['Prehrávanie', [['Medzerník', 'Prehrať / zastaviť'], ['J · L', '5 s späť / dopredu'], ['← →', 'O snímku (so Shiftom o 1 s)'], ['↑ ↓', 'Predošlý / ďalší strih alebo značka'], ['Home · End', 'Začiatok / koniec'], ['F', 'Celá obrazovka'], ['M', 'Stlmiť náhľad']]],
-      ['Strih', [['S', 'Rozdeliť na hlave'], ['Q · W', 'Odrezať začiatok / koniec klipu po hlavu a zavrieť medzeru'], ['Delete', 'Odstrániť (Shift = zavrieť medzeru)'], ['Ctrl + C · X · V', 'Kopírovať / vystrihnúť / vložiť na hlavu'], ['Ctrl + D', 'Duplikovať'], ['Ctrl + Z · Ctrl + Y', 'Späť / znova'], ['N', 'Prichytávanie'], ['Alt + klik', 'Vybrať len video bez zvuku']]],
+      ['Strih', [['S', 'Rozdeliť na hlave'], ['Q · W', 'Odrezať začiatok / koniec klipu po hlavu a zavrieť medzeru'], ['Delete', 'Odstrániť (Shift = zavrieť medzeru)'], ['Ctrl + C · X · V', 'Kopírovať / vystrihnúť / vložiť na hlavu'], ['Ctrl + D', 'Duplikovať'], ['Ctrl + Z · Ctrl + Y', 'Späť / znova'], ['N', 'Prichytávanie'], ['Alt + klik', 'Vybrať len video bez zvuku'], ['Ťahanie v prázdnom mieste osi', 'Výber obdĺžnikom (Shift pridá)']]],
       ['Úsek a export', [['I · O', 'Začiatok / koniec úseku'], ['P', 'Uložiť úsek do zoznamu'], ['Alt + X', 'Zrušiť úsek'], ['Shift + medzerník', 'Prehrať úsek dokola']]],
       ['Náhľad a animácia', [['V', 'Úpravy v náhľade (posun, veľkosť, otočenie)'], ['Ctrl + koliesko', 'Priblížiť náhľad'], ['G', 'Graf keyframov'], ['F9', 'Plynulo (v grafe)'], ['T', 'Pridať text']]],
       ['Časová os', [['Koliesko', 'Hore / dole'], ['Alt alebo Shift + koliesko', 'Doľava / doprava'], ['Ctrl + koliesko · + −', 'Priblížiť os'], ['Z', 'Celá os']]]
@@ -3194,7 +3270,7 @@ window.Studio = (function () {
       pause();
       const [w0, h0] = outSize();
       const res = P.fmt === '16:9' ? [[w0, h0], ...[[1920, 1080], [1280, 720]].filter(x => x[1] < h0)] : P.fmt === '9:16' ? [[1080, 1920], [720, 1280]] : [[1080, 1080], [720, 720]];
-      const v0 = P.items.find(i => i.kind === 'video'), fps0 = Math.min(60, Math.round((v0 && src.get(v0.src) && src.get(v0.src).fps) || 60));
+      const v0 = P.items.find(i => i.kind === 'video' && !isImg(i.src)), fps0 = Math.min(60, Math.round((v0 && src.get(v0.src) && src.get(v0.src).fps) || 60));
       let o = { res: 0, fps: fps0 >= 50 ? 60 : 30, mb: 0, keep: false };
       try { o = { ...o, ...JSON.parse(localStorage.getItem('studio.export') || '{}'), res: 0 }; } catch (e) { }
       // rozsah: označený úsek (In/Out), uložené úseky (každý = samostatné video) alebo celá os
@@ -3293,7 +3369,7 @@ window.Studio = (function () {
       return { file: it.src, start: p.rs, in: inR, out: outR, speed: ramped(it) ? 1 : sp(it), map, freezeHead: fh, freezeTail: ft,
         srcW: s.width || 0, srcH: s.height || 0, fit: fitMode(it), zoom: it.zoom || 1, cx: it.cx ?? 0.5, cy: it.cy ?? 0.5,
         fadeIn: false, fadeOut: false, colorFades, alpha, motion: { s: S, x: X, y: Y, r: R }, layer: layerOf(it.lane) > 0, interp: !!it.interp && slowed(it),
-        adj: adjOn(it) ? adjOf(it) : null, opacity: clamp01(it.opacity ?? 1) };
+        adj: adjOn(it) ? adjOf(it) : null, opacity: clamp01(it.opacity ?? 1), image: !!s.image };
     }
     /* zvuk so speed rampom: úseky po 0,1 s s vlastným tempom (atempo), rovnaké tempá sa zlúčia */
     function audioChunks(it) {
@@ -3511,6 +3587,7 @@ window.Studio = (function () {
     q('#stSplit').onclick = () => splitAt(t);
     q('#stDel').onclick = () => deleteSel(false);
     q('#stAddMusic').onclick = addMusic;
+    q('#stAddImg').onclick = addImage;
     q('#stIn').onclick = () => setIO('a', t);
     q('#stOut').onclick = () => setIO('b', t);
     q('#stIOx').onclick = clearIO;

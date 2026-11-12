@@ -34,13 +34,13 @@ function prepOverlays(list, dir) {
   });
 }
 /* farby klipu ako v náhľade (CSS brightness → contrast → saturate v sRGB): presne tie isté vzorce, takže export sedí s náhľadom */
-function adjFilters(adj) {
+function adjFilters(adj, alpha) {
   if (!adj) return [];
   const lim = (x, a, b) => Math.max(a, Math.min(b, Number.isFinite(Number(x)) ? Number(x) : 1));
   const B = lim(adj.b, 0, 3), C = lim(adj.c, 0, 3), S = lim(adj.s, 0, 3);
   const f = [];
   if (Math.abs(B - 1) < 1e-3 && Math.abs(C - 1) < 1e-3 && Math.abs(S - 1) < 1e-3) return f;
-  f.push('format=gbrp');
+  f.push(alpha ? 'format=gbrap' : 'format=gbrp'); // obrázok s priehľadnosťou si ju musí nechať
   if (Math.abs(B - 1) >= 1e-3 || Math.abs(C - 1) >= 1e-3) {
     const e = `clip((clip(val*${B.toFixed(4)},0,255)-127.5)*${C.toFixed(4)}+127.5,0,255)`;
     f.push(`lutrgb=r='${e}':g='${e}':b='${e}'`);
@@ -84,12 +84,12 @@ function videoChain(it, W, H, F) {
     f.push(`scale=${sw}:${sh}`);
     if (cw < sw || ch < sh) f.push(`crop=${cw}:${ch}:${x}:${y}`);
     if (it.interp) f.push(mi);
-    f.push(...adjFilters(it.adj));
+    f.push(...adjFilters(it.adj, it.image));
     if (cw < W || ch < H) { if (it.layer) f.push('format=yuva420p'); f.push(`pad=${W}:${H}:${(W - cw) / 2 | 0}:${(H - ch) / 2 | 0}:color=${it.layer ? 'black@0' : 'black'}`); }
   } else {
     f.push(`scale=${even(tw)}:${even(th)}:force_original_aspect_ratio=${it.fit === 'cover' ? 'increase' : 'decrease'}:force_divisible_by=2`,
       `crop='min(iw,${W})':'min(ih,${H})':'(iw-min(iw,${W}))*${cx}':'(ih-min(ih,${H}))*${cy}'`,
-      ...(it.interp ? [mi] : []), ...adjFilters(it.adj),
+      ...(it.interp ? [mi] : []), ...adjFilters(it.adj, it.image),
       ...(it.layer ? ['format=yuva420p'] : []), `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${it.layer ? 'black@0' : 'black'}`);
   }
   // vrstva nad hlavným videom: okolie ostane priehľadné (pod ním je vidno spodné video, ako v náhľade)
@@ -146,8 +146,12 @@ function buildArgs(job, encArgs, opt = {}) {
   let v = 'base';
   video.map(it => skipVideo(it, A)).forEach((it, k) => {
     // dekódovanie na grafike: pri 1440p60 záznamoch inak procesor nestíha a export sa ťahá
-    if (opt.hw && k < HW_MAX) args.push('-hwaccel', 'auto');
-    args.push('-ss', n3(it.in), '-t', n3(it.out - it.in), '-i', it.file);
+    // obrázok (logo, meme): jedna snímka dookola na dĺžku položky; video: úsek zo zdroja, dekódovanie na grafike
+    if (it.image) args.push('-loop', '1', '-framerate', String(F), '-t', n3(it.out - it.in), '-i', it.file);
+    else {
+      if (opt.hw && k < HW_MAX) args.push('-hwaccel', 'auto');
+      args.push('-ss', n3(it.in), '-t', n3(it.out - it.in), '-i', it.file);
+    }
     const idx = nIn++;
     const f = videoChain(it, W, H, F);
     // pohyb z keyframov: otočenie a priblíženie okolo stredu, potom posun (rovnako ako náhľad)

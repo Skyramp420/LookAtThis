@@ -1181,6 +1181,7 @@ async function runAction(type, p = {}) {
     case 'pickFiles': {
       // výber súborov pre advanced editor (hudba, klipy mimo knižnice)
       const filters = p.kind === 'audio' ? [{ name: 'Zvuk', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus'] }]
+        : p.kind === 'image' ? [{ name: 'Obrázok', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }]
         : [{ name: 'Video', extensions: ['mp4', 'mkv', 'mov', 'webm', 'avi'] }];
       const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters });
       return r.canceled ? [] : r.filePaths;

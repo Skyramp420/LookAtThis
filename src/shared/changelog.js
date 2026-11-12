@@ -12,6 +12,9 @@
       'Značky z nahrávania (skratka Značka) vidno na klipoch na časovej osi.',
       'Viac textov naraz: „+ Stopa“ → Textová stopa. Texty medzi stopami presunieš ťahaním, text má aj vlastnú farbu.',
       'Farby klipu: jas, kontrast a sýtosť (sekcia Farby). Pribudla aj nepriehľadnosť klipu, napr. pre obraz v obraze.',
+      'Obrázky na časovej osi: tlačidlo Obrázok pridá logo, meme alebo vodoznak (PNG aj s priehľadnosťou, JPG, WebP) na vrstvu nad videom. Dá sa posúvať, zväčšovať, otáčať, animovať keyframami a ľubovoľne natiahnuť.',
+      'Výber obdĺžnikom: ťahaním z prázdneho miesta na časovej osi vyberieš viac klipov naraz (Shift pridá k výberu). Po čase sa ťahá za pravítko alebo prehrávaciu hlavu.',
+      'Hľadanie nainštalovaných hier si zapamätá aj varianty spúšťacieho súboru (napr. Discovery-d.exe pri THE FINALS).',
       'Opravené: keď bol ten istý klip na osi dvakrát v tom istom čase (napr. na hlavnej stope aj na vrstve), v náhľade hral zvuk len jedného.',
       'Esc v advanced editore už nezatvára celý editor, len ruší výber. Zatvára sa tlačidlom Späť.',
       'Opravené: THE FINALS sa pri spustení cez Discovery-d.exe ukazovali ako „Discovery-d“. Platí aj pre už uložené klipy.'

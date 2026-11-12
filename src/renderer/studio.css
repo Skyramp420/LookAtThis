@@ -97,7 +97,8 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-frame { position: relative; background: #000; border-radius: 6px; overflow: visible; transform-origin: 0 0; box-shadow: 0 0 0 .5px var(--line), 0 12px 32px var(--shadow); flex: none; transition: box-shadow .2s; }
 .st-frame.drop { box-shadow: 0 0 0 2px var(--accent), 0 12px 32px var(--shadow); }
 .st-vids { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; overflow: hidden; border-radius: inherit; }
-.st-vids video { position: absolute; display: block; max-width: none; }
+.st-vids video, .st-vids img { position: absolute; display: block; max-width: none; }
+.st-vids img { user-select: none; -webkit-user-drag: none; }
 .st-black { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
 .st-txt { position: absolute; inset: 0; width: 100%; height: 100%; }
 .st-empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font: 600 13px/1.5 var(--body); color: #8e8e93; pointer-events: none; }
@@ -631,3 +632,5 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-swc:hover { transform: scale(1.1); }
 .st-swc.on { background: var(--sw); box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px var(--accent); }
 .st-swc input { position: absolute; inset: -8px; width: 40px; height: 40px; padding: 0; border: 0; opacity: 0; cursor: pointer; }
+/* výber obdĺžnikom na časovej osi */
+.st-marq { position: fixed; z-index: 60; border: 1px solid var(--accent); border-radius: 3px; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
