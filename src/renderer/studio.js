@@ -468,7 +468,7 @@ window.Studio = (function () {
       if (src.has(meta.path)) return src.get(meta.path);
       known.set(meta.path, { ...(known.get(meta.path) || {}), path: meta.path, name: meta.name || (known.get(meta.path) || {}).name || baseName(meta.path), music: !!music });
       offline.delete(meta.path);
-      const s = { path: meta.path, name: meta.name || meta.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''), duration: meta.duration || 0, width: meta.width || 0, height: meta.height || 0, fps: meta.fps || 60, tracks: [], levels: [], music: !!music, audio: new Map(), thumbs: [], ready: false };
+      const s = { path: meta.path, name: meta.name || meta.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''), duration: meta.duration || 0, width: meta.width || 0, height: meta.height || 0, fps: meta.fps || 60, tracks: [], levels: [], music: !!music, audio: new Map(), audioX: new Map(), thumbs: [], ready: false };
       src.set(meta.path, s);
       try {
         const r = await (trkPre.get(meta.path) || trkLimit(() => api.action('extractTracks', { path: meta.path })));
@@ -1205,23 +1205,38 @@ window.Studio = (function () {
       const solo = P.lanes.some(x => x.kind === 'audio' && x.solo);
       return !l.mute && (!solo || l.solo);
     }
+    /* prehrávač zvuku pre položku: hlavný prvok stopy, alebo ďalší, keď tú istú stopu toho istého klipu práve hrá iná položka
+       (ten istý klip na hlavnej stope aj na vrstve, prekrývajúce sa kópie) — predtým hral v náhľade len jeden z nich */
+    const itemAudio = new Map(); // id položky → jej prvok (aby si položky prvky každú snímku nevymieňali)
+    const allAudio = s => [...s.audio.values(), ...[...(s.audioX || new Map()).values()].flat()];
+    function audioFor(it, s, claimed) {
+      let a = itemAudio.get(it.id);
+      if (a && !a._dead && !claimed.has(a)) return a;
+      const main = s.audio.get(it.ti); if (!main) return null;
+      const extra = s.audioX.get(it.ti) || [];
+      a = [main, ...extra].find(x => !claimed.has(x));
+      if (!a && extra.length < 3) { a = new Audio(main.src); a.preload = 'auto'; s.audioX.set(it.ti, [...extra, a]); }
+      if (a) itemAudio.set(it.id, a);
+      return a || null;
+    }
     function syncMedia(force) {
       if (closed) return;
       composeVideo(force);
       // zvuk: každý prvok (klip × stopa) hrá, keď je jeho položka pod hlavou
-      const want = new Map();
+      const want = new Map(), claimed = new Set();
       for (const it of P.items) {
         if (it.kind !== 'audio' || t < it.start || t >= end(it)) continue;
         const l = lane(it.lane); if (!audible(l)) continue;
         const s = src.get(it.src); if (!s) continue;
-        const a = s.audio.get(it.ti); if (!a) continue;
+        const a = audioFor(it, s, claimed); if (!a) continue;
+        claimed.add(a);
         const D = len(it), Fi = fadeD(it, 'In'), Fo = fadeD(it, 'Out'), tt = t - it.start;
         let fade = 1;
         if (it.fadeIn && tt < Fi) fade *= tt / Fi;
         if (it.fadeOut && D - tt < Fo) fade *= (D - tt) / Fo;
         want.set(a, { pos: srcPos(it, tt), rate: spAt(it, tt), vol: clamp((l.vol ?? 1) * KF.at(it, 'vol', tt) * fade, 0, 1) });
       }
-      for (const s of src.values()) for (const a of s.audio.values()) {
+      for (const s of src.values()) for (const a of allAudio(s)) {
         const w = want.get(a);
         if (w && playing) {
           a.volume = Math.min(1, w.vol * UI.pvol());
@@ -3448,7 +3463,8 @@ window.Studio = (function () {
       if (e.key === '-') { const z = clamp(Number(q('#stZoom').value) - 8, 0, 100); q('#stZoom').value = String(z); fillRange(q('#stZoom')); setZoom(z); return; }
       if (e.key === 'Escape' && trSel) { trSel = null; renderTimeline(); renderInsp(); return; }
       if (e.key === 'Escape' && kfSel) { kfSel = null; $$('.st-kfd.on', lanesEl).forEach(x => x.classList.remove('on')); renderInsp(); return; }
-      if (e.key === 'Escape') { if (sel.size) { sel.clear(); renderTimelineSel(); renderInsp(); } else close(); }
+      // Esc len ruší výber; editor sa zatvára tlačidlom Späť (pri strihaní sa Esc stláča často a vyhadzovalo to z práce)
+      if (e.key === 'Escape') { if (sel.size) { sel.clear(); renderTimelineSel(); renderInsp(); } }
     }
     /* textové pole, do ktorého sa práve píše (posuvníky, prepínače a výber farby sa nerátajú) */
     const isTyping = el => !!(el && el.closest && (el.closest('textarea, [contenteditable=""], [contenteditable="true"]') || (el.tagName === 'INPUT' && !/^(range|checkbox|radio|button|color)$/i.test(el.type))));
@@ -3655,7 +3671,7 @@ window.Studio = (function () {
       setTimeout(() => {
         for (const s of src.values()) {
           for (const v of [s.video, s.video2]) if (v) { v._dead = true; v.pause(); v.removeAttribute('src'); v.load(); }
-          for (const a of s.audio.values()) { a._dead = true; a.pause(); a.removeAttribute('src'); a.load(); }
+          for (const a of allAudio(s)) { a._dead = true; a.pause(); a.removeAttribute('src'); a.load(); }
         }
         // poistka: čokoľvek, čo sa v okne medzitým ešte objavilo
         root.querySelectorAll('video, audio').forEach(el => { try { el.pause(); el.removeAttribute('src'); el.load(); } catch (e) { } });

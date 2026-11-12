@@ -17,7 +17,7 @@
     'marvel-win64-shipping': 'Marvel Rivals', 'osu!': 'osu!', 'beat saber': 'Beat Saber', 'beatsaber': 'Beat Saber',
     'terraria': 'Terraria', 'stardew valley': 'Stardew Valley', 'helldivers2': 'Helldivers 2',
     'palworld-win64-shipping': 'Palworld', 'tslgame': 'PUBG', 'aces': 'War Thunder', 'escapefromtarkov': 'Escape from Tarkov',
-    'thefinals': 'THE FINALS', 'discovery': 'THE FINALS', 'cyberpunk2077': 'Cyberpunk 2077', 'witcher3': 'The Witcher 3',
+    'thefinals': 'THE FINALS', 'discovery': 'THE FINALS', 'discovery-d': 'THE FINALS', 'cyberpunk2077': 'Cyberpunk 2077', 'witcher3': 'The Witcher 3',
     'hollow_knight': 'Hollow Knight', 'among us': 'Among Us', 'phasmophobia': 'Phasmophobia', 'lethal company': 'Lethal Company',
     'rust': 'Rust', 'rustclient': 'Rust', 'geometrydash': 'Geometry Dash', 'blender': 'Blender', 'resolve': 'DaVinci Resolve',
     'afterfx': 'After Effects', 'chrome': 'Chrome', 'msedge': 'Edge', 'firefox': 'Firefox'
@@ -33,8 +33,12 @@
     const k = key.toLowerCase();
     if (detected && detected[k]) return custom && custom[detected[k]] ? custom[detected[k]] : detected[k];
     if (KNOWN[k]) return KNOWN[k];
-    // odstráň typické prípony buildov
-    return key.replace(/[-_ ](win64|win32|x64)?[-_ ]?shipping$/i, '').replace(/[-_](dx1[12]|vulkan|eac|eos)$/i, '').trim() || key;
+    // odstráň typické prípony buildov; očistený názov ešte raz skús medzi známymi (napr. „r5apex_dx12“, „Discovery-d“)
+    const bare = key.replace(/[-_ ](win64|win32|x64)?[-_ ]?shipping$/i, '').replace(/[-_](dx1[12]|vulkan|eac|eos)$/i, '').trim() || key;
+    const kb = bare.toLowerCase();
+    if (custom && custom[bare]) return custom[bare];
+    if (detected && detected[kb]) return detected[kb];
+    return KNOWN[kb] || bare;
   }
 
   /* hra z názvu súboru „VALORANT 2026-10-16 19-42-10 (strih).mp4“ */
