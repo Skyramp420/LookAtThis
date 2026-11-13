@@ -1,6 +1,14 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.45', items: [
+      'Obrázky na časovej osi: tlačidlo Obrázok pridá logo, meme alebo vodoznak (PNG aj s priehľadnosťou, JPG, WebP) na vrstvu nad videom. Dá sa posúvať, zväčšovať, otáčať, animovať keyframami a ľubovoľne natiahnuť.',
+      'Výber obdĺžnikom: ťahaním z prázdneho miesta na časovej osi vyberieš viac klipov naraz (Shift pridá k výberu). Po čase sa ťahá za pravítko alebo prehrávaciu hlavu.',
+      'Opravené: keď bol ten istý klip na osi dvakrát v tom istom čase (napr. na hlavnej stope aj na vrstve), v náhľade hral zvuk len jedného.',
+      'Esc v advanced editore už nezatvára celý editor, len ruší výber. Zatvára sa tlačidlom Späť.',
+      'Opravené: THE FINALS sa pri spustení cez Discovery-d.exe ukazovali ako „Discovery-d“. Platí aj pre už uložené klipy.',
+      'Hľadanie nainštalovaných hier si zapamätá aj varianty spúšťacieho súboru (napr. Discovery-d.exe pri THE FINALS).'
+    ] },
     { v: '1.0.44', items: [
       'Opravené (dôležité): text, ktorý si v advanced editore zväčšil, otočil alebo rozhýbal keyframami či efektom, sa vyexportoval nehybný v pôvodnej veľkosti. Export teraz sedí s náhľadom a zväčšený text je ostrý.',
       'Opravené: dĺžka zosilnenia a stíšenia zvuku sa v exporte ignorovala (vždy pol sekundy).',
@@ -11,13 +19,7 @@
       'Kopírovať, vystrihnúť a vložiť (Ctrl+C, X, V), aj medzi projektmi. Pravý klik do prázdna na stope: Vložiť sem a Zavrieť medzeru.',
       'Značky z nahrávania (skratka Značka) vidno na klipoch na časovej osi.',
       'Viac textov naraz: „+ Stopa“ → Textová stopa. Texty medzi stopami presunieš ťahaním, text má aj vlastnú farbu.',
-      'Farby klipu: jas, kontrast a sýtosť (sekcia Farby). Pribudla aj nepriehľadnosť klipu, napr. pre obraz v obraze.',
-      'Obrázky na časovej osi: tlačidlo Obrázok pridá logo, meme alebo vodoznak (PNG aj s priehľadnosťou, JPG, WebP) na vrstvu nad videom. Dá sa posúvať, zväčšovať, otáčať, animovať keyframami a ľubovoľne natiahnuť.',
-      'Výber obdĺžnikom: ťahaním z prázdneho miesta na časovej osi vyberieš viac klipov naraz (Shift pridá k výberu). Po čase sa ťahá za pravítko alebo prehrávaciu hlavu.',
-      'Hľadanie nainštalovaných hier si zapamätá aj varianty spúšťacieho súboru (napr. Discovery-d.exe pri THE FINALS).',
-      'Opravené: keď bol ten istý klip na osi dvakrát v tom istom čase (napr. na hlavnej stope aj na vrstve), v náhľade hral zvuk len jedného.',
-      'Esc v advanced editore už nezatvára celý editor, len ruší výber. Zatvára sa tlačidlom Späť.',
-      'Opravené: THE FINALS sa pri spustení cez Discovery-d.exe ukazovali ako „Discovery-d“. Platí aj pre už uložené klipy.'
+      'Farby klipu: jas, kontrast a sýtosť (sekcia Farby). Pribudla aj nepriehľadnosť klipu, napr. pre obraz v obraze.'
     ] },
     { v: '1.0.42', items: [
       'Opravené: pri náročnej hre alebo renderovaní sa so zapnutou stopou Systém sekal zvuk celého PC. Prevod zvuku (vzorkovanie a kanály) robil Windows priamo vo vlákne, ktoré hrá zvuk do reproduktorov, a pri plnom procesore to nestíhal. Teraz LookAtThis berie zvuk zo zariadenia v jeho vlastnom formáte a prevod si robí sám vo svojom procese, takže zvuk PC to nezdržuje. Platí aj pre mikrofón.'
