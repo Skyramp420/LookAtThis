@@ -22,6 +22,16 @@ const clamp01 = x => Math.max(0, Math.min(1, Number(x)));
 const spd = x => Math.max(0.25, Math.min(4, Number(x) || 1));
 const n3 = x => Number(x).toFixed(3);
 const fs = require('fs'), path = require('path');
+/* Farby: nahrávky z grafiky (NVENC z RGB) sú v matici BT.601 a majú to zapísané; export skladal obraz na plátno bez značky,
+   takže výsledok bol BT.601 bez označenia a prehrávače ho pri HD čítali ako BT.709 (červená do oranžova, posunutá zelená).
+   Teraz má výsledok maticu prvého videa na osi (CM) a je tak aj označený. Klipy s inou maticou sa do nej prevedú
+   (bez značky sa berú ako v prehliadači: HD = 709, menšie = 601) a každý krok cez RGB (otočenie, priehľadnosť, farby,
+   text, obrázky) sa prevádza výslovne v tej istej matici. Prevod matice je drahý, preto sa nerobí, keď netreba. */
+let CM = 'bt709';
+const TO = () => `scale=out_color_matrix=${CM}:out_range=tv`;
+const FROM = () => `scale=in_color_matrix=${CM}:in_range=tv`;
+const TAG = () => `setparams=colorspace=${CM === 'bt601' ? 'bt470bg' : 'bt709'}:color_primaries=bt709:color_trc=bt709:range=tv`;
+const inMatrix = it => it.matrix === 'bt601' ? 'bt601' : it.matrix === 'bt709' ? 'bt709' : (Number(it.srcH) > 0 && Number(it.srcH) < 720 ? 'bt601' : 'bt709');
 /* text z editora: PNG do dočasného priečinka + všetko, čo k nemu patrí (poloha, animácia, keyframy polohy/veľkosti/otočenia).
    Jedno miesto pre hlavný proces aj testy — predtým sa tu keyframy textu strácali a text sa exportoval nehybný. */
 function prepOverlays(list, dir) {
@@ -40,7 +50,8 @@ function adjFilters(adj, alpha) {
   const B = lim(adj.b, 0, 3), C = lim(adj.c, 0, 3), S = lim(adj.s, 0, 3);
   const f = [];
   if (Math.abs(B - 1) < 1e-3 && Math.abs(C - 1) < 1e-3 && Math.abs(S - 1) < 1e-3) return f;
-  f.push(alpha ? 'format=gbrap' : 'format=gbrp'); // obrázok s priehľadnosťou si ju musí nechať
+  if (alpha) f.push('format=gbrap'); // obrázok: už je v RGB, priehľadnosť si musí nechať
+  else f.push(FROM(), 'format=gbrp');
   if (Math.abs(B - 1) >= 1e-3 || Math.abs(C - 1) >= 1e-3) {
     const e = `clip((clip(val*${B.toFixed(4)},0,255)-127.5)*${C.toFixed(4)}+127.5,0,255)`;
     f.push(`lutrgb=r='${e}':g='${e}':b='${e}'`);
@@ -81,15 +92,19 @@ function videoChain(it, W, H, F) {
     const sw = even(it.srcW * s), sh = even(it.srcH * s);
     const cw = Math.min(sw, W), ch = Math.min(sh, H);
     const x = Math.round((sw - cw) * cx / 2) * 2, y = Math.round((sh - ch) * cy / 2) * 2;
-    f.push(`scale=${sw}:${sh}`);
+    f.push(it.image ? `scale=${sw}:${sh}` : `scale=${sw}:${sh}:in_color_matrix=${inMatrix(it)}:out_color_matrix=${CM}`);
     if (cw < sw || ch < sh) f.push(`crop=${cw}:${ch}:${x}:${y}`);
     if (it.interp) f.push(mi);
-    f.push(...adjFilters(it.adj, it.image));
+    const aj = adjFilters(it.adj, it.image);
+    f.push(...aj);
+    // z RGB (obrázok, úprava farieb) späť do YUV výslovne v BT.709
+    if (it.image || aj.length) f.push(TO(), it.layer ? 'format=yuva420p' : 'format=yuv420p');
     if (cw < W || ch < H) { if (it.layer) f.push('format=yuva420p'); f.push(`pad=${W}:${H}:${(W - cw) / 2 | 0}:${(H - ch) / 2 | 0}:color=${it.layer ? 'black@0' : 'black'}`); }
   } else {
-    f.push(`scale=${even(tw)}:${even(th)}:force_original_aspect_ratio=${it.fit === 'cover' ? 'increase' : 'decrease'}:force_divisible_by=2`,
+    const aj = adjFilters(it.adj, it.image);
+    f.push(`scale=${even(tw)}:${even(th)}:force_original_aspect_ratio=${it.fit === 'cover' ? 'increase' : 'decrease'}:force_divisible_by=2${it.image ? '' : `:in_color_matrix=${inMatrix(it)}:out_color_matrix=${CM}`}`,
       `crop='min(iw,${W})':'min(ih,${H})':'(iw-min(iw,${W}))*${cx}':'(ih-min(ih,${H}))*${cy}'`,
-      ...(it.interp ? [mi] : []), ...adjFilters(it.adj, it.image),
+      ...(it.interp ? [mi] : []), ...aj, ...(it.image || aj.length ? [TO(), it.layer ? 'format=yuva420p' : 'format=yuv420p'] : []),
       ...(it.layer ? ['format=yuva420p'] : []), `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${it.layer ? 'black@0' : 'black'}`);
   }
   // vrstva nad hlavným videom: okolie ostane priehľadné (pod ním je vidno spodné video, ako v náhľade)
@@ -102,7 +117,7 @@ function videoChain(it, W, H, F) {
   for (const c of it.colorFades || []) if (c.d > 0.005) f.push(`fade=t=${c.t === 'out' ? 'out' : 'in'}:st=${n3(c.st)}:d=${n3(c.d)}:color=${c.c === 'white' ? 'white' : 'black'}`);
   // priehľadnosť v čase: prechod (objavenie) a roztmievanie / stmievanie vrstvy nad videom (vrstva sa stráca, nečernie)
   const al = (it.alpha || []).filter(a => a.d > 0.005);
-  if (al.length) { f.push('format=rgba'); for (const a of al) f.push(`fade=t=${a.t === 'out' ? 'out' : 'in'}:st=${n3(a.st)}:d=${n3(a.d)}:alpha=1`); }
+  if (al.length) { f.push(FROM(), 'format=rgba'); for (const a of al) f.push(`fade=t=${a.t === 'out' ? 'out' : 'in'}:st=${n3(a.st)}:d=${n3(a.d)}:alpha=1`); f.push(TO(), 'format=yuva420p'); }
   const op = it.opacity == null ? 1 : clamp01(it.opacity);
   if (op < 0.999) f.push('format=yuva420p', `lut=a='val*${op.toFixed(3)}'`);
   return f;
@@ -134,6 +149,8 @@ function buildArgs(job, encArgs, opt = {}) {
   const audio = (job.audio || []).filter(a => a.out - a.in > 0.03 && a.vol > 0);
   const D = Math.max(0.2, Number(job.duration) || 0);
   const A = rangeFrom(job), OD = D - A; // OD = dĺžka výstupu
+  // matica výsledku = matica prvého videa (nahrávky z jednej appky ju majú rovnakú, takže sa nič neprevádza)
+  const firstV = video.find(v => !v.image); CM = firstV ? inMatrix(firstV) : 'bt709';
   // výrazy v čase výstupu → čas osi (t sa po orezaní úseku začína od 0, os od A)
   const shT = e => A > 0 ? String(e).replace(/\bt\b/g, `(t+${n3(A)})`) : String(e);
   const cutTail = A > 0 ? [`trim=start=${n3(A)}`, `setpts=PTS-${n3(A)}/TB`] : [];
@@ -157,7 +174,7 @@ function buildArgs(job, encArgs, opt = {}) {
     // pohyb z keyframov: otočenie a priblíženie okolo stredu, potom posun (rovnako ako náhľad)
     const m = it.motion || {}, S = safeE(m.s, 1), X = safeE(m.x, 0), Y = safeE(m.y, 0), R = safeE(m.r, 0);
     let ov = 'overlay=eof_action=pass:repeatlast=0';
-    if (!isConst(R, 0)) f.push('format=rgba', `rotate=a='(${R})*PI/180':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0`);
+    if (!isConst(R, 0)) f.push(FROM(), 'format=rgba', `rotate=a='(${R})*PI/180':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0`, TO(), 'format=yuva420p');
     if (!isConst(S, 1)) f.push(`scale=w='max(2,trunc(iw*(${S})/2)*2)':h='max(2,trunc(ih*(${S})/2)*2)':eval=frame`);
     if (!isConst(R, 0) || !isConst(S, 1) || !isConst(X, 0) || !isConst(Y, 0))
       ov = `overlay=x='(main_w-overlay_w)/2+(${shT(X)})*main_w':y='(main_h-overlay_h)/2+(${shT(Y)})*main_h':eval=frame:eof_action=pass:repeatlast=0`;
@@ -179,6 +196,8 @@ function buildArgs(job, encArgs, opt = {}) {
     // keyframy textu (poloha ako zlomok obrazu, veľkosť, otočenie); bez nich statická poloha cx/cy
     const XE = o.xe != null ? safeE(o.xe, 0.5) : null, YE = o.ye != null ? safeE(o.ye, 0.8) : null, SE = safeE(o.se, 1), RE = safeE(o.re, 0);
     if (!isConst(RE, 0)) f.push(`rotate=a='(${RE})*PI/180':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0`);
+    // do YUV v matici výsledku ešte pred zmenou veľkosti po snímkach (farebný text v tých istých farbách ako v náhľade)
+    f.push(TO(), 'format=yuva420p');
     const pop = o.animIn === 'pop' ? (() => { const P = `clip((t-${S})/0.35,0,1)`; return `(0.5+0.5*(1+2.70158*pow(${P}-1,3)+1.70158*pow(${P}-1,2)))`; })() : null;
     if (pop || !isConst(SE, 1)) {
       const sc = [pop, isConst(SE, 1) ? null : `(${SE})`].filter(Boolean).join('*');
@@ -193,7 +212,7 @@ function buildArgs(job, encArgs, opt = {}) {
   });
   // export na cieľovú veľkosť: plátno ostane v rozlíšení projektu (text a polohy sedia), zmenší sa až na konci
   const sc = job.outH > 0 && job.outH < H ? `scale=-2:${even(job.outH)}:flags=lanczos,` : '';
-  fc.push(`[${v}]${sc}format=yuv420p[vout]`);
+  fc.push(`[${v}]${sc}format=yuv420p,${TAG()}[vout]`);
 
   // zvuk: položky → stopy → mix
   const byLane = new Map();
@@ -242,7 +261,7 @@ function buildArgs(job, encArgs, opt = {}) {
     maps.push('-map', '[amix]'); titles.push('Mix');
     keepOut.forEach(k => { maps.push('-map', k.lab); titles.push(k.title); });
   }
-  const tail = ['-t', n3(OD), '-r', String(F)];
+  const tail = ['-t', n3(OD), '-r', String(F), '-colorspace', CM === 'bt601' ? 'bt470bg' : 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
   if (titles.length) tail.push('-c:a', 'aac', '-b:a', `${Number(job.abr) || 192}k`);
   titles.forEach((n, i) => tail.push(`-metadata:s:a:${i}`, `title=${n}`, `-metadata:s:a:${i}`, `handler_name=${n}`));
   if (titles.length) tail.push('-disposition:a:0', 'default');

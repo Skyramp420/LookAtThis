@@ -1198,6 +1198,13 @@ async function runAction(type, p = {}) {
       const tmp = path.join(EDIT, 'px-' + Date.now());
       fs.mkdirSync(tmp, { recursive: true });
       const overlays = prepOverlays(p.overlays, tmp); // aj s keyframami textu (poloha, veľkosť, otočenie)
+      // farebná matica každého klipu (zo značky v súbore), aby ho export správne previedol do BT.709
+      const mcache = new Map();
+      for (const v of p.video || []) {
+        if (v.image) continue;
+        if (!mcache.has(v.file)) { let m = null; try { m = (await probe(FFMPEG, v.file)).matrix || null; } catch (e) { } mcache.set(v.file, m); }
+        v.matrix = mcache.get(v.file);
+      }
       const enc = engine.pickEncoder(store.get());
       const ctl = exportCtl();
       const tExp = Date.now();

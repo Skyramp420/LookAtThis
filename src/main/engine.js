@@ -109,6 +109,7 @@ class Engine extends EventEmitter {
     const g = fps * SEG;
     const args = ['-f', 'lavfi', '-thread_queue_size', '512', '-analyzeduration', '0', '-i', `ddagrab=output_idx=${Number(s.monitor) || 0}:framerate=${fps}:draw_mouse=${s.cursor === false ? 0 : 1}${hdr ? ':output_fmt=10bit' : ''}`];
     const filters = [];
+    let yuv709 = !!hdr; // obraz ide do enkodéra ako YUV v BT.709 (HDR prevod, cesta cez procesor)
     const H = res ? `'min(ih,${res})'` : null; // nikdy nezväčšovať
     const zero = !hdr && zeroCopy && ENCODERS[enc.fam].zeroCopy;
     if (hdr) {
@@ -118,8 +119,10 @@ class Engine extends EventEmitter {
       filters.push('hwmap=derive_device=cuda', `scale_cuda=w=-2:h=${H}`);
     } else if (!(zero && !res)) {
       filters.push('hwdownload', 'format=bgra');
-      if (res) filters.push(`scale=w=-2:h=${H}:flags=${cpu ? 'fast_bilinear' : 'bicubic'}`);
+      // prevod RGB → YUV výslovne v BT.709 (HD štandard) a so značkou; predtým sa previedlo v BT.601 a súbor to nikde nemal zapísané
+      filters.push(`scale=${res ? `w=-2:h=${H}:` : ''}flags=${cpu ? 'fast_bilinear' : 'bicubic'}:out_color_matrix=bt709:out_range=tv`);
       filters.push(cpu ? 'format=yuv420p' : 'format=nv12');
+      yuv709 = true;
     }
     const out = [];
     if (filters.length) out.push('-vf', filters.join(','));
@@ -131,6 +134,10 @@ class Engine extends EventEmitter {
     else if (enc.fam === 'qsv') out.push('-preset', save ? 'veryfast' : 'faster', ...(custom ? rate : ['-global_quality', String(q)]));
     else out.push('-preset', save ? 'ultrafast' : 'superfast', '-tune', 'zerolatency', ...(custom ? rate : ['-crf', String(q + 3)]), '-threads', '0');
     out.push('-g', String(g), '-force_key_frames', `expr:gte(t,n_forced*${SEG})`);
+    // farebné značky: farby a gama monitora (sRGB ≈ BT.709) vždy; maticu len tam, kde ju určujeme my.
+    // Pri obraze priamo z grafiky (RGB do NVENC) maticu BT.601 zapisuje ffmpeg sám, lebo tak prevádza enkodér.
+    out.push('-color_primaries', 'bt709', '-color_trc', 'bt709');
+    if (yuv709) out.push('-colorspace', 'bt709', '-color_range', 'tv');
     this.effective = { fps, res: res || 0, save, hdr: !!hdr };
     return { input: args, output: out };
   }
@@ -749,7 +756,11 @@ async function probe(ffmpeg, file) {
   const fm = /Stream #0:\d+[^\n]*Video:[^\n]*?(\d+(?:\.\d+)?) fps/.exec(r.err);
   // HDR video: prenosová funkcia PQ (smpte2084) alebo HLG (arib-std-b67), napr. „yuv420p10le(tv, bt2020nc/bt2020/smpte2084)“
   const hdr = /Stream #0:\d+[^\n]*Video:[^\n]*(smpte2084|arib-std-b67)/.test(r.err);
-  return { hdr, duration: m ? (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]) : 0, audio, titles, width: vm ? +vm[1] : 0, height: vm ? +vm[2] : 0, fps: fm ? Math.round(parseFloat(fm[1])) : 0 };
+  // farebná matica zo značky: „yuv420p(tv, bt470bg/unknown/unknown, progressive)“ → bt601; bez značky null
+  const cm = /Stream #0:\d+[^\n]*Video:[^\n]*?\b(?:yuv|nv|p0)[a-z0-9]*\(([^)]*)\)/.exec(r.err);
+  const mt = cm ? /^(bt709|bt470bg|smpte170m)$/.exec(((cm[1].split(',').find(x => /bt\d|smpte|unknown\//.test(x)) || '').split('/')[0] || '').trim()) : null; // prvá z trojice matica/farby/gama
+  const matrix = mt ? (mt[1] === 'bt709' ? 'bt709' : 'bt601') : null;
+  return { matrix, hdr, duration: m ? (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]) : 0, audio, titles, width: vm ? +vm[1] : 0, height: vm ? +vm[2] : 0, fps: fm ? Math.round(parseFloat(fm[1])) : 0 };
 }
 /* čierne okraje v zázname (hra na inom pomere strán, napr. 16:9 na širokom monitore): vráti výrez 0–1 alebo null */
 async function detectBars(ffmpeg, file) {

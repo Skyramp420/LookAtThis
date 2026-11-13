@@ -130,6 +130,44 @@ window.Studio = (function () {
 
   /* ---------- načítanie modulu ---------- */
   let editorOpen = false;
+  /* Web Audio pre náhľad: hlasitosť nad 100 % (prvok <audio> sám vie najviac 100 %).
+     Najprv sa raz overí, že zvuk cez Web Audio naozaj prechádza (pri zákaze prístupu k súborom by bol tichý);
+     kým to nie je potvrdené, alebo keď to nejde, hrá náhľad po starom (najviac 100 %). */
+  let WA = null;
+  const wa = () => WA || (WA = (() => { try { return { ctx: new AudioContext(), ok: null, testing: false, fails: 0 }; } catch (e) { return { ctx: null, ok: false, testing: false, fails: 0 }; } })());
+  function waGain(a) {
+    const w = wa(); if (!w.ctx || w.ok !== true) return null;
+    if (a._wag === undefined) { try { const n = w.ctx.createMediaElementSource(a), g = w.ctx.createGain(); n.connect(g); g.connect(w.ctx.destination); a._wag = g; } catch (e) { a._wag = null; } }
+    if (a._wag && w.ctx.state === 'suspended') w.ctx.resume().catch(() => { });
+    return a._wag || null;
+  }
+  /* skúška na hlasnom mieste stopy: skúšobný prvok hrá do analyzátora (von nejde nič); nuly = Web Audio je tu nepoužiteľné */
+  function waProbe(url, pos) {
+    const w = wa(); if (!w.ctx || w.ok != null || w.testing) return;
+    w.testing = true;
+    const te = new Audio(url); te.preload = 'auto';
+    let n, iv = 0, tries = 0, heard = 0;
+    const fin = ok => {
+      clearInterval(iv); try { te.pause(); te.removeAttribute('src'); te.load(); if (n) n.disconnect(); } catch (e) { }
+      w.testing = false;
+      if (ok === true) w.ok = true; else if (ok === false && ++w.fails >= 3) w.ok = false;
+      if (w.ok != null) try { api.log('info', 'advanced editor: zvuk náhľadu ' + (w.ok ? 'cez Web Audio (hlasitosť nad 100 % počuť)' : 'po starom, Web Audio tu neprechádza (najviac 100 %)')); } catch (e) { }
+    };
+    try {
+      n = w.ctx.createMediaElementSource(te);
+      const an = w.ctx.createAnalyser(), g0 = w.ctx.createGain(), buf = new Float32Array(2048);
+      an.fftSize = 2048; g0.gain.value = 0; n.connect(an); an.connect(g0); g0.connect(w.ctx.destination);
+      if (w.ctx.state === 'suspended') w.ctx.resume().catch(() => { });
+      te.currentTime = pos; te.play().catch(() => { });
+      iv = setInterval(() => {
+        tries++;
+        if (!te.paused && te.currentTime > pos + 0.05) {
+          an.getFloatTimeDomainData(buf); heard++;
+          if (buf.some(v => Math.abs(v) > 1e-4)) fin(true); else if (heard >= 7) fin(false);
+        } else if (tries > 40) fin(null);
+      }, 100);
+    } catch (e) { fin(false); }
+  }
   let clipboard = null; // skopírované položky (Ctrl+C); prežije zavretie editora, takže sa dá vkladať aj do iného projektu
 
   /* input: { clips: [klip z knižnice], segs?, overlays?, mixer?, aspect?, t? } z jednoduchého editora alebo knižnice;
@@ -1267,12 +1305,17 @@ window.Studio = (function () {
         let fade = 1;
         if (it.fadeIn && tt < Fi) fade *= tt / Fi;
         if (it.fadeOut && D - tt < Fo) fade *= (D - tt) / Fo;
-        want.set(a, { pos: srcPos(it, tt), rate: spAt(it, tt), vol: clamp((l.vol ?? 1) * KF.at(it, 'vol', tt) * fade, 0, 1) });
+        const pos = srcPos(it, tt), lvA = s.levels[s.tracks.findIndex(x => x.i === it.ti)], li = Math.floor(pos * 20);
+        // hlasné miesto (teraz aj o chvíľu) → dá sa na ňom overiť Web Audio
+        const loud = !!lvA && lvA[li] > 30 && lvA[li + 8] > 30 && lvA[li + 16] > 30;
+        want.set(a, { pos, loud, rate: spAt(it, tt), vol: clamp((l.vol ?? 1) * KF.at(it, 'vol', tt) * fade, 0, 4) });
       }
       for (const s of src.values()) for (const a of allAudio(s)) {
         const w = want.get(a);
         if (w && playing) {
-          a.volume = Math.min(1, w.vol * UI.pvol());
+          const vv = w.vol * UI.pvol(), wg = waGain(a);
+          if (wg) { if (a.volume !== 1) a.volume = 1; wg.gain.value = vv; } else a.volume = Math.min(1, vv);
+          if (w.loud && wa().ok == null) waProbe(a.src, w.pos);
           if (a.playbackRate !== w.rate) a.playbackRate = w.rate;
           if (Math.abs(a.playbackRate - w.rate) > 0.01) a.playbackRate = w.rate;
           if (a.paused) { a.currentTime = w.pos; a.play().catch(() => { }); }
@@ -3045,7 +3088,7 @@ window.Studio = (function () {
         <input type="range" min="0" max="200" value="${Math.round(val * 100)}" ${attrs} aria-label="${esc(String(label).replace(/<[^>]+>/g, ''))}"></div>`;
     function lanesBody() {
       const ls = P.lanes.filter(l => l.kind === 'audio');
-      return ls.length ? `<p class="st-note sm">Hlasitosť celej stopy v celom projekte. Nad 100 % počuť až v exporte.</p>${ls.map(l => pctRow(l.id, `${esc(laneLabel(l))}${l.mute ? ' <em>stlmené</em>' : ''}`, l.vol ?? 1, `data-lvol="${esc(l.id)}"`, l.c)).join('')}` : '<p class="st-note">Zatiaľ žiadny zvuk.</p>';
+      return ls.length ? `<p class="st-note sm">Hlasitosť celej stopy v celom projekte.${wa().ok === true ? '' : ' Nad 100 % počuť až v exporte.'}</p>${ls.map(l => pctRow(l.id, `${esc(laneLabel(l))}${l.mute ? ' <em>stlmené</em>' : ''}`, l.vol ?? 1, `data-lvol="${esc(l.id)}"`, l.c)).join('')}` : '<p class="st-note">Zatiaľ žiadny zvuk.</p>';
     }
     /* prepínač stmievania + jeho dĺžka (posuvník sa ukáže, keď je zapnuté) */
     function fadeRows(it, pre, lIn, lOut) {
@@ -3846,6 +3889,7 @@ window.Studio = (function () {
     setTimeout(() => root.classList.add('settled'), 1000);
     if (input.t != null) seek(input.t);
     Studio._state = () => ({ P, sel: [...sel], t, pps });
+    Studio._wa = () => WA;
   }
 
   /* lazy načítanie: CSS a JS sa pridajú až pri prvom otvorení */

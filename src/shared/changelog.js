@@ -7,7 +7,10 @@
       'Opravené: po posune prehrávacej hlavy ukazoval inšpektor staré hodnoty a keyframy, kým si na niečo neklikol.',
       'Pravý klik na klip je krátke rýchle menu bez rolovania (rozdeliť, orezať, kopírovať, duplikovať, odpojiť zvuk, odstrániť). Rýchlosť a stmievanie ostali v inšpektore.',
       'Pod náhľadom pribudli tlačidlá o snímku späť a dopredu a priblíženie náhľadu (−, +, klik na percentá = celý obraz).',
-      'Opravené: v médiách advanced editora sa THE FINALS stále ukazovali ako „Discovery-d“ (vo filtri Hra aj pri hľadaní).'
+      'Opravené: v médiách advanced editora sa THE FINALS stále ukazovali ako „Discovery-d“ (vo filtri Hra aj pri hľadaní).',
+      'Farby v exporte z advanced editora: video z neho vychádzalo bez farebnej značky, takže ho prehrávače čítali trochu inak než pôvodnú nahrávku (červená do oranžova, posunutá zelená). Export teraz farby zachová a označí.',
+      'Nahrávky majú zapísané farebné značky. Samotný obraz nahrávania cez grafiku sa nemení.',
+      'Hlasitosť nad 100 % už počuť aj v náhľade advanced editora, nielen v exporte.'
     ] },
     { v: '1.0.45', items: [
       'Obrázky na časovej osi: tlačidlo Obrázok pridá logo, meme alebo vodoznak (PNG aj s priehľadnosťou, JPG, WebP) na vrstvu nad videom. Dá sa posúvať, zväčšovať, otáčať, animovať keyframami a ľubovoľne natiahnuť.',
