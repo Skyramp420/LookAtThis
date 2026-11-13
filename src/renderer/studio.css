@@ -634,3 +634,20 @@ body.st-open .titlebar, body.st-open .brand { -webkit-app-region: no-drag; }
 .st-swc input { position: absolute; inset: -8px; width: 40px; height: 40px; padding: 0; border: 0; opacity: 0; cursor: pointer; }
 /* výber obdĺžnikom na časovej osi */
 .st-marq { position: fixed; z-index: 60; border: 1px solid var(--accent); border-radius: 3px; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
+/* úchyty dĺžky prechodu na časovej osi */
+.st-trh { position: absolute; top: 2px; bottom: 2px; width: 9px; margin-left: -4.5px; z-index: 6; cursor: ew-resize; opacity: 0; transition: opacity .15s; }
+.st-trh::after { content: ''; position: absolute; left: 3px; top: 28%; bottom: 28%; width: 3px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 1px rgba(0, 0, 0, .45); }
+.st-lane.video:hover .st-trh, .st-trh:hover { opacity: 1; }
+/* animácia v inšpektore: oddelený blok pod hodnotami */
+.st-an { display: grid; gap: 8px; margin-top: 4px; padding-top: 10px; border-top: .5px solid var(--line); }
+.st-an .btn svg { width: 13px; height: 13px; }
+.st-an .btn.on { color: var(--accent); }
+.st-an .st-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.st-an .st-row2 .btn { justify-content: center; }
+.st-ease .lbl { display: block; margin-bottom: 6px; }
+/* ovládanie náhľadu: priblíženie */
+.st-zc { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
+.st-zc .st-ico { font: 600 15px/1 var(--body); }
+.st-zv { min-width: 50px; border: 0; background: none; color: var(--muted); font: 600 11.5px/1 var(--body); font-variant-numeric: tabular-nums; padding: 6px 4px; border-radius: 6px; }
+.st-zv:hover, .st-zv.on { color: var(--accent); }
+.st-stage.fs .st-zc { display: none; }

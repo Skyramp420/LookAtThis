@@ -1,6 +1,14 @@
 /* Čo je nové: krátko a ľudsky, najnovšie hore. Pri novom vydaní pridaj záznam navrch. */
 (function (root) {
   const LOG = [
+    { v: '1.0.46', items: [
+      'Dĺžka prechodu myšou: pri prechode medzi klipmi potiahni okraj jeho pásu na časovej osi a prechod sa predĺži alebo skráti.',
+      'Prehľadnejšia animácia v inšpektore: pod hodnotami je jedno tlačidlo „Animovať od tohto miesta“. Po zapnutí stačí posunúť hlavu inam a zmeniť hodnoty. Priebeh pohybu (plynulo, rozbeh, skok…) vyberieš jedným klikom pre úsek, v ktorom práve si, a krivku otvoríš tlačidlom Krivka.',
+      'Opravené: po posune prehrávacej hlavy ukazoval inšpektor staré hodnoty a keyframy, kým si na niečo neklikol.',
+      'Pravý klik na klip je krátke rýchle menu bez rolovania (rozdeliť, orezať, kopírovať, duplikovať, odpojiť zvuk, odstrániť). Rýchlosť a stmievanie ostali v inšpektore.',
+      'Pod náhľadom pribudli tlačidlá o snímku späť a dopredu a priblíženie náhľadu (−, +, klik na percentá = celý obraz).',
+      'Opravené: v médiách advanced editora sa THE FINALS stále ukazovali ako „Discovery-d“ (vo filtri Hra aj pri hľadaní).'
+    ] },
     { v: '1.0.45', items: [
       'Obrázky na časovej osi: tlačidlo Obrázok pridá logo, meme alebo vodoznak (PNG aj s priehľadnosťou, JPG, WebP) na vrstvu nad videom. Dá sa posúvať, zväčšovať, otáčať, animovať keyframami a ľubovoľne natiahnuť.',
       'Výber obdĺžnikom: ťahaním z prázdneho miesta na časovej osi vyberieš viac klipov naraz (Shift pridá k výberu). Po čase sa ťahá za pravítko alebo prehrávaciu hlavu.',

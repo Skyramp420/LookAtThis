@@ -893,12 +893,19 @@
     return studioP;
   }
   /* input = { clips, segs?, overlays?, mixer?, aspect?, t? }; opts.projectId = otvoriť / pridať do existujúceho projektu, inak nový */
+  /* knižnica pre advanced editor s peknými názvami hier (Discovery-d → THE FINALS, vlastné premenovania), ako v zozname klipov */
+  let slRef = null, slKey = '', slOut = [];
+  function studioLib() {
+    const key = JSON.stringify(S.settings.gameNames || {}) + '|' + ((S.installed || []).length);
+    if (slRef !== S.clips || slKey !== key) { slRef = S.clips; slKey = key; slOut = (S.clips || []).map(c => c.game ? { ...c, game: gname(c.game) } : c); }
+    return slOut;
+  }
   async function openStudio(input = {}, opts = {}) {
     try { await loadStudio(); } catch (e) { toast('error', 'Advanced editor', e.message); return; }
     // jednoduchý editor sa práve zatvára (dialóg sa vyprázdni po 180 ms) → počkaj
     if (!$('#modalWrap').hidden) await new Promise(r => setTimeout(r, 220));
     if (Studio.isOpen) return;
-    Studio.open(input, { ...opts, library: () => S.clips, onClose: (id, kept) => {
+    Studio.open(input, { ...opts, library: studioLib, onClose: (id, kept) => {
       projDirty = true;
       if (view === 'projects') renderProjects();
       else if (kept && !opts.projectId) toast('ok', 'Montáž je uložená', 'Nájdeš ju v Projektoch', { action: { label: 'Projekty', run: () => go('projects') } });
